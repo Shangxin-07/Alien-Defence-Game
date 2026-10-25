@@ -3,7 +3,11 @@ import { CITIES, City } from "./geoscape/cities";
 import { CAMPAIGN_START } from "./geoscape/clock";
 import { DEG, LatLon } from "./geoscape/geo";
 import {
-  DESERT_AFTER, DESERT_CHANCE, MAX_RUN_DAYS, MAX_TEAM, MEDICINE_HEAL, PICKED_PER_DAY, MIN_RICHNESS, RATION, RECOVER_PER_DAY, Run, SITES,
+  BROKEN_PENALTY, CANDIDATE_CHANCE, Candidate, DRIFTER_CHANCE, DRIFTER_LOYALTY, FAMILY_HUNGER_PENALTY, KEPT_BONUS, LEAVE_BELOW, LONG_PROMISE_DAYS,
+  MEDICINE_DAYS, Pledge, RECRUIT_LOYALTY, STEAL_BELOW, rollCandidate, rollDrifter,
+} from "./recruit";
+import {
+  MAX_RECRUITERS, DESERT_AFTER, DESERT_CHANCE, MAX_RUN_DAYS, MAX_TEAM, MEDICINE_HEAL, PICKED_PER_DAY, MIN_RICHNESS, RATION, RECOVER_PER_DAY, Run, SITES,
   START_SUPPLIES, SiteId, Supplies, addSupplies, dayLoot, dayRisk, describeSupplies, emptySupplies,
 } from "./scavenge";
 import { LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, workPace } from "./staff";
@@ -87,6 +91,10 @@ interface SavedCampaign {
   nextRun?: number;
   richness?: Partial<Record<SiteId, number>>;
   trophies?: string[];
+  candidates?: Candidate[];
+  pledges?: Pledge[];
+  kills?: number;
+  nextCandidate?: number;
   /** Missing in saves from before the prologue existed. */
   prologue?: PrologueRecord | null;
   /** Missing in saves from before staff existed. */
@@ -146,6 +154,15 @@ export class Campaign {
   richness: Partial<Record<SiteId, number>> = {};
   /** Alien remains and prisoners brought back since the prologue. */
   readonly trophies: string[] = [];
+  /** People recruiters have met, waiting for an answer. */
+  readonly candidates: Candidate[] = [];
+  /** Promises made to recruits. */
+  readonly pledges: Pledge[] = [];
+  /** Aliens killed or caught since the prologue. */
+  kills = 0;
+  private nextCandidate = 1;
+  /** The day being worked through, while the clock runs over several. */
+  private today = 0;
   /** Dice for runs and hunger. Swappable so tests can fix them. */
   rand: () => number = Math.random;
   private nextId = 1;
@@ -171,7 +188,104 @@ export class Campaign {
 
   /** Days the food lasts at today's headcount. */
   get foodDays(): number {
-    return this.staff.length ? Math.floor(this.supplies.food / (RATION * this.staff.length)) : Infinity;
+    const mouths = this.mouths;
+    return mouths ? Math.floor(this.supplies.food / (RATION * mouths)) : Infinity;
+  }
+
+  /** Everyone who eats: staff and the families that came with them. */
+  get mouths(): number {
+    return this.staff.reduce((n, p) => n + 1 + (p.dependants ?? 0), 0);
+  }
+
+  /** Sends one or two people out to find recruits. Works like a run, and can go wrong like one. */
+  startRecruiting(team: number[], days: number): Run {
+    if (team.length > MAX_RECRUITERS) throw new Error(`No more than ${MAX_RECRUITERS} recruiters at once`);
+    const run = this.startRun("streets", team, days);
+    run.recruit = true;
+    return run;
+  }
+
+  /** Why this candidate can't be taken on, or null. */
+  checkCandidate(id: number): string | null {
+    const c = this.candidates.find((x) => x.id === id);
+    if (!c) return "They've gone";
+    if (c.wants === "food" && this.supplies.food < c.amount) return `Needs ${c.amount} food you don't have`;
+    return null;
+  }
+
+  /** Takes a candidate on and makes them the promise they asked for. */
+  accept(id: number): Person {
+    const reason = this.checkCandidate(id);
+    if (reason) throw new Error(reason);
+    const c = this.candidates.find((x) => x.id === id)!;
+    this.candidates.splice(this.candidates.indexOf(c), 1);
+    const base = this.bases.some((b) => b.id === c.base) ? c.base : (this.bases[0]?.id ?? null);
+    const p: Person = {
+      id: this.nextPerson++, name: c.name, role: c.role, stats: { ...c.stats }, health: c.stats.health, aptitude: c.aptitude, build: c.build,
+      base, job: "construction", loyalty: c.wants === "none" ? DRIFTER_LOYALTY : RECRUIT_LOYALTY,
+    };
+    if (c.wants === "food") this.supplies.food -= c.amount;
+    if (c.wants === "family") p.dependants = c.amount;
+    if (c.wants === "medicine") this.pledges.push({ person: p.id, wants: "medicine", amount: c.amount, due: this.day + MEDICINE_DAYS });
+    if (c.wants === "revenge") this.pledges.push({ person: p.id, wants: "revenge", amount: 0, due: this.day + LONG_PROMISE_DAYS, kills: this.kills });
+    if (c.wants === "bed") this.pledges.push({ person: p.id, wants: "bed", amount: 0, due: this.day + LONG_PROMISE_DAYS });
+    this.staff.push(p);
+    for (const b of this.bases) b.layout.setCrew(this.builders(b.id));
+    return p;
+  }
+
+  turnAway(id: number): void {
+    const i = this.candidates.findIndex((x) => x.id === id);
+    if (i >= 0) this.candidates.splice(i, 1);
+  }
+
+  /** Checks promises: kept ones earn loyalty, broken ones cost it. */
+  private keepPromises(day: number) {
+    for (const pl of [...this.pledges]) {
+      const p = this.person(pl.person);
+      if (!p) {
+        this.pledges.splice(this.pledges.indexOf(pl), 1);
+        continue;
+      }
+      let kept = false;
+      if (pl.wants === "medicine" && this.supplies.medicine >= pl.amount) {
+        this.supplies.medicine -= pl.amount;
+        kept = true;
+      } else if (pl.wants === "revenge") kept = this.kills > (pl.kills ?? 0);
+      else if (pl.wants === "bed") kept = this.bases.some((b) => b.layout.stats().capacity.crew > 0);
+      if (kept) {
+        p.loyalty = Math.min(100, (p.loyalty ?? 100) + KEPT_BONUS);
+        this.news.push(`Promise kept to ${p.name}`);
+      } else if (day > pl.due) {
+        p.loyalty = Math.max(0, (p.loyalty ?? 100) - BROKEN_PENALTY);
+        this.news.push(`Promise broken: ${p.name} was told ${pl.wants === "medicine" ? "there'd be medicine" : pl.wants === "bed" ? "there'd be a bed" : "they'd get their revenge"}`);
+      } else continue;
+      this.pledges.splice(this.pledges.indexOf(pl), 1);
+    }
+  }
+
+  /** People whose loyalty has run out leave, and the bitterest take food with them. Never the last one. */
+  private disloyal() {
+    for (const p of [...this.staff]) {
+      if (p.loyalty === undefined || p.loyalty >= LEAVE_BELOW || p.away || this.staff.length <= 1) continue;
+      this.staff.splice(this.staff.indexOf(p), 1);
+      let took = "";
+      if (p.loyalty < STEAL_BELOW) {
+        const food = Math.min(this.supplies.food, 5 * (1 + (p.dependants ?? 0)));
+        this.supplies.food -= food;
+        if (food) took = `, taking ${food} food`;
+      }
+      this.news.push(`${p.name} walked out${p.dependants ? " with their family" : ""}${took}`);
+    }
+  }
+
+  /** A recruiter's day on the streets: maybe someone worth talking to, maybe someone desperate. */
+  private recruitDay(run: Run) {
+    const base = this.person(run.team[0])?.base ?? this.bases[0].id;
+    for (let i = 0; i < run.team.length; i++) {
+      if (this.rand() < CANDIDATE_CHANCE) this.candidates.push(rollCandidate(this.nextCandidate++, base, this.today, this.rand));
+      if (this.rand() < DRIFTER_CHANCE) this.candidates.push(rollDrifter(this.nextCandidate++, base, this.today, this.rand));
+    }
   }
 
   /** Who's free to go out: at a base, not already out, and not too hurt. */
@@ -218,6 +332,7 @@ export class Campaign {
     run.team = run.team.filter((id) => alive.has(id));
     const spoils = AMBUSH_SPOILS[result.outcome];
     if (spoils.item && !this.trophies.includes(spoils.item)) this.trophies.push(spoils.item);
+    if (spoils.item) this.kills++;
     if (dead.length) this.news.push(`Lost on the run: ${dead.map((p) => p.name).join(", ")}`);
     this.endRun(run, spoils.share);
     this.backfill();
@@ -248,7 +363,11 @@ export class Campaign {
       if (p) delete p.away;
     }
     this.runs.splice(this.runs.indexOf(run), 1);
-    if (run.team.length) this.news.push(`Back from the ${SITES[run.site].name.toLowerCase()}: ${describeSupplies(kept)}`);
+    if (!run.team.length) return;
+    if (run.recruit) {
+      const met = this.candidates.length;
+      this.news.push(`Back from the streets${met ? `: ${met} ${met === 1 ? "person wants" : "people want"} to talk` : ", with nobody"}`);
+    } else this.news.push(`Back from the ${SITES[run.site].name.toLowerCase()}: ${describeSupplies(kept)}`);
   }
 
   /** If everyone is gone, the council sends someone: losing people is never the end. */
@@ -274,6 +393,11 @@ export class Campaign {
       }
       return;
     }
+    if (run.recruit) {
+      this.recruitDay(run);
+      if (--run.daysLeft <= 0) this.endRun(run);
+      return;
+    }
     const rich = this.richness[run.site] ?? 1;
     addSupplies(run.loot, dayLoot(run.site, size, rich, this.rand));
     this.richness[run.site] = Math.max(MIN_RICHNESS, rich - PICKED_PER_DAY);
@@ -289,6 +413,18 @@ export class Campaign {
         p.hunger = 0;
       } else p.hunger = (p.hunger ?? 0) + 1;
     }
+    // Families eat after the workers. When they go without, the one who brought them remembers.
+    let unfed = 0;
+    for (const p of this.staff) {
+      for (let d = 0; d < (p.dependants ?? 0); d++) {
+        if (food >= RATION) food -= RATION;
+        else {
+          unfed++;
+          if (d === 0 && p.loyalty !== undefined) p.loyalty = Math.max(0, p.loyalty - FAMILY_HUNGER_PENALTY);
+        }
+      }
+    }
+    if (unfed) this.news.push(`${unfed} of the families went hungry`);
     this.supplies.food = food;
     const hungry = this.staff.filter((p) => p.hunger);
     if (hungry.length) this.news.push(`${hungry.length} went hungry today`);
@@ -374,6 +510,7 @@ export class Campaign {
 
   /** One day of everyone's work: healing, research and the building sites. `day` is the day it ends on. */
   private workDay(day: number): Completion[] {
+    this.today = day;
     this.eat();
     for (const p of this.staff) {
       if (p.hunger) continue;
@@ -385,6 +522,9 @@ export class Campaign {
       }
       p.health = Math.min(p.stats.health, p.health + heal);
     }
+    this.keepPromises(day);
+    this.disloyal();
+    for (let i = this.candidates.length - 1; i >= 0; i--) if (this.candidates[i].until < day) this.candidates.splice(i, 1);
     for (const run of [...this.runs]) if (!run.ambush) this.runDay(run);
     for (const k of Object.keys(this.richness) as SiteId[]) this.richness[k] = Math.min(1, this.richness[k]! + RECOVER_PER_DAY);
     const id = this.research.active;
@@ -515,6 +655,10 @@ export class Campaign {
       nextRun: this.nextRun,
       richness: this.richness,
       trophies: this.trophies,
+      candidates: this.candidates,
+      pledges: this.pledges,
+      kills: this.kills,
+      nextCandidate: this.nextCandidate,
       bases: this.bases.map((b) => ({ ...b, layout: b.layout.save() })),
     };
   }
@@ -532,6 +676,10 @@ export class Campaign {
     c.nextRun = data.nextRun ?? 1;
     c.richness = { ...data.richness };
     if (data.trophies) c.trophies.push(...data.trophies);
+    if (data.candidates) c.candidates.push(...data.candidates);
+    if (data.pledges) c.pledges.push(...data.pledges);
+    c.kills = data.kills ?? 0;
+    c.nextCandidate = data.nextCandidate ?? 1;
     if (data.research) c.research = data.research;
     if (data.staff) c.staff.push(...data.staff);
     else if (c.prologue) {

@@ -216,6 +216,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .seg { display: flex; gap: 4px; }
 #globeScreen .seg button[aria-pressed="true"] { background: var(--amber); color: var(--void); border-color: var(--amber); }
 .sendrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.people .acts { display: flex; gap: 6px; flex-shrink: 0; }
+.people .want { color: var(--amber); font-size: 11px; }
 .people label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .people input[type="checkbox"] { accent-color: var(--amber); width: 16px; height: 16px; }
 #ambushModal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
@@ -223,3 +225,4 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 #globeScreen .sendrow button.go, #globeScreen #ambushModal button.go { width: auto; }
 .donelist summary { cursor: pointer; color: var(--coast); }
 .donelist ul { margin-top: 6px; font-size: 12px; }
+#globeScreen button.go:disabled, #globeScreen .people .acts button:disabled { opacity: 0.45; cursor: default; }

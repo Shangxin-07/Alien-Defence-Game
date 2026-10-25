@@ -34,6 +34,13 @@ export interface Person {
   away?: number;
   /** Days in a row without enough to eat. */
   hunger?: number;
+  /**
+   * 0–100. Unset for the people who were there from the first night, who aren't going anywhere.
+   * Recruits who fall below 30 leave.
+   */
+  loyalty?: number;
+  /** Family who came with them: they eat, but don't work. */
+  dependants?: number;
 }
 
 /** Hungry people work at half pace. */

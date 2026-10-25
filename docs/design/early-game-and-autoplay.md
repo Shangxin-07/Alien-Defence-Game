@@ -179,3 +179,18 @@ Scavenging, first cut. All numbers are placeholders.
 - **Trouble:** half the time someone gets hurt and the run comes home early with what it has. The other half, the run **meets a lone alien** and the clock stops until the player chooses:
   - **Fight:** a small tactical battle in the base's city with the run's own people and their current health against a weaker "Straggler". Kill it and you keep everything plus a corpse; capture it and you get a live alien (both open research). Flee mid-fight and you keep half. If the whole team dies, so does the loot. The dead are gone for good; if nobody is left, the council sends a liaison.
   - **Run for it:** drop everything, and each person has a 40% chance of getting hurt on the way out.
+
+## Step 3 as built
+
+Recruitment with fulfillments, first cut. All numbers are placeholders. Per Mike, food stays very hard; nothing here eases it, and families make it harder.
+
+- **Recruiters:** one or two people go out into the streets for 1 to 3 days. It works like a scavenging run and can go wrong the same way (5% danger a day for a team of three). Each recruiter has a 45% chance a day of meeting someone worth talking to, and a 25% chance of meeting a drifter.
+- **Candidates** come from eight trades (builder, electrician, mechanic, nurse, chemist, teacher, soldier, shop worker), each with its own construction and research range. They wait 3 days for an answer, then move on.
+- **Fulfillments** (the better the candidate, the bigger the ask):
+  - **Food up front:** 6–18 food, paid when they join.
+  - **Medicine for a sick parent:** 2–5 medicine within 10 days, handed over automatically once you have it.
+  - **Room for family:** 1–3 dependants who eat every day but never work. They eat after the workers; if they go hungry, the recruit loses 10 loyalty.
+  - **Revenge:** an alien killed or captured within 30 days.
+  - **A real bed:** living quarters working in a base within 30 days.
+- **Loyalty:** recruits start at 60 (drifters at 45). A kept promise gives +20; a broken one costs −40. Below 30 they walk out (with their family); below 10 they take food with them. The original survivors have no loyalty score and never leave this way. The last person never leaves.
+- **Drifters** ask for nothing and bring little: construction 0.6–0.8, research 0.7–0.85, a bit less health. They're the fallback when you can't afford promises.

@@ -25,8 +25,10 @@ export const SCRAP_VALUE = 10_000;
 /** Most people on one run: more than this and the whole street hears you. */
 export const MAX_TEAM = 4;
 export const MAX_RUN_DAYS = 3;
+/** Most people out recruiting together: it's talk, not muscle. */
+export const MAX_RECRUITERS = 2;
 
-export type SiteId = "homes" | "grocery" | "pharmacy" | "hardware" | "industrial";
+export type SiteId = "homes" | "grocery" | "pharmacy" | "hardware" | "industrial" | "streets";
 
 export interface Site {
   id: SiteId;
@@ -58,6 +60,10 @@ export const SITES: Record<SiteId, Site> = {
     id: "hardware", name: "Hardware stores", danger: 0.06,
     yields: { scrap: [2, 5] },
     blurb: "Cable, pipe, timber and tools. Scrap builds what money can't buy yet.",
+  },
+  streets: {
+    id: "streets", name: "Streets", danger: 0.05, yields: {},
+    blurb: "Talking people into joining. Nothing to carry home but promises.",
   },
   industrial: {
     id: "industrial", name: "Industrial estate", danger: 0.15,
@@ -93,6 +99,8 @@ export interface Run {
   loot: Supplies;
   /** Waiting on the player: they ran into an alien. */
   ambush?: boolean;
+  /** Out recruiting rather than scavenging. */
+  recruit?: boolean;
 }
 
 export const emptySupplies = (): Supplies => ({ food: 0, medicine: 0, scrap: 0 });
