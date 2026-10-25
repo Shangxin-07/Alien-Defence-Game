@@ -30,7 +30,14 @@ export interface Person {
   /** Base they live and work at, or null while there's no base yet. */
   base: number | null;
   job: Job;
+  /** The scavenging run they're out on, if any. */
+  away?: number;
+  /** Days in a row without enough to eat. */
+  hunger?: number;
 }
+
+/** Hungry people work at half pace. */
+export const workPace = (p: Person) => (p.hunger ? 0.5 : 1);
 
 /** Someone too badly hurt to work: under half health. They heal a point a day. */
 export const fitToWork = (p: Person) => p.health >= p.stats.health / 2;

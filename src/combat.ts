@@ -12,7 +12,7 @@ export interface CombatResult {
   recovered: string[];
   survivors: number;
   /** Who walked out, as they are now. */
-  people: { name: string; role: string; stats: Stats; health: number }[];
+  people: { id: number; name: string; role: string; stats: Stats; health: number }[];
   turns: number;
 }
 
@@ -507,6 +507,18 @@ function modal(title: string, body: string, buttons: { label: string; go?: boole
 }
 
 function brief(p: Prologue) {
+  if (p.mission) {
+    const m = p.mission;
+    const team = p.battle.humans.map((u) => `<li><b>${escape(u.name)}</b> <span class="dim">${escape(u.role)}, ${escape(u.weapon?.name.toLowerCase() ?? "unarmed")}, ${u.health}/${u.stats.health} HP</span></li>`);
+    modal(
+      m.title,
+      `${m.intro.map((t) => `<p>${escape(t)}</p>`).join("")}
+       <ul class="squadlist">${team.join("")}</ul>
+       <p class="dim">Fleeing from the battlefield keeps half of what you found. Anyone who falls here is gone for good.</p>`,
+      [{ label: "Begin", go: true, run: () => banner("Turn 1") }],
+    );
+    return;
+  }
   const squad = p.battle.humans.map((u) => `<li><b>${escape(u.name)}</b> <span class="dim">${escape(u.role)}, ${escape(u.weapon?.name.toLowerCase() ?? "unarmed")}${u.tools.length ? `, ${u.tools.map((t) => t.tool.name.toLowerCase()).join(", ")}` : ""}</span></li>`);
   modal(
     `Prologue: ${p.city.name}`,
@@ -534,13 +546,24 @@ function brief(p: Prologue) {
 
 function results(o: Outcome) {
   const b = battle!;
-  const t = OUTCOME_TEXT[o];
+  const m = host?.prologue.mission;
+  const t = (m?.outcomes ?? OUTCOME_TEXT)[o];
   const survivors = b.humans.filter(alive);
-  const recovered = SPOILS[o];
-  const people = survivors.map((u) => ({ name: u.name, role: u.role, stats: { ...u.stats }, health: Math.max(1, u.health) }));
+  const recovered = (m?.spoils ?? SPOILS)[o];
+  const people = survivors.map((u) => ({ id: u.id, name: u.name, role: u.role, stats: { ...u.stats }, health: Math.max(1, u.health) }));
   const result: CombatResult = { outcome: o, recovered, survivors: survivors.length, turns: b.turn, people };
   const won = o === "captured" || o === "killed";
   const roll = b.humans.map((u) => `<li>${escape(u.name)} <span class="${alive(u) ? "dim" : "bad"}">${alive(u) ? `${u.health}/${u.stats.health} HP` : "killed"}</span></li>`).join("");
+  if (m) {
+    modal(
+      t.title,
+      `<p>${t.text}</p>
+       ${recovered.length ? `<h2>Recovered</h2><ul class="spoillist">${recovered.map((r) => `<li>${r}</li>`).join("")}</ul>` : ""}
+       <h2>The team</h2><ul class="squadlist">${roll}</ul>`,
+      [{ label: "Back to the geoscape", go: true, run: () => host?.finish(result) }],
+    );
+    return;
+  }
   modal(
     t.title,
     `<p>${t.text}</p>
@@ -634,7 +657,7 @@ export function openCombat(h: CombatHost): void {
   playing = false;
   wait = 0;
   $("combatLog").replaceChildren();
-  $("missionPlace").textContent = `${h.prologue.city.name} · night`;
+  $("missionPlace").textContent = `${h.prologue.city.name} · ${h.prologue.mission ? "ambush" : "night"}`;
   $("turnNo").textContent = String(battle.turn);
   view.clearUnits();
   view.build(battle.map, h.prologue.style, h.prologue.lights);
@@ -649,7 +672,7 @@ export function openCombat(h: CombatHost): void {
     const w = view.world(selected);
     cam.lookAt(w.x, w.z, true);
   }
-  log("Stay quiet. It's out there.", "bad");
+  log(h.prologue.mission ? "It's heard you. Find it before it finds you." : "Stay quiet. It's out there.", "bad");
   brief(h.prologue);
 }
 

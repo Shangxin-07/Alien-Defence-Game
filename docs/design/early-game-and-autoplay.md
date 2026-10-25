@@ -156,3 +156,26 @@ The first cut of the manpower economy. All numbers are placeholders.
 - **Shaft → stairs → lift:** a 1×1 shaft is dug first; it is then converted in place to stairs, and the stairs to a lift. Rooms reached only by a shaft are built but not online. Geothermal plants, workshops and alien containment need a lift route before work can start on them.
 - **Staff can move between bases**, so later bases have someone to build them.
 - Old saves keep their money and buildings; existing lifts stay lifts.
+
+## Step 2 as built
+
+Scavenging, first cut. All numbers are placeholders.
+
+- **Supplies:** food, medicine and scrap. A campaign starts with 30 food (about a week for four), 3 medicine and no scrap. Fuel waits for vehicles in step 4.
+- **Eating:** everyone eats 1 food a day, out on a run or not. Whoever can't eat goes hungry: they work at half pace and don't heal. After 5 hungry days, each hungry person has a 20% chance a day of leaving. The last person never leaves.
+- **Medicine** goes automatically to anyone too hurt to work (under half health) and heals them 2 extra a day.
+- **Scrap pays for rooms before money does**, at $10k a unit, with money topping up the rest. This is what fixes the slow first month: a few hardware runs buy a lift.
+- **Runs:** pick a kind of place, 1 to 3 days, and up to 4 people. People on a run stop their other work.
+
+  | Place | Each person finds a day | Danger a day (team of 3) |
+  |---|---|---|
+  | Abandoned homes | food 1–3, medicine 0–1, scrap 0–2 | 4% |
+  | Supermarkets | food 3–6 | 8% |
+  | Pharmacies and clinics | medicine 1–3, food 0–1 | 12% |
+  | Hardware stores | scrap 2–5 | 6% |
+  | Industrial estate | scrap 4–8, food 0–1 | 15% |
+
+- **Risk** scales with team size (×0.7 for one person up to ×1.15 for four). Places get picked over by 10% a day of work, down to 30%, and recover 2% a day.
+- **Trouble:** half the time someone gets hurt and the run comes home early with what it has. The other half, the run **meets a lone alien** and the clock stops until the player chooses:
+  - **Fight:** a small tactical battle in the base's city with the run's own people and their current health against a weaker "Straggler". Kill it and you keep everything plus a corpse; capture it and you get a live alien (both open research). Flee mid-fight and you keep half. If the whole team dies, so does the loot. The dead are gone for good; if nobody is left, the council sends a liaison.
+  - **Run for it:** drop everything, and each person has a 40% chance of getting hurt on the way out.

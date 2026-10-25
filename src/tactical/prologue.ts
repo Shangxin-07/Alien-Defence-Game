@@ -11,12 +11,32 @@ import { Stats, TOOLS, Tool, WEAPONS, Weapon } from "./rules";
  * who were in the wrong place. Turning the tables on it is how the war starts.
  */
 export interface Prologue {
+  /** Set for fights after the prologue, which bring their own story. */
+  mission?: Mission;
   city: City;
   biome: BiomeId;
   style: CityStyle;
   battle: Battle;
   lights: Point[];
   seed: number;
+}
+
+/** A smaller fight later on: the words around it and what it pays. */
+export interface Mission {
+  title: string;
+  /** Plain text, one paragraph per entry. */
+  intro: string[];
+  outcomes: Record<Outcome, { title: string; text: string }>;
+  spoils: Record<Outcome, string[]>;
+}
+
+/** Someone on a scavenging run, as the campaign knows them. */
+export interface Scavenger {
+  id: number;
+  name: string;
+  role: string;
+  stats: Stats;
+  health: number;
 }
 
 /** What the survivors carry out of the city, by how the night ended. */
@@ -90,6 +110,10 @@ const ROLES: Role[] = [
 
 /** It's called a Hunter because that's what it does. */
 const HUNTER: Stats = { tu: 64, health: 55, bravery: 100, reactions: 85, accuracy: 70, melee: 60, armour: 10 };
+/** A lone straggler picking through the same streets as you. Weaker than the Hunter, still deadly. */
+const STRAGGLER: Stats = { tu: 60, health: 36, bravery: 80, reactions: 70, accuracy: 60, melee: 50, armour: 6 };
+/** Its id on the battlefield, clear of anyone's person id. */
+const ALIEN_ID = 1_000_000;
 
 /** Spread stats a little so no two people are the same. */
 function vary(s: Stats, rand: () => number): Stats {
@@ -158,6 +182,84 @@ export function startPrologue(city: City, seed: number): Prologue {
   // It knows roughly where you went to ground.
   const battle = new Battle(field.map, units, s, field.humanStart[0]);
   return { city, biome, style, battle, lights: field.lights, seed };
+}
+
+/**
+ * A scavenging run gone wrong: the team on the run, cornered by a lone alien in a city block.
+ * Everyone carries what their old job gave them; anyone else has a pistol.
+ */
+export function startAmbush(city: City, seed: number, team: Scavenger[], place: string): Prologue {
+  const biome = biomeAt(city.lat, city.lon);
+  const style = CITY_STYLES[biome];
+  const s = (seed ^ hashText(city.name + place)) >>> 0;
+  const field = buildCity(s, style);
+  const rand = mulberry32(s + 11);
+  const centre = field.alienStart;
+  const units: Unit[] = team.slice(0, field.humanStart.length).map((m, i) => {
+    const kit = ROLES.find((r) => r.role === m.role);
+    const weapon = kit?.weapon ?? WEAPONS.pistol;
+    const p = field.humanStart[i];
+    return {
+      id: m.id,
+      side: "human",
+      name: m.name,
+      role: m.role,
+      stats: { ...m.stats },
+      x: p.x,
+      y: p.y,
+      facing: facingTo(p, centre),
+      tu: m.stats.tu,
+      health: Math.max(1, m.health),
+      stun: 0,
+      morale: 60 + Math.floor(rand() * 20),
+      wounds: 0,
+      kneeling: false,
+      weapon,
+      ammo: weapon.ammo,
+      tools: (kit?.tools ?? []).map((tool) => ({ tool, uses: tool.uses })),
+      revealed: false,
+    };
+  });
+  const a = field.alienStart;
+  const stats = vary(STRAGGLER, rand);
+  units.push({
+    id: ALIEN_ID,
+    side: "alien",
+    name: "Straggler",
+    role: "Alien",
+    stats,
+    x: a.x,
+    y: a.y,
+    facing: facingTo(a, field.humanStart[0]),
+    tu: stats.tu,
+    health: stats.health,
+    stun: 0,
+    morale: 100,
+    wounds: 0,
+    kneeling: false,
+    weapon: WEAPONS.plasmaPistol,
+    ammo: WEAPONS.plasmaPistol.ammo,
+    tools: [],
+    revealed: false,
+  });
+  const battle = new Battle(field.map, units, s, field.humanStart[0]);
+  const names = units.filter((u) => u.side === "human").map((u) => u.name);
+  const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  const mission: Mission = {
+    title: `Ambush: ${city.name}`,
+    intro: [
+      `${city.name}, after dark. ${who} ${names.length === 1 ? "was" : "were"} working the ${place.toLowerCase()} when the lights went out down the street.`,
+      `Something is out there, alone, and it has heard you. You can fight it, knock it out and bring it home, or slip away with whatever you can carry.`,
+    ],
+    outcomes: {
+      captured: { title: "Taken alive", text: "It's down and breathing. You drag it home with the supplies. Keep it somewhere it can't get out of." },
+      killed: { title: "It's dead", text: "It's dead in the street. You take the body and the supplies, and get out before anything else comes." },
+      fled: { title: "You got away", text: "You ran with whatever you could carry. Half of it fell out of your bags on the way." },
+      wiped: { title: "Nobody came back", text: "The team never comes home. Nobody goes looking." },
+    },
+    spoils: { captured: ["Live alien"], killed: ["Alien corpse"], fled: [], wiped: [] },
+  };
+  return { mission, city, biome, style, battle, lights: field.lights, seed };
 }
 
 /** Name colour for a unit on the map. */

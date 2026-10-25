@@ -149,7 +149,9 @@ function updatePreview() {
     view.showGhost(active, a.x, a.y, a.w, a.h, def.height, !reason);
     const exposure = layout.site === "city" && active === 0 ? surfaceExposure(def) : 0;
     const cost = layout.cost(tool.type, active);
-    const costs = `${cost ? `${shortMoney(cost)}, ` : ""}${plural(layout.work(tool.type, active), "person-day")} (${estimate(tool.type, active, a.w, a.h)})${exposure ? `, −${exposure} cover` : ""}`;
+    const pay = layout.payment(cost);
+    const paid = [pay.scrap ? `${pay.scrap} scrap` : "", pay.money ? shortMoney(pay.money) : ""].filter(Boolean).join(" + ");
+    const costs = `${cost ? `${paid}, ` : ""}${plural(layout.work(tool.type, active), "person-day")} (${estimate(tool.type, active, a.w, a.h)})${exposure ? `, −${exposure} cover` : ""}`;
     setInfo(`<b>${def.name}</b> <span class="dim">${costs}</span><br>${reason ? `<span class="st isolated">${reason}</span>` : `<span class="st online">${tapToAct("build")}</span>`}`);
     return;
   }
@@ -293,7 +295,7 @@ function updatePalette() {
     b.querySelector(".meta")!.textContent = wrongLevel
       ? def.siting === "surface" ? "surface only" : "underground only"
       : `${def.w}×${def.h} · ${cost ? `${shortMoney(cost)} · ` : ""}${layout.work(def.id, active)} pd${def.heavy ? " · lift" : ""}${power ? ` · ⚡${power}` : ""}`;
-    b.classList.toggle("unavailable", wrongLevel || cost > layout.funds);
+    b.classList.toggle("unavailable", wrongLevel || !layout.canAfford(cost));
   }
 }
 
@@ -375,7 +377,7 @@ function updateHead() {
   $("baseTypeRow").title = (Object.keys(sp.cells) as (keyof typeof sp.cells)[])
     .map((r) => `${ROLE_NAMES[r]}: ${total ? Math.round((sp.cells[r] / total) * 100) : 0}%`)
     .join("\n");
-  $("funds").textContent = money(layout.funds);
+  $("funds").textContent = `${money(layout.funds)}${layout.scrap ? ` · ${layout.scrap} scrap` : ""}`;
   // The phone layout stacks the level and status panels under the header, whatever its height.
   document.documentElement.style.setProperty("--head-h", `${$("head").offsetHeight}px`);
   $("day").textContent = host?.date() ?? String(layout.day);

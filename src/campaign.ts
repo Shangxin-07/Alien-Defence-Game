@@ -2,7 +2,11 @@ import { BaseLayout, Builder, Item, SavedBase, Site } from "./base/layout";
 import { CITIES, City } from "./geoscape/cities";
 import { CAMPAIGN_START } from "./geoscape/clock";
 import { DEG, LatLon } from "./geoscape/geo";
-import { LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project } from "./staff";
+import {
+  DESERT_AFTER, DESERT_CHANCE, MAX_RUN_DAYS, MAX_TEAM, MEDICINE_HEAL, PICKED_PER_DAY, MIN_RICHNESS, RATION, RECOVER_PER_DAY, Run, SITES,
+  START_SUPPLIES, SiteId, Supplies, addSupplies, dayLoot, dayRisk, describeSupplies, emptySupplies,
+} from "./scavenge";
+import { LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, workPace } from "./staff";
 import type { Outcome } from "./tactical/battle";
 
 export const DAY_MS = 86_400_000;
@@ -60,8 +64,29 @@ export interface PrologueRecord {
 
 export const prologueWon = (p: PrologueRecord | null) => p?.outcome === "captured" || p?.outcome === "killed";
 
+/** How a fight on a scavenging run ended, and who walked away. */
+export interface AmbushResult {
+  outcome: Outcome;
+  /** Survivors by person id, with what health they have left. */
+  people: { id: number; health: number }[];
+}
+
+/** What a run brings home from a fight that went each way, beyond its finds. */
+const AMBUSH_SPOILS: Record<Outcome, { share: number; item?: string }> = {
+  captured: { share: 1, item: "Live alien" },
+  killed: { share: 1, item: "Alien corpse" },
+  fled: { share: 0.5 },
+  wiped: { share: 0 },
+};
+
 interface SavedCampaign {
   version: 1;
+  /** Missing in saves from before scavenging existed. */
+  supplies?: Supplies;
+  runs?: Run[];
+  nextRun?: number;
+  richness?: Partial<Record<SiteId, number>>;
+  trophies?: string[];
   /** Missing in saves from before the prologue existed. */
   prologue?: PrologueRecord | null;
   /** Missing in saves from before staff existed. */
@@ -113,8 +138,19 @@ export class Campaign {
   research: ResearchState = { active: null, progress: {}, done: [] };
   /** Things that happened while the clock ran, for the screen to announce. */
   readonly news: string[] = [];
+  /** Food, medicine and scrap in the stores. Scrap is lent to bases like funds. */
+  supplies: Supplies = { ...START_SUPPLIES };
+  /** Scavenging runs out in the city. */
+  readonly runs: Run[] = [];
+  /** How much is left to find at each kind of place, 1 = untouched. */
+  richness: Partial<Record<SiteId, number>> = {};
+  /** Alien remains and prisoners brought back since the prologue. */
+  readonly trophies: string[] = [];
+  /** Dice for runs and hunger. Swappable so tests can fix them. */
+  rand: () => number = Math.random;
   private nextId = 1;
   private nextPerson = 1;
+  private nextRun = 1;
 
   /** Records the prologue. A replay never throws away a better result. */
   recordPrologue(r: PrologueRecord): void {
@@ -123,9 +159,144 @@ export class Campaign {
     this.prologue = r;
   }
 
-  /** What came home from the prologue. */
+  /** Alien tech and remains on hand, from the prologue and since. */
   get recovered(): string[] {
-    return this.prologue?.recovered ?? [];
+    return [...new Set([...(this.prologue?.recovered ?? []), ...this.trophies])];
+  }
+
+  /** A run waiting on the player because it ran into an alien. The clock holds until it's dealt with. */
+  get ambush(): Run | undefined {
+    return this.runs.find((r) => r.ambush);
+  }
+
+  /** Days the food lasts at today's headcount. */
+  get foodDays(): number {
+    return this.staff.length ? Math.floor(this.supplies.food / (RATION * this.staff.length)) : Infinity;
+  }
+
+  /** Who's free to go out: at a base, not already out, and not too hurt. */
+  canScavenge(p: Person): boolean {
+    return p.base !== null && !p.away && fitToWork(p);
+  }
+
+  /** Why this run can't go, or null if it can. */
+  checkRun(site: SiteId, team: number[], days: number): string | null {
+    if (!this.bases.length) return "You need a base to go out from";
+    if (!SITES[site]) return "No such place";
+    if (!team.length) return "Pick who goes";
+    if (team.length > MAX_TEAM) return `No more than ${MAX_TEAM} on a run`;
+    if (!Number.isInteger(days) || days < 1 || days > MAX_RUN_DAYS) return `Runs last 1 to ${MAX_RUN_DAYS} days`;
+    for (const id of team) {
+      const p = this.staff.find((x) => x.id === id);
+      if (!p || !this.canScavenge(p)) return `${p?.name ?? "Someone"} can't go`;
+    }
+    return null;
+  }
+
+  /** Sends people out. They stop their other work until they're back. */
+  startRun(site: SiteId, team: number[], days: number): Run {
+    const reason = this.checkRun(site, team, days);
+    if (reason) throw new Error(reason);
+    const run: Run = { id: this.nextRun++, site, team: [...new Set(team)], daysLeft: days, loot: emptySupplies() };
+    for (const id of run.team) this.person(id)!.away = run.id;
+    this.runs.push(run);
+    for (const base of this.bases) base.layout.setCrew(this.builders(base.id));
+    return run;
+  }
+
+  /** The fight is over: the dead stay behind, the living come home with whatever they kept. */
+  resolveAmbush(result: AmbushResult): void {
+    const run = this.ambush;
+    if (!run) throw new Error("No fight to resolve");
+    const alive = new Map(result.people.map((p) => [p.id, p.health]));
+    const dead = run.team.filter((id) => !alive.has(id)).map((id) => this.person(id)!);
+    for (const p of dead) this.staff.splice(this.staff.indexOf(p), 1);
+    for (const [id, health] of alive) {
+      const p = this.person(id);
+      if (p) p.health = Math.max(1, Math.min(p.stats.health, health));
+    }
+    run.team = run.team.filter((id) => alive.has(id));
+    const spoils = AMBUSH_SPOILS[result.outcome];
+    if (spoils.item && !this.trophies.includes(spoils.item)) this.trophies.push(spoils.item);
+    if (dead.length) this.news.push(`Lost on the run: ${dead.map((p) => p.name).join(", ")}`);
+    this.endRun(run, spoils.share);
+    this.backfill();
+  }
+
+  /** Run for it instead of fighting: drop everything, and maybe get hurt getting away. */
+  fleeAmbush(): void {
+    const run = this.ambush;
+    if (!run) throw new Error("No fight to run from");
+    for (const id of run.team) {
+      const p = this.person(id)!;
+      if (this.rand() < 0.4) p.health = Math.max(1, p.health - Math.ceil(p.stats.health * (0.2 + this.rand() * 0.2)));
+    }
+    this.endRun(run, 0);
+  }
+
+  private person(id: number): Person | undefined {
+    return this.staff.find((p) => p.id === id);
+  }
+
+  /** Brings a run home with a share of what it found. */
+  private endRun(run: Run, share = 1) {
+    const kept = emptySupplies();
+    addSupplies(kept, run.loot, share);
+    addSupplies(this.supplies, kept);
+    for (const id of run.team) {
+      const p = this.person(id);
+      if (p) delete p.away;
+    }
+    this.runs.splice(this.runs.indexOf(run), 1);
+    if (run.team.length) this.news.push(`Back from the ${SITES[run.site].name.toLowerCase()}: ${describeSupplies(kept)}`);
+  }
+
+  /** If everyone is gone, the council sends someone: losing people is never the end. */
+  private backfill() {
+    if (this.staff.length) return;
+    this.staff.push({ ...LIAISON, stats: { ...LIAISON.stats }, id: this.nextPerson++, base: this.bases[0]?.id ?? null, job: "construction" });
+    this.news.push("With nobody left, the council sends a liaison");
+  }
+
+  /** One day of a run: finds, or trouble. */
+  private runDay(run: Run) {
+    const size = run.team.length;
+    if (this.rand() < dayRisk(run.site, size)) {
+      if (this.rand() < 0.5) {
+        // Someone gets hurt: a fall, a fight with other scavengers, a collapse. They come home now.
+        const p = this.person(run.team[Math.floor(this.rand() * size)])!;
+        p.health = Math.max(1, p.health - Math.ceil(p.stats.health * (0.25 + this.rand() * 0.25)));
+        this.news.push(`${p.name} was hurt at the ${SITES[run.site].name.toLowerCase()}`);
+        this.endRun(run);
+      } else {
+        run.ambush = true;
+        this.news.push(`The run to the ${SITES[run.site].name.toLowerCase()} has run into an alien`);
+      }
+      return;
+    }
+    const rich = this.richness[run.site] ?? 1;
+    addSupplies(run.loot, dayLoot(run.site, size, rich, this.rand));
+    this.richness[run.site] = Math.max(MIN_RICHNESS, rich - PICKED_PER_DAY);
+    if (--run.daysLeft <= 0) this.endRun(run);
+  }
+
+  /** Everyone eats; whoever can't goes hungry, and the long hungry start to leave. */
+  private eat() {
+    let food = this.supplies.food;
+    for (const p of [...this.staff].sort((a, b) => a.id - b.id)) {
+      if (food >= RATION) {
+        food -= RATION;
+        p.hunger = 0;
+      } else p.hunger = (p.hunger ?? 0) + 1;
+    }
+    this.supplies.food = food;
+    const hungry = this.staff.filter((p) => p.hunger);
+    if (hungry.length) this.news.push(`${hungry.length} went hungry today`);
+    for (const p of hungry) {
+      if (this.staff.length <= 1 || p.away || (p.hunger ?? 0) < DESERT_AFTER || this.rand() >= DESERT_CHANCE) continue;
+      this.staff.splice(this.staff.indexOf(p), 1);
+      this.news.push(`${p.name} left to find food elsewhere`);
+    }
   }
 
   /**
@@ -143,7 +314,9 @@ export class Campaign {
 
   /** Everyone fit and on construction at a base. */
   builders(baseId: number): Builder[] {
-    return this.staff.filter((p) => p.base === baseId && p.job === "construction" && fitToWork(p)).map((p) => ({ id: p.id, skill: buildSkill(p) }));
+    return this.staff
+      .filter((p) => p.base === baseId && p.job === "construction" && !p.away && fitToWork(p))
+      .map((p) => ({ id: p.id, skill: buildSkill(p) * workPace(p) }));
   }
 
   /** Moves someone to another base. They start work there the next day. */
@@ -181,12 +354,12 @@ export class Campaign {
   researchRate(): number {
     let rate = 0;
     for (const p of this.staff) {
-      if (p.job !== "research" || p.base === null || !fitToWork(p)) continue;
+      if (p.job !== "research" || p.base === null || p.away || !fitToWork(p)) continue;
       const base = this.bases.find((b) => b.id === p.base);
       if (!base) continue;
       const lab = base.layout.stats().capacity.science > 0 ? LAB_BONUS : 0;
       const sp = base.layout.specialism();
-      rate += p.aptitude * (1 + lab + (sp.role === "research" ? sp.bonus / 100 : 0));
+      rate += p.aptitude * workPace(p) * (1 + lab + (sp.role === "research" ? sp.bonus / 100 : 0));
     }
     return rate;
   }
@@ -201,7 +374,19 @@ export class Campaign {
 
   /** One day of everyone's work: healing, research and the building sites. `day` is the day it ends on. */
   private workDay(day: number): Completion[] {
-    for (const p of this.staff) p.health = Math.min(p.stats.health, p.health + 1);
+    this.eat();
+    for (const p of this.staff) {
+      if (p.hunger) continue;
+      let heal = 1;
+      // Medicine goes to whoever is too hurt to work, while it lasts.
+      if (!fitToWork(p) && !p.away && this.supplies.medicine > 0) {
+        this.supplies.medicine--;
+        heal += MEDICINE_HEAL;
+      }
+      p.health = Math.min(p.stats.health, p.health + heal);
+    }
+    for (const run of [...this.runs]) if (!run.ambush) this.runDay(run);
+    for (const k of Object.keys(this.richness) as SiteId[]) this.richness[k] = Math.min(1, this.richness[k]! + RECOVER_PER_DAY);
     const id = this.research.active;
     if (id) {
       const done = (this.research.progress[id] ?? 0) + this.researchRate();
@@ -274,22 +459,32 @@ export class Campaign {
   /** Lends the shared purse to a base while you build in it. Call `settle` after every change. */
   open(base: BaseRecord): BaseLayout {
     base.layout.funds = this.funds;
+    base.layout.scrap = this.supplies.scrap;
     base.layout.setCrew(this.builders(base.id));
     return base.layout;
   }
 
   settle(base: BaseRecord): void {
     this.funds = base.layout.funds;
+    this.supplies.scrap = base.layout.scrap;
   }
 
   /** Runs the clock to a new time; construction in every base moves on a day at a time. */
   advanceTo(time: number): Completion[] {
+    if (this.ambush) return [];
     const before = this.day;
     this.time = Math.max(this.time, time);
     const days = this.day - before;
     if (days <= 0) return [];
     const done: Completion[] = [];
-    for (let d = 1; d <= days; d++) done.push(...this.workDay(before + d));
+    for (let d = 1; d <= days; d++) {
+      done.push(...this.workDay(before + d));
+      // Everything waits while a run is in a fight.
+      if (this.ambush) {
+        this.time = CAMPAIGN_START + (before + d) * DAY_MS;
+        break;
+      }
+    }
     for (const base of this.bases) base.layout.setCrew(this.builders(base.id));
     return done;
   }
@@ -315,6 +510,11 @@ export class Campaign {
       staff: this.staff,
       research: this.research,
       nextPerson: this.nextPerson,
+      supplies: this.supplies,
+      runs: this.runs,
+      nextRun: this.nextRun,
+      richness: this.richness,
+      trophies: this.trophies,
       bases: this.bases.map((b) => ({ ...b, layout: b.layout.save() })),
     };
   }
@@ -327,6 +527,11 @@ export class Campaign {
     c.nextId = data.nextId;
     c.prologue = data.prologue ?? null;
     c.nextPerson = data.nextPerson ?? 1;
+    if (data.supplies) c.supplies = { ...data.supplies };
+    if (data.runs) c.runs.push(...data.runs);
+    c.nextRun = data.nextRun ?? 1;
+    c.richness = { ...data.richness };
+    if (data.trophies) c.trophies.push(...data.trophies);
     if (data.research) c.research = data.research;
     if (data.staff) c.staff.push(...data.staff);
     else if (c.prologue) {
