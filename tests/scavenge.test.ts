@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { BaseLayout } from "../src/base/layout";
-import { Campaign, DAY_MS } from "../src/campaign";
+import { CROP_DAYS, Campaign, DAY_MS } from "../src/campaign";
+import { ROOMS, RoomId } from "../src/base/rooms";
 import { CAMPAIGN_START } from "../src/geoscape/clock";
-import { DESERT_AFTER, MAX_TEAM, SCRAP_VALUE, START_SUPPLIES, cleanChance, dayLoot, dayRisk } from "../src/scavenge";
+import { DESERT_AFTER, MARKET_PRICE, STOCK, rollPlace, MAX_TEAM, SCRAP_VALUE, START_SUPPLIES, cleanChance, dayLoot, dayRisk, marketCost } from "../src/scavenge";
 import { startAmbush } from "../src/tactical/prologue";
 import { CITIES } from "../src/geoscape/cities";
 
@@ -94,22 +95,95 @@ describe("scavenging runs", () => {
     expect(c.runs).toHaveLength(0);
     expect(c.supplies.scrap).toBe(run.loot.scrap);
     expect(c.staff.every((p) => !p.away)).toBe(true);
-    expect(c.news.some((n) => n.startsWith("Back from the hardware stores"))).toBe(true);
+    expect(c.news.some((n) => n.startsWith("Back from DIY superstore"))).toBe(true);
   });
 
-  it("picks places over, and they fill up again slowly", () => {
-    const c = camp();
-    c.startRun("grocery", [c.staff[0].id], 3);
-    c.advanceDays(3);
-    const rich = c.richness.grocery!;
-    expect(rich).toBeLessThan(1);
-    c.advanceDays(5);
-    expect(c.richness.grocery).toBeGreaterThan(rich);
-  });
-
-  it("finds less in a picked-over place", () => {
+  it("takes what it finds out of what's left, and a big team only empties a place faster", () => {
     const rand = () => 0.5;
-    expect(dayLoot("grocery", 2, 0.4, rand).food).toBeLessThan(dayLoot("grocery", 2, 1, rand).food);
+    const small = { ...camp().findPlace("grocery")! };
+    small.stock = { ...small.stock };
+    const big = { ...small, stock: { ...small.stock } };
+    let fromSmall = 0;
+    let fromBig = 0;
+    let smallDays = 0;
+    let bigDays = 0;
+    while (small.stock.food > 0) {
+      fromSmall += dayLoot(small, 1, rand).food;
+      smallDays++;
+    }
+    while (big.stock.food > 0) {
+      fromBig += dayLoot(big, 4, rand).food;
+      bigDays++;
+    }
+    expect(fromSmall).toBe(STOCK.grocery.food);
+    expect(fromBig).toBe(STOCK.grocery.food);
+    expect(bigDays).toBeLessThan(smallDays);
+  });
+
+  it("forgets a place once it's picked clean, and says so", () => {
+    const c = camp(0.5);
+    const shop = c.findPlace("grocery")!;
+    shop.stock.food = 5;
+    const run = c.startRun(shop.id, c.staff.slice(0, 2).map((p) => p.id), 3);
+    c.advanceDays(1);
+    expect(c.runs).not.toContain(run);
+    expect(c.supplies.food).toBe(START_SUPPLIES.food - 4 + 5);
+    expect(c.findPlace(shop.id)).toBeUndefined();
+    expect(c.news.some((n) => n === `${shop.name} is picked clean`)).toBe(true);
+    expect(c.checkRun(shop.id, [c.staff[0].id], 1)).toMatch(/any more/);
+  });
+
+  it("starts out knowing one place of each kind, with a fixed stock", () => {
+    const c = camp();
+    expect(c.places.map((p) => p.kind)).toEqual(["homes", "grocery", "pharmacy", "hardware", "industrial"]);
+    expect(c.findPlace("homes")!.stock).toEqual({ food: 40, medicine: 6, scrap: 25 });
+  });
+});
+
+describe("searching for new places", () => {
+  it("turns up new places with their own stock", () => {
+    const c = camp(0.1);
+    const before = c.places.length;
+    c.startSearch(c.staff.slice(0, 2).map((p) => p.id), 2);
+    c.advanceDays(2);
+    expect(c.places.length).toBe(before + 4);
+    const found = c.places.slice(before);
+    expect(new Set(found.map((p) => p.id)).size).toBe(4);
+    for (const p of found) expect(Object.values(p.stock).some((n) => n > 0)).toBe(true);
+    expect(c.news.some((n) => /4 new places/.test(n))).toBe(true);
+  });
+
+  it("can come back with nothing, and takes no more than two", () => {
+    const c = camp(0.99);
+    const ids = c.staff.map((p) => p.id);
+    expect(() => c.startSearch(ids.slice(0, 3), 1)).toThrow(/2/);
+    c.startSearch(ids.slice(0, 1), 1);
+    c.advanceDays(1);
+    expect(c.places.length).toBe(5);
+    expect(c.news.some((n) => /nowhere new/.test(n))).toBe(true);
+  });
+
+  it("rolls smaller places than the ones everyone knew about", () => {
+    let seed = 1;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 50; i++) {
+      const p = rollPlace(i, rand);
+      for (const [k, n] of Object.entries(STOCK[p.kind])) expect(p.stock[k as "food"]).toBeLessThanOrEqual(Math.round(n * 1.2));
+      expect(p.name.length).toBeGreaterThan(5);
+    }
+  });
+
+  it("keeps places and their stock in the save", () => {
+    const c = camp(0.1);
+    c.startSearch([c.staff[0].id], 1);
+    c.advanceDays(1);
+    c.places[0].stock.food = 3;
+    const back = Campaign.load(JSON.parse(JSON.stringify(c.save())));
+    expect(back.places).toEqual(c.places);
+    back.startSearch([back.staff[0].id], 1);
+    back.rand = () => 0.1;
+    back.advanceDays(1);
+    expect(new Set(back.places.map((p) => p.id)).size).toBe(back.places.length);
   });
 
   it("is riskier with a bigger team, a longer stay and a worse place", () => {
@@ -237,5 +311,115 @@ describe("scrap", () => {
     layout.scrap -= 12;
     c.settle(c.bases[0]);
     expect(c.supplies.scrap).toBe(18);
+  });
+});
+
+describe("black market", () => {
+  it("does nothing for you with no money", () => {
+    const c = camp();
+    expect(c.funds).toBe(0);
+    expect(c.checkBuy("food", 10)).toMatch(/money/);
+    expect(() => c.buy("food", 10)).toThrow();
+  });
+
+  it("sells food for cash, and every lot pushes the price up", () => {
+    const c = camp();
+    c.funds = 1_000_000;
+    const first = c.buyCost("food", 10);
+    expect(first).toBeGreaterThanOrEqual(10 * MARKET_PRICE.food);
+    c.buy("food", 10);
+    expect(c.supplies.food).toBe(START_SUPPLIES.food + 10);
+    expect(c.funds).toBe(1_000_000 - first);
+    expect(c.buyCost("food", 10)).toBeGreaterThan(first);
+  });
+
+  it("makes a whole grant feed four for under three weeks", () => {
+    let bought = 0;
+    let heat = 1;
+    let money = 1_000_000;
+    while (marketCost("food", 10, heat) <= money) {
+      money -= marketCost("food", 10, heat);
+      heat *= 1.012 ** 10;
+      bought += 10;
+    }
+    expect(bought / 4).toBeLessThan(21);
+    expect(bought / 4).toBeGreaterThan(10);
+  });
+
+  it("eases back slowly", () => {
+    const c = camp();
+    c.funds = 1_000_000;
+    c.supplies.food = 1000;
+    const rate = c.buyCost("food", 10);
+    for (let i = 0; i < 5; i++) c.buy("food", 10);
+    const pushed = c.buyCost("food", 10);
+    c.advanceDays(10);
+    const later = c.buyCost("food", 10);
+    expect(later).toBeLessThan(pushed);
+    expect(later).toBeGreaterThan(rate);
+    c.advanceDays(150);
+    expect(c.buyCost("food", 10)).toBeLessThanOrEqual(rate + 1000);
+  });
+
+  it("is saved", () => {
+    const c = camp();
+    c.funds = 1_000_000;
+    c.buy("medicine", 2);
+    const back = Campaign.load(JSON.parse(JSON.stringify(c.save())));
+    expect(back.market.medicine).toBeCloseTo(c.market.medicine);
+    expect(back.supplies.medicine).toBe(START_SUPPLIES.medicine + 2);
+  });
+});
+
+describe("hydroponic farm", () => {
+  /** The London base swapped for a working one: lift, power and a farm on level -1. */
+  function farm(c: Campaign) {
+    const b = BaseLayout.starter("remote");
+    const put = (type: RoomId, level: number, x: number, y: number) => b.place(type, level, x, y, false, { free: true, instant: true });
+    put("tunnel", 0, 4, 3);
+    put("shaft", 1, 4, 4);
+    put("stairs", 1, 4, 4);
+    put("lift", 1, 4, 4);
+    for (const [x, y] of [[4, 3], [4, 5], [3, 4], [5, 4]]) put("tunnel", 1, x, y);
+    put("generator", 1, 5, 2);
+    const it = put("hydroponics", 1, 2, 5);
+    c.bases[0].layout = b;
+    return it;
+  }
+
+  it("needs a lift and power, and costs real money", () => {
+    const def = ROOMS.hydroponics;
+    expect(def.heavy).toBe(true);
+    expect(def.power).toBeGreaterThan(0);
+    expect(def.cost).toBeGreaterThanOrEqual(300_000);
+  });
+
+  it("brings in food once the first crop is grown, and not before", () => {
+    const c = camp();
+    c.supplies.food = 1000;
+    const it = farm(c);
+    expect(c.bases[0].layout.status(it.uid)).toBe("online");
+    c.advanceDays(CROP_DAYS - 1);
+    expect(c.supplies.food).toBe(1000 - 4 * (CROP_DAYS - 1));
+    c.advanceDays(1);
+    expect(c.supplies.food).toBe(1000 - 4 * CROP_DAYS + 5);
+    expect(c.news.some((n) => /First crop/.test(n))).toBe(true);
+    c.advanceDays(10);
+    expect(c.supplies.food).toBe(1000 - 4 * (CROP_DAYS + 10) + 5 * 11);
+  });
+
+  it("waits while it has no power, and keeps its progress", () => {
+    const c = camp();
+    c.supplies.food = 1000;
+    const it = farm(c);
+    const layout = c.bases[0].layout;
+    c.advanceDays(5);
+    const gen = [...layout.items.values()].find((x) => x.type === "generator")!;
+    layout.demolish(gen.uid);
+    expect(layout.status(it.uid)).not.toBe("online");
+    c.advanceDays(20);
+    expect(c.crops[`${c.bases[0].id}:${it.uid}`]).toBe(5);
+    const back = Campaign.load(JSON.parse(JSON.stringify(c.save())));
+    expect(back.crops).toEqual(c.crops);
   });
 });

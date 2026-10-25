@@ -24,6 +24,10 @@
           <span class="name">Scavenging</span>
           <span class="meta" id="scavengeSummary">—</span>
         </button>
+        <button id="openRecruit" class="staffbtn" type="button" hidden>
+          <span class="name">Recruitment</span>
+          <span class="meta" id="recruitSummary">—</span>
+        </button>
         <button id="openStaff" class="staffbtn" type="button" hidden>
           <span class="name">Staff &amp; research</span>
           <span class="meta" id="staffSummary">—</span>
@@ -70,6 +74,8 @@
             <button id="closeScavenge" type="button">Close</button>
           </div>
           <div id="supplyRows"></div>
+          <h2>Black market</h2>
+          <div id="marketRows"></div>
           <h2>Out now</h2>
           <ul id="runList" class="people"></ul>
           <h2>Where</h2>
@@ -79,7 +85,25 @@
           <h2>Who goes</h2>
           <ul id="teamList" class="people"></ul>
           <div class="sendrow"><span id="runOdds" class="dim"></span><button id="sendRun" class="go" type="button">Send them</button></div>
-          <p class="dim note">Everyone eats a unit of food a day. Hungry people work at half pace and stop healing, and after a few hungry days they start to leave. Medicine goes to whoever is too hurt to work and heals them faster. Scrap pays for rooms before money does, at $10k a unit. Places get picked over as you work them and fill up again slowly. Small teams are harder to spot, but a lone scavenger who meets an alien is on their own.</p>
+          <p class="dim note">Everyone eats a unit of food a day. Hungry people work at half pace and stop healing, and after a few hungry days they start to leave. Medicine goes to whoever is too hurt to work and heals them faster. Scrap pays for rooms before money does, at $10k a unit. Every place holds a fixed amount; a bigger team empties it faster but gets no more out of it, and once it's picked clean it's gone. Searching turns up new places, usually smaller ones. Small teams are harder to spot, but a lone scavenger who meets an alien is on their own. The black market sells for cash; every lot you buy pushes its price up, and it takes weeks to settle back. A hydroponic farm feeds five a day, but it needs a lift, power and 12 days to bring in its first crop.</p>
+        </div>
+      </div>
+
+      <div class="modal" id="recruitModal" hidden>
+        <div class="card staffcard" role="dialog" aria-modal="true" aria-labelledby="recruitTitle">
+          <div class="cardhead">
+            <h1 id="recruitTitle">Recruitment</h1>
+            <button id="closeRecruit" type="button">Close</button>
+          </div>
+          <h2>Want to join</h2>
+          <ul id="candidateList" class="people"></ul>
+          <h2>Promises</h2>
+          <ul id="pledgeList" class="people"></ul>
+          <h2>Send someone out</h2>
+          <div class="seg" id="recruitDays"></div>
+          <ul id="recruiterList" class="people"></ul>
+          <div class="sendrow"><span id="recruitOdds" class="dim"></span><button id="sendRecruit" class="go" type="button">Send them</button></div>
+          <p class="dim note">Recruiters walk the streets and talk. Most people want something for joining, and the better they are, the more they ask. Keep the promise and they grow loyal. Break it, or let their family go hungry, and loyalty drops; under 30 they walk out, and the bitterest take food with them. Drifters ask for nothing and bring little. People who wait too long for an answer move on.</p>
         </div>
       </div>
 

@@ -175,7 +175,51 @@ Scavenging, first cut. All numbers are placeholders.
   | Hardware stores | scrap 2–5 | 6% |
   | Industrial estate | scrap 4–8, food 0–1 | 15% |
 
-- **Risk** scales with team size (×0.7 for one person up to ×1.15 for four). Places get picked over by 10% a day of work, down to 30%, and recover 2% a day.
+- **Risk** scales with team size (×0.7 for one person up to ×1.15 for four). Places get picked over by 10% a day of work, down to 30%, and recover 2% a day. (Replaced by fixed stock, see "Places hold a fixed stock" below.)
 - **Trouble:** half the time someone gets hurt and the run comes home early with what it has. The other half, the run **meets a lone alien** and the clock stops until the player chooses:
   - **Fight:** a small tactical battle in the base's city with the run's own people and their current health against a weaker "Straggler". Kill it and you keep everything plus a corpse; capture it and you get a live alien (both open research). Flee mid-fight and you keep half. If the whole team dies, so does the loot. The dead are gone for good; if nobody is left, the council sends a liaison.
   - **Run for it:** drop everything, and each person has a 40% chance of getting hurt on the way out.
+
+## Step 3 as built
+
+Recruitment with fulfillments, first cut. All numbers are placeholders. Per Mike, food stays very hard; nothing here eases it, and families make it harder.
+
+- **Recruiters:** one or two people go out into the streets for 1 to 3 days. It works like a scavenging run and can go wrong the same way (5% danger a day for a team of three). Each recruiter has a 45% chance a day of meeting someone worth talking to, and a 25% chance of meeting a drifter.
+- **Candidates** come from eight trades (builder, electrician, mechanic, nurse, chemist, teacher, soldier, shop worker), each with its own construction and research range. They wait 3 days for an answer, then move on.
+- **Fulfillments** (the better the candidate, the bigger the ask):
+  - **Food up front:** 6–18 food, paid when they join.
+  - **Medicine for a sick parent:** 2–5 medicine within 10 days, handed over automatically once you have it.
+  - **Room for family:** 1–3 dependants who eat every day but never work. They eat after the workers; if they go hungry, the recruit loses 10 loyalty.
+  - **Revenge:** an alien killed or captured within 30 days.
+  - **A real bed:** living quarters working in a base within 30 days.
+- **Loyalty:** recruits start at 60 (drifters at 45). A kept promise gives +20; a broken one costs −40. Below 30 they walk out (with their family); below 10 they take food with them. The original survivors have no loyalty score and never leave this way. The last person never leaves.
+- **Drifters** ask for nothing and bring little: construction 0.6–0.8, research 0.7–0.85, a bit less health. They're the fallback when you can't afford promises.
+
+### Ways out of a famine
+
+Mike's playtest: food is brutal, and the $1M grant didn't help because money couldn't buy anything. Food stays brutal. These are paths out that cost something, not easier food.
+
+- **Black market** (Scavenging panel): food in lots of 10 at $8k a unit, medicine in lots of 2 at $25k a unit. Every unit bought pushes that price up 1.2%, and only 3% of the markup wears off each day, so a price you've pushed up takes weeks to settle. A whole $1M grant buys about 70 food, which feeds four for 17 days and leaves nothing to build with.
+- **Hydroponic farm** (2×1 room, underground): $300k, 60 person-days of work, 3 power. It's heavy, so it needs a lift route ($120k) before work starts, and a geothermal plant ($600k, 80 person-days) to run. Once running, it takes 12 days to bring in its first crop, then gives 5 food a day: enough for five mouths. If it loses power it stops growing and picks up where it left off. The full path costs about a grant and a half, or scrap in place of money.
+
+### Places hold a fixed stock
+
+Mike's playtest: percentage depletion ignored team size. Two days with one person cost a place as much as two days with five, and eight people at a fresh place got far more out of it than one ever could. Now every place holds literal amounts.
+
+- **Stock:** each person takes their daily find out of what's left, so team size only changes how fast a place empties, never how much you get from it. A place that's picked clean is forgotten, the news says so, and a run there comes home early. Nothing grows back.
+- **Starting places:** one of each kind, with this much stock:
+
+  | Place | Food | Medicine | Scrap |
+  |---|---|---|---|
+  | Homes | 40 | 6 | 25 |
+  | Supermarket | 70 | | |
+  | Health centre | 6 | 20 | |
+  | DIY superstore | | | 50 |
+  | Industrial estate | 5 | | 90 |
+
+  That's 121 food on top of the 30 you start with.
+- **Searching** is a new kind of run:
+  - Up to 2 people go out for 1 to 3 days, with 8% danger a day for a team of three.
+  - Each searcher has a 30% chance a day of finding a new place.
+  - What kind of place it is: homes 35%, supermarket 20%, pharmacy 15%, hardware 15%, industrial 15%.
+  - Its stock is 40% to 120% of the table above, because most places have already been picked at.
