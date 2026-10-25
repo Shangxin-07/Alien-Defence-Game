@@ -108,7 +108,7 @@ export class BaseView {
         }
         const st = statuses.get(it.uid)!;
         this.drawItem(g, layout, it, st, opacity);
-        if (depth === 0 && ROOMS[it.type].short && it.type !== "lift") {
+        if (depth === 0 && ROOMS[it.type].short) {
           this.tags.push({ uid: it.uid, text: ROOMS[it.type].short, status: st, pos: new Vector3(it.x + it.w / 2 - GRID / 2, levelY(level) + ROOMS[it.type].height + 0.15, it.y + it.h / 2 - GRID / 2) });
         }
       }
@@ -220,11 +220,11 @@ export class BaseView {
     const def = ROOMS[it.type];
     const solid = opacity === 1;
     let color = new Color(def.color);
-    if (st === "isolated" || st === "unpowered") color = color.multiplyScalar(0.35);
+    if (st === "isolated" || st === "unpowered" || st === "shaftOnly") color = color.multiplyScalar(0.35);
     const mat = new MeshStandardMaterial({ color, transparent: !solid || st === "building", opacity: st === "building" ? 0.55 * opacity : opacity, depthWrite: solid, roughness: 0.8, metalness: 0.1 });
     const cx = it.x + it.w / 2 - GRID / 2;
     const cz = it.y + it.h / 2 - GRID / 2;
-    const progress = st === "building" ? 1 - it.daysLeft / def.days : 1;
+    const progress = st === "building" ? 1 - it.workLeft / Math.max(1, layout.work(it.type, it.level)) : 1;
 
     if (it.type === "tunnel") {
       const arms = [[0, 0]];

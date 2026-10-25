@@ -2,7 +2,7 @@ import "./base/base.css";
 import { Color, PerspectiveCamera, Plane, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
 import { BaseCamera } from "./base/baseCamera";
 import { BaseView, levelY } from "./base/baseView";
-import { BaseLayout, GRID, Item, ItemStatus, LEVELS, LEVEL_NAMES, surfaceExposure } from "./base/layout";
+import { BaseLayout, CREW_PER_CELL, GRID, Item, ItemStatus, LEVELS, LEVEL_NAMES, surfaceExposure } from "./base/layout";
 import { ROLE_BONUS, ROLE_NAMES, ROOMS, ROOM_ORDER, RoomId, powerSupply } from "./base/rooms";
 
 /** What the base screen needs from the campaign around it. */
@@ -84,14 +84,32 @@ const STATUS_TEXT: Record<ItemStatus, string> = {
   building: "Under construction",
   online: "Online",
   isolated: "Cut off: no tunnel to the entrance",
+  shaftOnly: "Only a bare shaft leads here: fit it with stairs",
   unpowered: "No power",
 };
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** How a job under construction is going, e.g. "12 person-days left, ~4 days" or why it's stuck. */
+function progressText(it: Item): string {
+  const job = layout.plan().get(it.uid);
+  const left = `${plural(Math.ceil(it.workLeft), "person-day")} left`;
+  if (job?.blocked) return `${left}. ${job.blocked}`;
+  if (!job?.eta) return `${left}. ${layout.crew.length ? "Every builder is busy on earlier jobs" : "Nobody is on construction here"}`;
+  return `${left}, ~${plural(job.eta, "day")} with ${plural(job.crew.length, "builder")}`;
+}
+
+/** Rough days for a new job if the whole crew could work on it. */
+function estimate(type: RoomId, level: number, w: number, h: number): string {
+  const best = [...layout.crew].sort((a, b) => b.skill - a.skill).slice(0, w * h * CREW_PER_CELL);
+  const rate = best.reduce((n, b) => n + b.skill, 0);
+  return rate ? `~${plural(Math.ceil(layout.work(type, level) / rate), "day")} for ${plural(best.length, "builder")}` : "no builders here";
+}
 function describeItem(it: Item): string {
   const def = ROOMS[it.type];
   if (def.owned) return `<b>${def.name}</b> <span class="dim">Yours</span><br>${def.blurb} ${convertHint()}`;
   if (def.detritus) return `<b>${def.name}</b> <span class="dim">City building</span><br>${def.blurb} ${clearingCost(it.type)}`;
   const st = layout.status(it.uid);
-  const state = st === "building" ? `${STATUS_TEXT[st]}, ${it.daysLeft} days left` : STATUS_TEXT[st];
+  const state = st === "building" ? `${STATUS_TEXT[st]}: ${progressText(it)}` : STATUS_TEXT[st];
   const power = it.type === "generator" ? `supplies ${powerSupply(it.level)} power` : def.power ? `draws ${def.power} power` : "";
   return `<b>${def.name}</b> <span class="st ${st}">${state}</span><br>${def.blurb}${power ? ` <span class="dim">(${power})</span>` : ""}`;
 }
@@ -130,7 +148,8 @@ function updatePreview() {
     const reason = layout.check(tool.type, active, a.x, a.y, rotated);
     view.showGhost(active, a.x, a.y, a.w, a.h, def.height, !reason);
     const exposure = layout.site === "city" && active === 0 ? surfaceExposure(def) : 0;
-    const costs = `${shortMoney(layout.cost(tool.type, active))}, ${def.days} days${exposure ? `, −${exposure} cover` : ""}`;
+    const cost = layout.cost(tool.type, active);
+    const costs = `${cost ? `${shortMoney(cost)}, ` : ""}${plural(layout.work(tool.type, active), "person-day")} (${estimate(tool.type, active, a.w, a.h)})${exposure ? `, −${exposure} cover` : ""}`;
     setInfo(`<b>${def.name}</b> <span class="dim">${costs}</span><br>${reason ? `<span class="st isolated">${reason}</span>` : `<span class="st online">${tapToAct("build")}</span>`}`);
     return;
   }
@@ -162,11 +181,18 @@ function defaultHint() {
   if (!layout.hasEntrance() && layout.site === "city" && tool.kind !== "demolish") {
     return `<span class="dim">No way underground yet. Convert your front building into an access point to start digging: pick ${ROOMS.accessPoint.name} in the build list, then the building.</span>`;
   }
-  if (tool.kind === "build") return `<span class="dim">Pick a spot for the ${ROOMS[tool.type].name.toLowerCase()}. Rooms must open onto a tunnel or lift.</span>`;
+  if (tool.kind === "build") {
+    const def = ROOMS[tool.type];
+    if (def.convertsFrom && def.convertsFrom !== "frontBuilding") {
+      return `<span class="dim">Pick a finished ${ROOMS[def.convertsFrom].name.toLowerCase()} to fit with ${def.name.toLowerCase()}.</span>`;
+    }
+    return `<span class="dim">Pick a spot for the ${def.name.toLowerCase()}. Rooms must open onto a tunnel or shaft.</span>`;
+  }
   if (tool.kind === "demolish") {
     return `<span class="dim">Pick something to tear down.${layout.site === "city" ? " City buildings cost money and cover to clear." : ""}</span>`;
   }
-  return `<span class="dim">Drag to turn, scroll or pinch to zoom. Pick a facility to build. Lifts stacked on top of each other link the levels.</span>`;
+  if (!layout.crew.length) return `<span class="dim">Nobody is on construction here, so nothing gets built. Put people on Construction from the Staff panel on the globe.</span>`;
+  return `<span class="dim">Drag to turn, scroll or pinch to zoom. Dig a shaft to go down a level, then fit it with stairs so people can work below, and later a lift for heavy machinery.</span>`;
 }
 
 canvas.addEventListener("pointermove", (e) => {
@@ -266,7 +292,7 @@ function updatePalette() {
     const power = def.id === "generator" ? (active ? `+${powerSupply(active)}` : "") : def.power ? `−${def.power}` : "";
     b.querySelector(".meta")!.textContent = wrongLevel
       ? def.siting === "surface" ? "surface only" : "underground only"
-      : `${def.w}×${def.h} · ${shortMoney(cost)} · ${def.days}d${power ? ` · ⚡${power}` : ""}`;
+      : `${def.w}×${def.h} · ${cost ? `${shortMoney(cost)} · ` : ""}${layout.work(def.id, active)} pd${def.heavy ? " · lift" : ""}${power ? ` · ⚡${power}` : ""}`;
     b.classList.toggle("unavailable", wrongLevel || cost > layout.funds);
   }
 }
@@ -303,6 +329,7 @@ function updateStats() {
   const s = layout.stats();
   const c = s.capacity;
   const rows: [string, string, boolean?][] = [
+    ["Builders", `${layout.crew.length} · ${layout.crew.reduce((n, b) => n + b.skill, 0).toFixed(1)} pd/day`, !layout.crew.length && s.building > 0],
     ["Power", `${s.demand} / ${s.supply}`, s.demand > s.supply],
     ["Living space", `${c.crew}`],
     ["Lab space", `${c.science}`],
@@ -315,7 +342,9 @@ function updateStats() {
     ["Base defence", `${c.defence}`],
     ["Building", `${s.building}`],
   ];
-  const troubled = [...layout.statuses().values()].filter((st) => st === "isolated" || st === "unpowered").length;
+  const idle = layout.idleBuilders();
+  if (idle && s.building) rows.push(["Builders idle", `${idle}`, true]);
+  const troubled = [...layout.statuses().values()].filter((st) => st === "isolated" || st === "unpowered" || st === "shaftOnly").length;
   if (troubled) rows.push(["Not working", `${troubled}`, true]);
   $("stats").innerHTML = rows
     .map(([k, v, bad]) => `<div class="row"><span>${k}</span><span${bad ? ' class="bad"' : ""}>${v}</span></div>`)
@@ -352,7 +381,7 @@ function updateHead() {
   $("day").textContent = host?.date() ?? String(layout.day);
   const next = layout.nextCompletion();
   ($("waitNext") as HTMLButtonElement).disabled = !next;
-  $("waitNext").textContent = next ? `Skip ${next}d` : "Nothing building";
+  $("waitNext").textContent = next ? `Skip ${next}d` : layout.stats().building ? "Nobody building" : "Nothing building";
 }
 
 // Name tags over the rooms on the active level.
@@ -363,7 +392,8 @@ function rebuildTags() {
   tagEls = view.tags.map((t) => {
     const d = document.createElement("div");
     d.className = `tag ${t.status}`;
-    d.textContent = t.status === "building" ? `${t.text} ${layout.items.get(t.uid)!.daysLeft}d` : t.text;
+    const eta = layout.plan().get(t.uid)?.eta;
+    d.textContent = t.status === "building" ? `${t.text} ${eta ? `${eta}d` : "waiting"}`.trim() : t.text;
     tagBox.appendChild(d);
     return d;
   });

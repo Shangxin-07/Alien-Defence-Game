@@ -1,4 +1,4 @@
-import { Capacity, DEPTH_COST, ROOMS, Role, RoomDef, RoomId, powerSupply } from "./rooms";
+import { Capacity, DEPTH_COST, ROOMS, Role, RoomDef, RoomId, TIER_RANK, Tier, powerSupply } from "./rooms";
 
 /** Cells along each side of a level. */
 export const GRID = 8;
@@ -16,6 +16,12 @@ export type Site = "city" | "remote";
 
 /** Cover a city base starts with; it only ever goes down. */
 export const FULL_COVER = 100;
+
+/** Most people who can work one job at once, per cell of its footprint: two diggers fill a shaft. */
+export const CREW_PER_CELL = 2;
+
+/** Saves from before construction took work counted days for a crew of about this many. */
+const OLD_SAVE_CREW = 4;
 
 /** Specialism needs at least this many cells of specialist rooms before it counts. */
 const MIN_SPECIALIST_CELLS = 4;
@@ -61,17 +67,38 @@ export interface Item {
   y: number;
   w: number;
   h: number;
-  /** Days of construction left; 0 once built. */
-  daysLeft: number;
+  /** Person-days of work left; 0 once built. */
+  workLeft: number;
+  /** While being converted, what stood here before. It keeps working as that until the job is done. */
+  from?: RoomId;
+}
+
+/** Someone on construction at this base, and how much a day of their work is worth. */
+export interface Builder {
+  id: number;
+  skill: number;
+}
+
+/** How a job under construction is getting on with today's crew. */
+export interface JobPlan {
+  /** Builders on it today. */
+  crew: number[];
+  /** Person-days of work it gets a day. */
+  rate: number;
+  /** Days to finish at this rate, or null if nobody is on it. */
+  eta: number | null;
+  /** Why nobody can work on it yet, or null. */
+  blocked: string | null;
 }
 
 /**
  * - building: under construction
  * - online: built, linked to the entrance and powered
  * - isolated: built, but no tunnel route back to the entrance
+ * - shaftOnly: the only way in is down a bare shaft, which is no way to live or work
  * - unpowered: linked, but the generators ran out before reaching it
  */
-export type ItemStatus = "building" | "online" | "isolated" | "unpowered";
+export type ItemStatus = "building" | "online" | "isolated" | "shaftOnly" | "unpowered";
 
 export interface BaseStats {
   supply: number;
@@ -86,7 +113,7 @@ export interface SavedBase {
   day: number;
   site?: Site;
   heat?: number;
-  items: Omit<Item, "uid">[];
+  items: (Omit<Item, "uid" | "workLeft"> & { workLeft?: number; daysLeft?: number })[];
 }
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
@@ -101,9 +128,13 @@ export class BaseLayout {
   /** Cover already spent clearing city buildings. */
   heat = 0;
   readonly items = new Map<number, Item>();
+  /** Who is building here today. Set by the campaign; not saved. */
+  crew: Builder[] = [];
   private readonly cells: Int32Array[] = Array.from({ length: LEVELS }, () => new Int32Array(GRID * GRID));
   private nextUid = 1;
   private statusCache: Map<number, ItemStatus> | null = null;
+  private linkCache = new Map<Tier, Set<number>>();
+  private planCache: Map<number, JobPlan> | null = null;
 
   constructor(funds = 0, site: Site = "remote") {
     this.funds = funds;
@@ -117,10 +148,10 @@ export class BaseLayout {
   static starter(site: Site = "city", seed = 7): BaseLayout {
     const b = new BaseLayout(4_000_000, site);
     if (site === "city") {
-      b.insert({ uid: b.nextUid++, type: "frontBuilding", level: 0, x: 3, y: 3, w: 2, h: 2, daysLeft: 0 });
+      b.insert({ uid: b.nextUid++, type: "frontBuilding", level: 0, x: 3, y: 3, w: 2, h: 2, workLeft: 0 });
       b.raiseCity(seed);
     } else {
-      b.place("lift", 0, 4, 4, false, { free: true, instant: true });
+      b.insert({ uid: b.nextUid++, type: "lift", level: 0, x: 4, y: 4, w: 1, h: 1, workLeft: 0 });
     }
     return b;
   }
@@ -129,7 +160,7 @@ export class BaseLayout {
     const b = new BaseLayout(data.funds, data.site ?? "remote");
     b.day = data.day;
     b.heat = data.heat ?? 0;
-    for (const it of data.items) b.insert({ ...it, uid: b.nextUid++ });
+    for (const { daysLeft, workLeft, ...it } of data.items) b.insert({ ...it, workLeft: workLeft ?? (daysLeft ?? 0) * OLD_SAVE_CREW, uid: b.nextUid++ });
     return b;
   }
 
@@ -144,6 +175,11 @@ export class BaseLayout {
 
   cost(type: RoomId, level: number): number {
     return Math.round((ROOMS[type].cost * DEPTH_COST[level]) / 1000) * 1000;
+  }
+
+  /** Person-days to build, deeper digging taking longer. */
+  work(type: RoomId, level: number): number {
+    return Math.round(ROOMS[type].work * DEPTH_COST[level]);
   }
 
   itemAt(level: number, x: number, y: number): Item | undefined {
@@ -163,14 +199,17 @@ export class BaseLayout {
     if (def.convertsFrom) {
       const from = ROOMS[def.convertsFrom];
       const target = this.itemAt(level, x, y);
-      if (target?.type !== def.convertsFrom || target.x !== x || target.y !== y) return `Must be built in place of your ${from.name.toLowerCase()}`;
+      if (target?.type !== def.convertsFrom || target.x !== x || target.y !== y) {
+        return def.convertsFrom === "frontBuilding" ? `Must be built in place of your ${from.name.toLowerCase()}` : `Must be fitted into a finished ${from.name.toLowerCase()}`;
+      }
+      if (target.workLeft) return `Finish the ${from.name.toLowerCase()} first`;
       return this.cost(type, level) > this.funds ? "Not enough funds" : null;
     }
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (this.itemAt(level, i, j)) return "Space already taken";
     if (this.cost(type, level) > this.funds) return "Not enough funds";
     if (!this.hasEntrance()) {
       if (this.site === "city") return `Convert your ${ROOMS.frontBuilding.name.toLowerCase()} into an access point first`;
-      return type === "lift" && level === 0 ? null : "Start with an access lift on the surface";
+      return ROOMS[type].shaft && level === 0 ? null : "Start with a way down from the surface";
     }
     if (!this.wouldJoin(type, level, x, y, w, h)) {
       return def.conductor ? "Must join an existing room, tunnel or lift" : "Must open onto a tunnel or lift";
@@ -189,8 +228,15 @@ export class BaseLayout {
     const reason = opts.free ? this.checkIgnoringFunds(type, level, x, y, rotated) : this.check(type, level, x, y, rotated);
     if (reason) throw new Error(reason);
     if (!opts.free) this.funds -= this.cost(type, level);
-    if (ROOMS[type].convertsFrom) this.remove(this.itemAt(level, x, y)!);
-    const item: Item = { uid: this.nextUid++, type, level, x, y, ...this.footprint(type, rotated), daysLeft: opts.instant ? 0 : ROOMS[type].days };
+    let from: RoomId | undefined;
+    if (ROOMS[type].convertsFrom) {
+      from = this.itemAt(level, x, y)!.type;
+      this.remove(this.itemAt(level, x, y)!);
+    }
+    const workLeft = opts.instant ? 0 : this.work(type, level);
+    const item: Item = { uid: this.nextUid++, type, level, x, y, ...this.footprint(type, rotated), workLeft };
+    // A city building being gutted is no use to anyone, but a shaft being fitted with stairs still has its ladders.
+    if (workLeft && from && ROOMS[from].shaft) item.from = from;
     this.insert(item);
     return item;
   }
@@ -220,24 +266,76 @@ export class BaseLayout {
     this.remove(it);
   }
 
-  /** Runs the clock forward; returns what finished building. */
-  advance(days: number): Item[] {
-    const done: Item[] = [];
-    this.day += days;
-    for (const it of this.items.values()) {
-      if (!it.daysLeft) continue;
-      it.daysLeft = Math.max(0, it.daysLeft - days);
-      if (!it.daysLeft) done.push(it);
+  /** Why builders can't work on this job yet, or null if they can. */
+  jobBlocker(it: Item): string | null {
+    if (!it.workLeft || it.level === 0) return null;
+    // Fitting out a shaft that's already in use.
+    if (it.from && this.linked("shaft").has(it.uid)) return null;
+    const def = ROOMS[it.type];
+    const route = this.linked(def.heavy ? "lift" : "shaft");
+    const reach = (o: Item) => route.has(o.uid) && !!ROOMS[this.asBuilt(o)!].conductor;
+    const next = this.neighbours(it);
+    if (def.shaft) next.push(...this.stackedShafts(it.level, it.x, it.y, it.w, it.h));
+    if (next.some(reach)) return null;
+    if (def.heavy && next.some((o) => this.linked("shaft").has(o.uid) && ROOMS[this.asBuilt(o)!].conductor)) {
+      return "Needs a lift down to this level: the machinery won't fit down stairs";
     }
-    if (done.length) this.statusCache = null;
+    return "Builders can't reach it yet: dig a way in first";
+  }
+
+  /**
+   * Who works on what today. Builders take the jobs in the order they were placed, the most skilled
+   * first, and each job only fits so many people; anyone left over moves on to the next job.
+   */
+  plan(): Map<number, JobPlan> {
+    if (this.planCache) return this.planCache;
+    const out = new Map<number, JobPlan>();
+    const free = [...this.crew].sort((a, b) => b.skill - a.skill || a.id - b.id);
+    for (const it of [...this.items.values()].filter((i) => i.workLeft).sort((a, b) => a.uid - b.uid)) {
+      const blocked = this.jobBlocker(it);
+      const crew = blocked ? [] : free.splice(0, it.w * it.h * CREW_PER_CELL);
+      const rate = crew.reduce((n, b) => n + b.skill, 0);
+      out.set(it.uid, { crew: crew.map((b) => b.id), rate, eta: rate > 0 ? Math.ceil(it.workLeft / rate - 1e-9) : null, blocked });
+    }
+    return (this.planCache = out);
+  }
+
+  /** A day of work by today's crew, and a day on the base's clock. Returns what finished building. */
+  workDay(): Item[] {
+    const done: Item[] = [];
+    this.day++;
+    for (const [uid, job] of this.plan()) {
+      if (!job.rate) continue;
+      const it = this.items.get(uid)!;
+      it.workLeft = Math.max(0, it.workLeft - job.rate);
+      if (it.workLeft < 1e-6) {
+        it.workLeft = 0;
+        delete it.from;
+        done.push(it);
+      }
+    }
+    this.invalidate();
     return done;
   }
 
-  /** Days until the next construction job finishes, or 0 if nothing is being built. */
+  /** Days until the next job finishes with today's crew, or 0 if nothing is getting built. */
   nextCompletion(): number {
     let best = 0;
-    for (const it of this.items.values()) if (it.daysLeft && (!best || it.daysLeft < best)) best = it.daysLeft;
+    for (const job of this.plan().values()) if (job.eta && (!best || job.eta < best)) best = job.eta;
     return best;
+  }
+
+  /** Builders sitting idle today because no job can take them. */
+  idleBuilders(): number {
+    let busy = 0;
+    for (const job of this.plan().values()) busy += job.crew.length;
+    return this.crew.length - busy;
+  }
+
+  /** Changes who's building here. */
+  setCrew(crew: Builder[]): void {
+    this.crew = crew;
+    this.planCache = null;
   }
 
   status(uid: number): ItemStatus {
@@ -246,15 +344,15 @@ export class BaseLayout {
 
   statuses(): Map<number, ItemStatus> {
     if (this.statusCache) return this.statusCache;
-    const linked = this.linked();
+    const linked = this.linked("stairs");
     const out = new Map<number, ItemStatus>();
     // Generators feed linked rooms in the order they were built until the power runs out.
     let supply = 0;
-    for (const it of this.items.values()) if (it.type === "generator" && !it.daysLeft && linked.has(it.uid)) supply += powerSupply(it.level);
+    for (const it of this.items.values()) if (it.type === "generator" && !it.workLeft && linked.has(it.uid)) supply += powerSupply(it.level);
     for (const it of [...this.items.values()].sort((a, b) => a.uid - b.uid)) {
       if (ROOMS[it.type].detritus) continue;
-      if (it.daysLeft) out.set(it.uid, "building");
-      else if (!linked.has(it.uid)) out.set(it.uid, "isolated");
+      if (it.workLeft) out.set(it.uid, "building");
+      else if (!linked.has(it.uid)) out.set(it.uid, this.linked("shaft").has(it.uid) ? "shaftOnly" : "isolated");
       else if (ROOMS[it.type].power > supply) out.set(it.uid, "unpowered");
       else {
         supply -= ROOMS[it.type].power;
@@ -277,7 +375,7 @@ export class BaseLayout {
     const cells: Record<Role, number> = { research: 0, manufacturing: 0, surveillance: 0, military: 0 };
     for (const it of this.items.values()) {
       const role = ROOMS[it.type].role;
-      if (role && !it.daysLeft) cells[role] += it.w * it.h;
+      if (role && !it.workLeft) cells[role] += it.w * it.h;
     }
     const total = Object.values(cells).reduce((a, b) => a + b, 0);
     const [role, top] = (Object.entries(cells) as [Role, number][]).sort((a, b) => b[1] - a[1])[0];
@@ -293,7 +391,7 @@ export class BaseLayout {
     let demand = 0;
     let radar = 0;
     let building = 0;
-    const linked = this.linked();
+    const linked = this.linked("stairs");
     for (const [uid, st] of this.statuses()) {
       const it = this.items.get(uid)!;
       const def = ROOMS[it.type];
@@ -311,29 +409,59 @@ export class BaseLayout {
     return { supply, demand, capacity, radar, building };
   }
 
-  /** Built items with a route back to a surface lift or access point. */
-  private linked(): Set<number> {
+  /** What an item works as right now: itself once built, what it replaces while being converted, or nothing. */
+  private asBuilt(it: Item): RoomId | null {
+    if (!it.workLeft) return it.type;
+    return it.from ?? null;
+  }
+
+  private tierOf(type: RoomId): number {
+    return TIER_RANK[ROOMS[type].tier ?? "lift"];
+  }
+
+  /**
+   * Built items with a route back to the surface entrance, using only shafts at least this good
+   * between levels: builders can use any shaft, people need stairs, machinery needs a lift.
+   */
+  private linked(min: Tier): Set<number> {
+    const cached = this.linkCache.get(min);
+    if (cached) return cached;
+    const need = TIER_RANK[min];
     const seen = new Set<number>();
     const queue: Item[] = [];
     for (const it of this.items.values()) {
-      if (ROOMS[it.type].shaft && it.level === 0 && !it.daysLeft) {
+      const t = this.asBuilt(it);
+      if (t && ROOMS[t].shaft && it.level === 0) {
         seen.add(it.uid);
         queue.push(it);
       }
     }
     while (queue.length) {
       const it = queue.pop()!;
-      // Only tunnels and lifts pass people along; rooms are dead ends.
-      if (!ROOMS[it.type].conductor) continue;
-      const next: Item[] = this.neighbours(it);
-      if (ROOMS[it.type].shaft) next.push(...this.stackedShafts(it.level, it.x, it.y, it.w, it.h));
+      const t = this.asBuilt(it)!;
+      // Only tunnels and shafts pass people along; rooms are dead ends.
+      if (!ROOMS[t].conductor) continue;
+      const next: Item[] = this.neighbours(it).filter((o) => !ROOMS[o.type].detritus);
+      if (ROOMS[t].shaft) {
+        for (const o of this.stackedShafts(it.level, it.x, it.y, it.w, it.h)) {
+          const ot = this.asBuilt(o);
+          if (ot && Math.min(this.tierOf(t), this.tierOf(ot)) >= need) next.push(o);
+        }
+      }
       for (const o of next) {
-        if (o.daysLeft || seen.has(o.uid)) continue;
+        if (!this.asBuilt(o) || seen.has(o.uid)) continue;
         seen.add(o.uid);
         queue.push(o);
       }
     }
+    this.linkCache.set(min, seen);
     return seen;
+  }
+
+  private invalidate() {
+    this.statusCache = null;
+    this.planCache = null;
+    this.linkCache.clear();
   }
 
   /** Items on the same level sharing an edge with this one. */
@@ -396,7 +524,7 @@ export class BaseLayout {
       const y = Math.floor(rand() * (GRID - h + 1));
       let free = true;
       for (let j = y; j < y + h && free; j++) for (let i = x; i < x + w && free; i++) free = !reserved(i, j) && !this.itemAt(0, i, j);
-      if (free) this.insert({ uid: this.nextUid++, type, level: 0, x, y, w, h, daysLeft: 0 });
+      if (free) this.insert({ uid: this.nextUid++, type, level: 0, x, y, w, h, workLeft: 0 });
     }
   }
 
@@ -413,13 +541,13 @@ export class BaseLayout {
   private remove(it: Item) {
     this.forCells(it, (i) => (this.cells[it.level][i] = 0));
     this.items.delete(it.uid);
-    this.statusCache = null;
+    this.invalidate();
   }
 
   private insert(it: Item) {
     this.items.set(it.uid, it);
     this.forCells(it, (i) => (this.cells[it.level][i] = it.uid));
-    this.statusCache = null;
+    this.invalidate();
   }
 
   private forCells(it: Item, fn: (index: number) => void) {

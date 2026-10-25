@@ -20,8 +20,13 @@ export interface Person {
   role: string;
   stats: Stats;
   health: number;
-  /** How quickly they pick things up, 0.8–1.2. Random, not tied to their old job. */
+  /** How quickly they pick up research, 0.8–1.2. Random, not tied to their old job. */
   aptitude: number;
+  /**
+   * Person-days of construction they get done in a day, around 0.6–1.4. Missing in saves from
+   * before construction took work; see `buildSkill`.
+   */
+  build?: number;
   /** Base they live and work at, or null while there's no base yet. */
   base: number | null;
   job: Job;
@@ -30,8 +35,20 @@ export interface Person {
 /** Someone too badly hurt to work: under half health. They heal a point a day. */
 export const fitToWork = (p: Person) => p.health >= p.stats.health / 2;
 
-/** Work a builder adds to their base's construction each day, in days of progress. */
-export const BUILDER_DAYS = 0.25;
+/** How handy each old job leaves someone with a shovel. Anyone else counts as 1. */
+export const BUILD_BY_ROLE: Record<string, number> = {
+  "Army reservist": 1.15,
+  "Security guard": 1,
+  "Police officer": 0.95,
+  Paramedic: 0.85,
+  Liaison: 0.8,
+};
+
+/** A new recruit's construction skill: their old job, give or take 15%. */
+export const rollBuild = (role: string, rand: () => number) => Math.round((BUILD_BY_ROLE[role] ?? 1) * (0.85 + rand() * 0.3) * 100) / 100;
+
+/** Construction skill, falling back on their old job for people from older saves. */
+export const buildSkill = (p: Person) => p.build ?? BUILD_BY_ROLE[p.role] ?? 1;
 /** Labs multiply research done at their base. */
 export const LAB_BONUS = 0.5;
 
@@ -42,6 +59,7 @@ export const LIAISON: Omit<Person, "id" | "base" | "job"> = {
   stats: { tu: 50, health: 30, bravery: 40, reactions: 40, accuracy: 40, melee: 30, armour: 0 },
   health: 30,
   aptitude: 1,
+  build: 0.8,
 };
 
 export interface Project {

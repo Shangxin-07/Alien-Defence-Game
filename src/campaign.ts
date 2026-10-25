@@ -1,12 +1,16 @@
-import { BaseLayout, Item, SavedBase, Site } from "./base/layout";
+import { BaseLayout, Builder, Item, SavedBase, Site } from "./base/layout";
 import { CITIES, City } from "./geoscape/cities";
 import { CAMPAIGN_START } from "./geoscape/clock";
 import { DEG, LatLon } from "./geoscape/geo";
-import { BUILDER_DAYS, LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, fitToWork, project } from "./staff";
+import { LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project } from "./staff";
 import type { Outcome } from "./tactical/battle";
 
 export const DAY_MS = 86_400_000;
-export const START_FUNDS = 4_000_000;
+/** Nobody is paying you yet: the opening is built by hand. */
+export const START_FUNDS = 0;
+/** Until governments take notice, the council sends what it can scrape together, once a month. */
+export const GRANT = 1_000_000;
+export const GRANT_DAYS = 30;
 /** Command can't stretch further than this many bases. */
 export const MAX_BASES = 8;
 /** A site this close to a city centre is inside the city. */
@@ -111,8 +115,6 @@ export class Campaign {
   readonly news: string[] = [];
   private nextId = 1;
   private nextPerson = 1;
-  /** Construction help carried over between days, per base. */
-  private readonly buildCredit = new Map<number, number>();
 
   /** Records the prologue. A replay never throws away a better result. */
   recordPrologue(r: PrologueRecord): void {
@@ -133,9 +135,27 @@ export class Campaign {
   enlist(people: Omit<Person, "id" | "base" | "job">[]): void {
     if (this.staff.length) return;
     const base = this.bases[0]?.id ?? null;
-    for (const p of people.length ? people : [LIAISON]) {
-      this.staff.push({ ...p, stats: { ...p.stats }, id: this.nextPerson++, base, job: "research" });
-    }
+    // One keeps the notes, everyone else digs. The first job is getting underground.
+    (people.length ? people : [LIAISON]).forEach((p, i) => {
+      this.staff.push({ ...p, stats: { ...p.stats }, id: this.nextPerson++, base, job: i === 0 ? "research" : "construction" });
+    });
+  }
+
+  /** Everyone fit and on construction at a base. */
+  builders(baseId: number): Builder[] {
+    return this.staff.filter((p) => p.base === baseId && p.job === "construction" && fitToWork(p)).map((p) => ({ id: p.id, skill: buildSkill(p) }));
+  }
+
+  /** Moves someone to another base. They start work there the next day. */
+  transfer(personId: number, baseId: number): void {
+    const p = this.staff.find((x) => x.id === personId);
+    if (!p || !this.bases.some((b) => b.id === baseId)) throw new Error("No such person or base");
+    p.base = baseId;
+  }
+
+  /** Days until the council's next grant. */
+  get nextGrant(): number {
+    return GRANT_DAYS - (this.day % GRANT_DAYS);
   }
 
   /** Whether some base can hold a live alien. */
@@ -179,8 +199,8 @@ export class Campaign {
     return Math.ceil((project(id).points - (this.research.progress[id] ?? 0)) / rate);
   }
 
-  /** One day of everyone's work: healing, research and help on the building sites. */
-  private workDay() {
+  /** One day of everyone's work: healing, research and the building sites. `day` is the day it ends on. */
+  private workDay(day: number): Completion[] {
     for (const p of this.staff) p.health = Math.min(p.stats.health, p.health + 1);
     const id = this.research.active;
     if (id) {
@@ -192,19 +212,16 @@ export class Campaign {
         this.news.push(`Research complete: ${project(id).name}`);
       }
     }
+    const done: Completion[] = [];
     for (const base of this.bases) {
-      const crew = this.staff.filter((p) => p.base === base.id && p.job === "construction" && fitToWork(p)).length;
-      if (!crew) continue;
-      let credit = (this.buildCredit.get(base.id) ?? 0) + crew * BUILDER_DAYS;
-      // Builders bring forward whatever is closest to done; the day tick itself finishes it.
-      while (credit >= 1) {
-        const next = [...base.layout.items.values()].filter((it) => it.daysLeft > 1).sort((a, b) => a.daysLeft - b.daysLeft)[0];
-        if (!next) break;
-        next.daysLeft--;
-        credit--;
-      }
-      this.buildCredit.set(base.id, Math.min(credit, 1));
+      base.layout.setCrew(this.builders(base.id));
+      for (const item of base.layout.workDay()) done.push({ base, item });
     }
+    if (day > 0 && day % GRANT_DAYS === 0) {
+      this.funds += GRANT;
+      this.news.push(`The council sends $${(GRANT / 1e6).toFixed(1)}M`);
+    }
+    return done;
   }
 
   /** Whole days since the campaign began. Construction moves on at each day boundary. */
@@ -257,6 +274,7 @@ export class Campaign {
   /** Lends the shared purse to a base while you build in it. Call `settle` after every change. */
   open(base: BaseRecord): BaseLayout {
     base.layout.funds = this.funds;
+    base.layout.setCrew(this.builders(base.id));
     return base.layout;
   }
 
@@ -271,10 +289,8 @@ export class Campaign {
     const days = this.day - before;
     if (days <= 0) return [];
     const done: Completion[] = [];
-    for (let d = 0; d < days; d++) {
-      this.workDay();
-      for (const base of this.bases) for (const item of base.layout.advance(1)) done.push({ base, item });
-    }
+    for (let d = 1; d <= days; d++) done.push(...this.workDay(before + d));
+    for (const base of this.bases) base.layout.setCrew(this.builders(base.id));
     return done;
   }
 
