@@ -164,7 +164,7 @@ function defaultHint(): string {
   if (battle.side !== "human") return `<span class="dim">Alien activity…</span>`;
   if (!selected) return `<span class="dim">Pick one of your people.</span>`;
   if (mode !== "move") return `<span class="dim">Pick a target. Esc or the same button cancels.</span>`;
-  return `<span class="dim">${lastPointer === "mouse" ? "Click" : "Tap"} a tile to move. Drag to pan, scroll or pinch to zoom.</span>`;
+  return `<span class="dim">${lastPointer === "mouse" ? "Click" : "Tap"} a tile to move. Drag or WASD to pan, Q/E to turn, scroll or pinch to zoom.</span>`;
 }
 
 let hintHtml = "";
@@ -597,9 +597,30 @@ $("camOut").addEventListener("click", () => cam.zoomBy(1.25));
   });
 }
 
+// WASD pans while held, relative to the way the view faces.
+const PAN_KEYS: Record<string, [keyof TacticalCamera["drive"], number]> = { w: ["forward", 1], s: ["forward", -1], a: ["right", -1], d: ["right", 1] };
+const held = new Set<string>();
+function steer() {
+  cam.drive.forward = (held.has("w") ? 1 : 0) - (held.has("s") ? 1 : 0);
+  cam.drive.right = (held.has("d") ? 1 : 0) - (held.has("a") ? 1 : 0);
+}
+window.addEventListener("keyup", (e) => {
+  if (held.delete(e.key.toLowerCase())) steer();
+});
+window.addEventListener("blur", () => {
+  held.clear();
+  steer();
+});
+
 window.addEventListener("keydown", (e) => {
   if (root.hidden || e.metaKey || e.ctrlKey || e.altKey || !$("combatModal").hidden) return;
   const k = e.key.toLowerCase();
+  if (PAN_KEYS[k]) {
+    held.add(k);
+    steer();
+    e.preventDefault();
+    return;
+  }
   const modes: Record<string, Mode> = { "1": "snap", "2": "aimed", "3": "auto", b: "stun", h: "heal", f: "face" };
   if (modes[k]) !busy() && setMode(modes[k]);
   else if (k === "k") $("kneel").click();

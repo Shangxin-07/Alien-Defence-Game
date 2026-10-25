@@ -18,6 +18,8 @@ export class TacticalCamera {
   onClick: (e: PointerEvent) => void = () => {};
   /** Keeps the focus on the map. */
   bounds = 20;
+  /** Panning from held keys: forward and right, each −1, 0 or 1. */
+  readonly drive = { forward: 0, right: 0 };
 
   private readonly pointers = new Map<number, { x: number; y: number }>();
   private dragMoved = 0;
@@ -50,6 +52,16 @@ export class TacticalCamera {
   }
 
   update(dt: number): void {
+    if (this.drive.forward || this.drive.right) {
+      // Relative to the view: forward is away from the camera. Faster when zoomed out.
+      const step = dt * this.distance * 0.9;
+      const yw = this.yaw * MathUtils.DEG2RAD;
+      const b = this.bounds;
+      const f = this.drive.forward;
+      const r = this.drive.right;
+      this.targetFocus.x = MathUtils.clamp(this.targetFocus.x + (-Math.sin(yw) * f + Math.cos(yw) * r) * step, -b, b);
+      this.targetFocus.z = MathUtils.clamp(this.targetFocus.z + (-Math.cos(yw) * f - Math.sin(yw) * r) * step, -b, b);
+    }
     const k = Math.min(1, dt * 7);
     this.distance += (this.targetDistance - this.distance) * k;
     this.yaw += (this.targetYaw - this.yaw) * k;
