@@ -52,7 +52,8 @@ export class TacticalView {
   private floorBase: Color[] = [];
   private readonly units = new Map<number, { g: Group; body: Group; target: Vector3; from: Vector3; t: number }>();
   private readonly selRing: Mesh;
-  private readonly ghost: Mesh;
+  /** Where each alien was last seen, while it's out of sight. */
+  private readonly ghosts = new Map<number, Mesh>();
   private readonly marks: InstancedMesh;
   private readonly reachMesh: InstancedMesh;
   private readonly fx: { obj: Object3D; life: number; max: number }[] = [];
@@ -72,12 +73,6 @@ export class TacticalView {
     this.selRing.position.y = 0.07;
     this.selRing.visible = false;
     this.root.add(this.selRing);
-
-    this.ghost = new Mesh(new RingGeometry(0.3, 0.44, 4, 1), new MeshBasicMaterial({ color: 0xe2553f, transparent: true, opacity: 0.8 }));
-    this.ghost.rotation.x = -Math.PI / 2;
-    this.ghost.position.y = 0.08;
-    this.ghost.visible = false;
-    this.root.add(this.ghost);
 
     const sq = new PlaneGeometry(0.34, 0.34);
     sq.rotateX(-Math.PI / 2);
@@ -246,7 +241,8 @@ export class TacticalView {
 
   // ---------- Units ----------
 
-  addUnit(u: Unit, color: string): void {
+  /** `size` scales the whole figure, `width` its shoulders; a `crest` marks whoever gives the orders. */
+  addUnit(u: Unit, color: string, shape: { size?: number; width?: number; crest?: boolean } = {}): void {
     const g = new Group();
     const body = new Group();
     const mat = new MeshLambertMaterial({ color });
@@ -261,6 +257,11 @@ export class TacticalView {
       const legs = new Mesh(new CylinderGeometry(0.06, 0.06, 0.4, 6), mat);
       legs.position.y = 0.2;
       body.add(torso, headM, eyes, legs);
+      if (shape.crest) {
+        const crest = new Mesh(new ConeGeometry(0.1, 0.36, 6), new MeshBasicMaterial({ color: 0xffd34d }));
+        crest.position.y = 1.85;
+        body.add(crest);
+      }
     } else {
       const torso = new Mesh(new CylinderGeometry(0.2, 0.17, 0.75, 10), mat);
       torso.position.y = 0.72;
@@ -274,7 +275,15 @@ export class TacticalView {
       body.add(torso, legs, headM, gun);
     }
     g.add(body);
+    g.scale.set(shape.width ?? 1, shape.size ?? 1, shape.width ?? 1);
     this.root.add(g);
+    if (u.side === "alien") {
+      const ghost = new Mesh(new RingGeometry(0.3, 0.44, 4, 1), new MeshBasicMaterial({ color: 0xe2553f, transparent: true, opacity: 0.8 }));
+      ghost.rotation.x = -Math.PI / 2;
+      ghost.visible = false;
+      this.root.add(ghost);
+      this.ghosts.set(u.id, ghost);
+    }
     const pos = this.world(u);
     g.position.copy(pos);
     this.units.set(u.id, { g, body, target: pos.clone(), from: pos.clone(), t: 1 });
@@ -283,7 +292,9 @@ export class TacticalView {
 
   clearUnits(): void {
     for (const v of this.units.values()) this.root.remove(v.g);
+    for (const g of this.ghosts.values()) this.root.remove(g);
     this.units.clear();
+    this.ghosts.clear();
   }
 
   /** Stance, facing and death, straight from the unit's state. */
@@ -331,11 +342,13 @@ export class TacticalView {
       v.t = 1;
       if (!conscious(u) && !v.body.userData.down) this.pose(u);
       else if (conscious(u)) this.pose(u);
-      v.g.visible = u.side === "human" || b.alienSeen || !conscious(u);
+      v.g.visible = u.side === "human" || b.isSeen(u) || !conscious(u);
+      const ghost = this.ghosts.get(u.id);
+      const last = b.lastSeen.get(u.id);
+      if (!ghost) continue;
+      ghost.visible = !b.isSeen(u) && !!last && conscious(u);
+      if (last) this.world(last, 0.08, ghost.position);
     }
-    const a = b.alien;
-    this.ghost.visible = !b.alienSeen && !!b.lastSeen && conscious(a);
-    if (b.lastSeen) this.world(b.lastSeen, 0.08, this.ghost.position);
     this.fog(b);
   }
 

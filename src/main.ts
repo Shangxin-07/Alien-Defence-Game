@@ -20,7 +20,8 @@ import { GlobeLabels } from "./geoscape/labels";
 import { buildMapTextures } from "./geoscape/mapTextures";
 import { OrbitView } from "./geoscape/orbitView";
 import { JOB_NAMES, Job, buildSkill, fitToWork, project, rollBuild } from "./staff";
-import { prologueCity, startAmbush, startPrologue } from "./tactical/prologue";
+import { readSquad } from "./tactical/aliens";
+import { prologueCity, rollForce, startAmbush, startPrologue } from "./tactical/prologue";
 
 const css = getComputedStyle(document.documentElement);
 const token = (name: string) => css.getPropertyValue(name).trim();
@@ -860,13 +861,21 @@ function checkAmbush() {
   $("staffModal").hidden = true;
   $("sightingModal").hidden = true;
   const team = run.team.map((id) => campaign.staff.find((p) => p.id === id)!);
+  if (run.fightSeed === undefined) {
+    run.fightSeed = Math.floor(Math.random() * 2 ** 31);
+    persist();
+  }
+  const force = rollForce(run.fightSeed, !!run.call);
+  const many = force.squad.members.length > 1;
+  const reads = readSquad(force.squad, campaign.knowledge(force.race));
   const intro = run.call
-    ? `The team answering the call got there, ${escape(run.call.place)}, and it's still there.`
+    ? `The team answering the call got there, ${escape(run.call.place)}, and ${many ? "they're" : "it's"} still there.`
     : `The run to ${escape(runWhere(run))} has run into an alien, alone and close.`;
   const odds = run.call
-    ? "Fight it and you might bring home a body or a prisoner, and what's left of its kit. Pull back and someone may get hurt getting away."
+    ? `Fight and you might bring home ${many ? "bodies or prisoners" : "a body or a prisoner"}, and what's left of the kit. Pull back and someone may get hurt getting away.`
     : "Fight it and you might bring home a body or a prisoner as well as the supplies. Run and you drop everything, and someone may get hurt getting away.";
   $("ambushBody").innerHTML = `<p>${intro}</p>
+    <ul class="reads">${reads.map((r) => `<li>${escape(r)}</li>`).join("")}</ul>
     <ul>${team.map((p) => `<li><b>${escape(p.name)}</b> <span class="dim">${escape(p.role)}, ${p.health}/${p.stats.health} HP</span></li>`).join("")}</ul>
     <p class="dim">${odds}</p>`;
   box.hidden = false;
@@ -889,7 +898,9 @@ $("ambushFight").addEventListener("click", () => {
   screen.hidden = true;
   view.enabled = false;
   const sighting = run.call ? { caller: run.call.caller, place: run.call.place, hours: (run.arrive! - run.call.at) / HOUR_MS } : undefined;
-  const fight = startAmbush(city, Math.floor(Math.random() * 2 ** 31), team, SITES[run.site].name, sighting);
+  const seed = run.fightSeed ?? Math.floor(Math.random() * 2 ** 31);
+  const race = rollForce(seed, !!run.call).race;
+  const fight = startAmbush(city, seed, team, SITES[run.site].name, sighting, campaign.knowledge(race));
   const back = () => {
     closeCombat();
     screen.hidden = false;
@@ -902,7 +913,7 @@ $("ambushFight").addEventListener("click", () => {
   openCombat({
     prologue: fight,
     finish: (r) => {
-      campaign.resolveAmbush({ outcome: r.outcome, people: r.people.map((p) => ({ id: p.id, health: p.health })) });
+      campaign.resolveAmbush({ outcome: r.outcome, recovered: r.recovered, race, people: r.people.map((p) => ({ id: p.id, health: p.health })) });
       back();
     },
     retry: () => {},

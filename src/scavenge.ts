@@ -179,6 +179,8 @@ export interface Run {
   loot: Supplies;
   /** Waiting on the player: they ran into an alien. */
   ambush?: boolean;
+  /** Seeds the fight, so who's out there is settled before the player chooses. */
+  fightSeed?: number;
   /** The place being scavenged, and its name in case it's gone by the time they're back. */
   place?: number;
   where?: string;

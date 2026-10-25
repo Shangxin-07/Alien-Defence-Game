@@ -3,7 +3,7 @@ import { Color, PerspectiveCamera, Plane, Raycaster, Scene, Vector2, Vector3, We
 import { Battle, BattleEvent, Outcome, Unit, alive, conscious } from "./tactical/battle";
 import { TacticalCamera } from "./tactical/camera";
 import { Point } from "./tactical/map";
-import { OUTCOME_TEXT, Prologue, SPOILS, briefing, unitLook } from "./tactical/prologue";
+import { OUTCOME_TEXT, Prologue, SPOILS, battleSpoils, briefing, unitLook, unitShape } from "./tactical/prologue";
 import { FireMode, KNEEL_TU, STAND_TU, Stats, tuCost } from "./tactical/rules";
 import { TacticalView } from "./tactical/view";
 
@@ -74,7 +74,7 @@ const pct = (n: number) => `${Math.round(n * 100)}%`;
 const escape = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const visibleAlienAt = (p: Point) => {
   const u = battle?.unitAt(p.x, p.y);
-  return u && u.side === "alien" && battle!.alienSeen ? u : undefined;
+  return u && u.side === "alien" && battle!.isSeen(u) ? u : undefined;
 };
 
 // ---------- Selecting and previewing ----------
@@ -124,7 +124,7 @@ function preview() {
   const tap = lastPointer === "mouse" ? "Click" : "Tap again";
   if (mode === "move") {
     const alien = visibleAlienAt(hover);
-    if (alien) return hint(`<b>The alien</b> ${lastPointer === "mouse" ? "Click" : "Tap"} it to line up your best shot.`);
+    if (alien) return hint(`<b>${escape(alien.name)}</b> ${lastPointer === "mouse" ? "Click" : "Tap"} it to line up your best shot.`);
     const own = battle.unitAt(hover.x, hover.y);
     if (own && own.side === "human") return hint(`<b>${escape(own.name)}</b> <span class="dim">${escape(own.role)}</span>`);
     if (!reach) return hint(defaultHint());
@@ -314,7 +314,7 @@ function apply(e: BattleEvent): number {
     case "damage": {
       const u = b.unit(e.unit);
       const pos = view.unitPos(u.id);
-      if (pos && (u.side === "human" || b.alienSeen || e.dead || e.out)) {
+      if (pos && (u.side === "human" || b.isSeen(u) || e.dead || e.out)) {
         floater(pos, e.stun ? `STUN ${e.amount}` : e.amount ? `−${e.amount}` : "0", e.stun ? "stun" : u.side);
       }
       if (e.dead || e.out) view.pose(u);
@@ -381,7 +381,7 @@ function refreshHud() {
     btn.disabled = !conscious(u);
     btn.innerHTML = `<span class="swatch"></span><span class="nm"></span><span class="meta"></span>`;
     (btn.querySelector(".swatch") as HTMLElement).style.background = unitLook(u);
-    btn.querySelector(".nm")!.textContent = u.name;
+    btn.querySelector(".nm")!.textContent = u.id === b.humanLeader ? `★ ${u.name}` : u.name;
     btn.querySelector(".meta")!.textContent = alive(u) ? `TU ${u.tu} · HP ${u.health}${u.wounds ? " · bleeding" : ""}${u.kneeling ? " · kneeling" : ""}` : "Killed";
     btn.addEventListener("click", () => !busy() && select(u));
     roster.appendChild(btn);
@@ -509,17 +509,18 @@ function modal(title: string, body: string, buttons: { label: string; go?: boole
 function brief(p: Prologue) {
   if (p.mission) {
     const m = p.mission;
-    const team = p.battle.humans.map((u) => `<li><b>${escape(u.name)}</b> <span class="dim">${escape(u.role)}, ${escape(u.weapon?.name.toLowerCase() ?? "unarmed")}, ${u.health}/${u.stats.health} HP</span></li>`);
+    const team = p.battle.humans.map((u) => `<li><b>${escape(u.name)}</b>${u.id === p.battle.humanLeader ? " ★ leads" : ""} <span class="dim">${escape(u.role)}, ${escape(u.weapon?.name.toLowerCase() ?? "unarmed")}, ${u.health}/${u.stats.health} HP</span></li>`);
     modal(
       m.title,
       `${m.intro.map((t) => `<p>${escape(t)}</p>`).join("")}
+       ${m.reads?.length ? `<h2>What we can tell</h2><ul class="reads">${m.reads.map((r) => `<li>${escape(r)}</li>`).join("")}</ul>` : ""}
        <ul class="squadlist">${team.join("")}</ul>
-       <p class="dim">Fleeing from the battlefield keeps half of what you found. Anyone who falls here is gone for good.</p>`,
+       <p class="dim">Fleeing from the battlefield keeps half of what you found. Anyone who falls here is gone for good.${p.battle.humanLeader !== null ? " Lose whoever leads (★) and the rest are shaken for a while." : ""}</p>`,
       [{ label: "Begin", go: true, run: () => banner("Turn 1") }],
     );
     return;
   }
-  const squad = p.battle.humans.map((u) => `<li><b>${escape(u.name)}</b> <span class="dim">${escape(u.role)}, ${escape(u.weapon?.name.toLowerCase() ?? "unarmed")}${u.tools.length ? `, ${u.tools.map((t) => t.tool.name.toLowerCase()).join(", ")}` : ""}</span></li>`);
+  const squad = p.battle.humans.map((u) => `<li><b>${escape(u.name)}</b>${u.id === p.battle.humanLeader ? " ★ leads" : ""} <span class="dim">${escape(u.role)}, ${escape(u.weapon?.name.toLowerCase() ?? "unarmed")}${u.tools.length ? `, ${u.tools.map((t) => t.tool.name.toLowerCase()).join(", ")}` : ""}</span></li>`);
   modal(
     `Prologue: ${p.city.name}`,
     `<p>${escape(briefing(p))}</p>
@@ -549,7 +550,7 @@ function results(o: Outcome) {
   const m = host?.prologue.mission;
   const t = (m?.outcomes ?? OUTCOME_TEXT)[o];
   const survivors = b.humans.filter(alive);
-  const recovered = (m?.spoils ?? SPOILS)[o];
+  const recovered = m?.countSpoils ? battleSpoils(b, o) : (m?.spoils ?? SPOILS)[o];
   const people = survivors.map((u) => ({ id: u.id, name: u.name, role: u.role, stats: { ...u.stats }, health: Math.max(1, u.health) }));
   const result: CombatResult = { outcome: o, recovered, survivors: survivors.length, turns: b.turn, people };
   const won = o === "captured" || o === "killed";
@@ -558,7 +559,7 @@ function results(o: Outcome) {
     modal(
       t.title,
       `<p>${t.text}</p>
-       ${recovered.length ? `<h2>Recovered</h2><ul class="spoillist">${recovered.map((r) => `<li>${r}</li>`).join("")}</ul>` : ""}
+       ${recovered.length ? `<h2>Recovered</h2><ul class="spoillist">${tally(recovered).map((r) => `<li>${r}</li>`).join("")}</ul>` : ""}
        <h2>The team</h2><ul class="squadlist">${roll}</ul>`,
       [{ label: "Back to the geoscape", go: true, run: () => host?.finish(result) }],
     );
@@ -577,6 +578,13 @@ function results(o: Outcome) {
           { label: "Try again", go: true, run: () => host?.retry() },
         ],
   );
+}
+
+/** "Alien corpse ×2" rather than the same line twice. */
+function tally(items: string[]): string[] {
+  const n = new Map<string, number>();
+  for (const i of items) n.set(i, (n.get(i) ?? 0) + 1);
+  return [...n].map(([i, k]) => (k > 1 ? `${i} ×${k}` : i));
 }
 
 // ---------- Buttons and keys ----------
@@ -679,10 +687,14 @@ export function openCombat(h: CombatHost): void {
   wait = 0;
   $("combatLog").replaceChildren();
   $("missionPlace").textContent = `${h.prologue.city.name} · ${h.prologue.mission ? "ambush" : "night"}`;
+  const several = battle.aliens.length > 1;
+  $("missionName").textContent = h.prologue.mission?.title.split(":")[0] ?? "Prologue";
+  $("objectiveMain").textContent = several ? "Kill them, or stun them to take them alive." : "Kill the alien, or stun it with the baton to take it alive.";
+  $("objectiveNote").textContent = several ? "Bring down the one giving orders and the rest come apart for a while." : "Taken alive, it's worth far more.";
   $("turnNo").textContent = String(battle.turn);
   view.clearUnits();
   view.build(battle.map, h.prologue.style, h.prologue.lights);
-  for (const u of battle.units) view.addUnit(u, unitLook(u));
+  for (const u of battle.units) view.addUnit(u, unitLook(u), unitShape(u));
   view.sync(battle);
   cam.bounds = battle.map.w / 2;
   // Portrait screens get closer in, or the people are specks.
@@ -693,7 +705,8 @@ export function openCombat(h: CombatHost): void {
     const w = view.world(selected);
     cam.lookAt(w.x, w.z, true);
   }
-  log(h.prologue.mission ? "It's heard you. Find it before it finds you." : "Stay quiet. It's out there.", "bad");
+  const many = battle.aliens.length > 1;
+  log(h.prologue.mission ? (many ? "They've heard you. Find them before they find you." : "It's heard you. Find it before it finds you.") : "Stay quiet. It's out there.", "bad");
   brief(h.prologue);
 }
 

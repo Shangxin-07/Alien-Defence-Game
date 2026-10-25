@@ -248,3 +248,90 @@ Sighting calls with travel on foot or by car, first cut. All numbers are placeho
   - Homes hold 10 (0–1 per person per day). The industrial estate holds 30 (0–3 per person per day).
   - The black market sells fuel at $4k a unit, in lots of 10.
 - Not yet built: the "first government contact" exit from the early game, and sightings that move or call back.
+
+## Step 5 as built
+
+Alien personalities and commanders, first cut. All numbers are placeholders. Food is untouched.
+
+### Races
+
+Three races, each with its own body, gun and personality norms (0 to 100 on each axis):
+
+| Race | What they're like | Gun | Aggression | Caution | Cohesion | Cunning |
+|---|---|---|---|---|---|---|
+| **Strider** | Tall and patient. The first night's Hunter was one. Senses heartbeats 12 tiles through walls. | Plasma pistol | 35–75 | 35–75 | 45–90 | 40–80 |
+| **Brute** | Big, slow, armoured (70 HP, armour 12). Senses 6 tiles. | Plasma scattergun: hits hard, useless past about 6 tiles | 60–100 | 0–35 | 20–65 | 0–30 |
+| **Shade** | Small and quick (72 TU, reactions 95). Can't sense you at all. | Needle rifle: long and very accurate | 10–45 | 55–100 | 10–55 | 60–100 |
+
+The prologue Hunter is always a Strider with its own stats. Per Mike, the map is random enough, so its personality barely varies: aggression 54–60, caution 58–64 and cunning 50–56. That's too low for it to lie in wait. Over 200 simulated seeds, a squad that only waits wins 19%, and one that only shoots wins 46% (it was 48%).
+
+### Rolling a squad
+
+- **The leader rolls the doctrine** inside the race's norms. Everyone else gets a nudge of up to ±12 on each axis.
+- **Mavericks:** about one in eight non-leaders gets a nudge of up to ±35, and can step 20 outside the race's norms. This is the hothead in a cautious pack.
+- **Ranks:** in a squad of two or more, one alien leads, with a crest on its head. In a squad of three, the second is next in line.
+- **Which fights get squads:**
+  - A scavenging run still meets one alien: a lone straggler, a Strider 60% of the time, a Brute or a Shade 20% each.
+  - A sighting can be a squad: one alien 50%, two 35%, three 15%. The race is Strider 50%, Brute 25%, Shade 25%.
+  - The squad is rolled from a seed kept on the run, so the fight-or-pull-back choice already shows what's there, and reloading doesn't change it.
+
+### How personality plays
+
+| Axis | What it changes |
+|---|---|
+| **Aggression** | Takes worse shots, keeps no TU back for reflexes, retreats later, closes in further. |
+| **Caution** | Breaks off sooner when hurt, and prefers spots next to cover. |
+| **Cohesion** | How hard losing an ally or the leader hits morale. A leaderless, tight-knit squad stops to regroup. |
+| **Cunning** | Flanks under orders. Lies in wait for up to two turns when close to its prey. |
+
+A lost alien no longer heads for the middle of town. It casts about somewhere near one of your people, and a trail it can see is empty goes cold. That stops fights stalling when nobody moves.
+
+### Morale and panic
+
+- **Losing an ally** costs each alien the usual bravery-based loss, times 0.5 to 1.5 by cohesion.
+- **Recovery:** aliens get back 10 morale a turn while someone is giving orders, and only 3 without.
+- **Panic:** below 50 morale, an alien may panic at the start of its turn, the same chance as your people. What it does depends on its nature:
+  - aggression 65 or more: it **goes berserk** and charges, shooting at anything
+  - otherwise, caution 50+ or cunning 60+: it **bolts for cover**
+  - otherwise: it **freezes**
+
+### Commanders
+
+When the alien giving orders is killed or knocked out:
+
+- **Coordination stops.** While someone leads, the squad shares sight (each can shoot at anything any of them sees), shares what it hears, piles onto whoever is already hurt, and flanks. Without a leader, each alien sees and hunts for itself.
+- **Reorganising:** for this turn and the next two, alien accuracy drops to 75% and reactions to 65%.
+- **Their morale:** each alien loses another 15 + 35% of its cohesion. Hotheads get 15 more aggression; the rest get 15 more caution.
+- **The second steps up** two turns later, if it's still standing. That ends the penalties and brings back shared sight and focus fire, but not flanking. Kill the second first and nobody steps up.
+- **Your side:** everyone gets +25 morale and is half as likely to panic for the rest of the fight.
+- **Spoils:** a leader brings home a **Commander corpse** or a **Live commander** instead of the usual body. Each opens its own research: *Commander autopsy* (22 points), or *Interrogate the commander* (30 points, needs containment).
+
+The same applies in reverse:
+
+- **Your leader** is your bravest person (marked ★). If they die, everyone else loses 20 morale and aims at 85% for this turn and the next.
+- The aliens gain 15 morale.
+
+### Hints, not numbers
+
+- **Before the fight** (on the fight-or-pull-back card and in the briefing), your people say what they can read. That's one line per axis that's well off the middle, for example "They're moving fast and loud" or "Something's been watching us".
+- **What they can read grows with knowledge.** Knowledge goes up by one for each fight against the race (the prologue counts for Striders), and by two once a commander has been researched.
+  - With no knowledge, they get one line and "More than one" for a squad.
+  - With some, they get the race's name, the exact count, and more lines.
+  - At knowledge 3, they're told to kill the one giving orders.
+- **During the fight**, a soldier remarks on a maverick or on the leader when it first comes into view, for example "That one's not waiting for the others" or "That one hangs back. The others keep looking at it".
+- **The log** reports what you'd notice: a squad falling apart, a berserker charging, something screaming in the dark, "Another one is giving the orders now".
+
+### Balance
+
+The squads are tuned to be brutal. These are from simulation, with a team of four that never moves and only shoots what it sees (a real player does better):
+
+| Fight | Win rate |
+|---|---|
+| One Strider | about 55% |
+| Two Striders | about 25% |
+| Three Striders | about 20% |
+| Brutes or Shades in squads | worse |
+
+You can always pull back from a sighting before the fight. The briefing tells you as much as your people know.
+
+Not built yet: commander kills slowing how fast a race learns your tactics (that waits for step 6), and mixed-race squads.

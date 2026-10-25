@@ -93,6 +93,28 @@ export const WEAPONS: Record<string, Weapon> = {
     ammo: 99,
     alien: true,
   },
+  /** A Brute's gun: a wide, short spray of plasma. Deadly up close, wild beyond a few streets' width. */
+  plasmaScatter: {
+    id: "plasmaScatter",
+    name: "Plasma scattergun",
+    power: 48,
+    modes: { snap: { tuPct: 30, acc: 80, shots: 1 }, aimed: { tuPct: 50, acc: 95, shots: 1 } },
+    range: 6,
+    falloff: 7,
+    ammo: 99,
+    alien: true,
+  },
+  /** A Shade's gun: quiet, long and very accurate, and it doesn't hit as hard. */
+  needleRifle: {
+    id: "needleRifle",
+    name: "Needle rifle",
+    power: 40,
+    modes: { snap: { tuPct: 28, acc: 70, shots: 1 }, aimed: { tuPct: 55, acc: 115, shots: 1 } },
+    range: 22,
+    falloff: 1,
+    ammo: 99,
+    alien: true,
+  },
 };
 
 export const TOOLS: Record<string, Tool> = {
