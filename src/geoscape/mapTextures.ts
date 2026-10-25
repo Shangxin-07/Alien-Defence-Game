@@ -28,9 +28,33 @@ function landPath(W: number, H: number): Path2D {
   const py = (lat: number) => ((90 - lat / 10) / 180) * H;
   const path = new Path2D();
   for (const r of LAND as number[][]) {
-    path.moveTo(px(r[0]), py(r[1]));
-    for (let i = 2; i < r.length; i += 2) path.lineTo(px(r[i]), py(r[i + 1]));
-    path.closePath();
+    // Unwrap longitudes so a ring crossing the date line stays in one piece (Eurasia does),
+    // instead of jumping across the whole map and painting a band of false land and sea.
+    const pts: [number, number][] = [];
+    let lon = r[0];
+    for (let i = 0; i < r.length; i += 2) {
+      if (i) {
+        let d = r[i] - r[i - 2];
+        if (d > 1800) d -= 3600;
+        else if (d < -1800) d += 3600;
+        lon += d;
+      }
+      pts.push([lon, r[i + 1]]);
+    }
+    // A ring that goes all the way round (Antarctica) closes along the pole instead.
+    const wrap = pts[pts.length - 1][0] - pts[0][0];
+    if (Math.abs(wrap) > 1800) {
+      const pole = pts.reduce((a, p) => a + p[1], 0) < 0 ? -900 : 900;
+      pts.push([pts[pts.length - 1][0], pole], [pts[0][0], pole]);
+    }
+    // Draw it where it falls and one world either side, so pieces past ±180° land on the map.
+    for (const shift of [-3600, 0, 3600]) {
+      const xs = pts.map((p) => p[0] + shift);
+      if (Math.max(...xs) < -1800 || Math.min(...xs) > 1800) continue;
+      path.moveTo(px(xs[0]), py(pts[0][1]));
+      for (let i = 1; i < pts.length; i++) path.lineTo(px(xs[i]), py(pts[i][1]));
+      path.closePath();
+    }
   }
   return path;
 }
