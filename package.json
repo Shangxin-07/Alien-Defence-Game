@@ -1,0 +1,26 @@
+{
+  "name": "alien-defence-game",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A brutal, turn-based alien defence game in the vein of UFO: Enemy Unknown.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build:land": "node scripts/build-land.mjs"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.170.0",
+    "topojson-client": "3.1.0",
+    "typescript": "5.6.3",
+    "vite": "5.4.21",
+    "vitest": "2.1.9",
+    "world-atlas": "2.0.2"
+  }
+}
