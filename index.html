@@ -28,6 +28,10 @@
           <span class="name">Recruitment</span>
           <span class="meta" id="recruitSummary">—</span>
         </button>
+        <button id="openSightings" class="staffbtn" type="button" hidden>
+          <span class="name">Sightings</span>
+          <span class="meta" id="sightingSummary">—</span>
+        </button>
         <button id="openStaff" class="staffbtn" type="button" hidden>
           <span class="name">Staff &amp; research</span>
           <span class="meta" id="staffSummary">—</span>
@@ -104,6 +108,28 @@
           <ul id="recruiterList" class="people"></ul>
           <div class="sendrow"><span id="recruitOdds" class="dim"></span><button id="sendRecruit" class="go" type="button">Send them</button></div>
           <p class="dim note">Recruiters walk the streets and talk. Most people want something for joining, and the better they are, the more they ask. Keep the promise and they grow loyal. Break it, or let their family go hungry, and loyalty drops; under 30 they walk out, and the bitterest take food with them. Drifters ask for nothing and bring little. People who wait too long for an answer move on.</p>
+        </div>
+      </div>
+
+      <div class="modal" id="sightingModal" hidden>
+        <div class="card staffcard" role="dialog" aria-modal="true" aria-labelledby="sightingTitle">
+          <div class="cardhead">
+            <h1 id="sightingTitle">Sightings</h1>
+            <button id="closeSightings" type="button">Close</button>
+          </div>
+          <h2>Calls</h2>
+          <ul id="callList" class="projects"></ul>
+          <h2>How to get there</h2>
+          <div class="seg" id="callTravel"></div>
+          <h2>Who goes</h2>
+          <ul id="callTeamList" class="people"></ul>
+          <div class="sendrow"><span id="callOdds" class="dim"></span><button id="sendCall" class="go" type="button">Go</button></div>
+          <h2>Out now</h2>
+          <ul id="responseList" class="people"></ul>
+          <h2>Vehicles</h2>
+          <ul id="vehicleList" class="people"></ul>
+          <div class="sendrow"><span id="repairOdds" class="dim"></span><button id="startRepair" type="button">Fix up a car</button></div>
+          <p class="dim note">With no radar, aliens are found because someone saw one and got word to you. An alien moves on within 8 hours of being seen, so every hour on the road lowers the chance it's still there. Walking covers 5 km an hour; a car covers 40 but burns a unit of fuel every 8 km, there and back. Fixing up an abandoned car takes scrap for parts and your handiest people for days. Win and you bring home the body or the alien, scrap off its kit, and a little goodwill.</p>
         </div>
       </div>
 

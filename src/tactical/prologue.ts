@@ -188,7 +188,18 @@ export function startPrologue(city: City, seed: number): Prologue {
  * A scavenging run gone wrong: the team on the run, cornered by a lone alien in a city block.
  * Everyone carries what their old job gave them; anyone else has a pistol.
  */
-export function startAmbush(city: City, seed: number, team: Scavenger[], place: string): Prologue {
+/** A sighting being answered, for the briefing: who called, where, and how long the team took. */
+export interface SightingBrief {
+  caller: string;
+  place: string;
+  hours: number;
+}
+
+/**
+ * A small fight against one alien: a scavenging run that met it by accident, or, with `sighting`,
+ * a team that answered a call and found it still there.
+ */
+export function startAmbush(city: City, seed: number, team: Scavenger[], place: string, sighting?: SightingBrief): Prologue {
   const biome = biomeAt(city.lat, city.lon);
   const style = CITY_STYLES[biome];
   const s = (seed ^ hashText(city.name + place)) >>> 0;
@@ -259,6 +270,17 @@ export function startAmbush(city: City, seed: number, team: Scavenger[], place: 
     },
     spoils: { captured: ["Live alien"], killed: ["Alien corpse"], fled: [], wiped: [] },
   };
+  if (sighting) {
+    const took = sighting.hours < 1 ? `${Math.max(5, Math.round(sighting.hours * 60))} minutes` : `${Math.round(sighting.hours * 10) / 10} hours`;
+    mission.title = `Sighting: ${city.name}`;
+    mission.intro = [
+      `${sighting.caller} called it in: something ${sighting.place}. ${who} got there ${took} after it was seen, and it's still here.`,
+      `It's alone and it doesn't know you've come. Kill it, knock it out and bring it home, or pull back before it sees you.`,
+    ];
+    mission.outcomes.captured.text = "It's down and breathing. You get it home before anyone else turns up. Keep it somewhere it can't get out of.";
+    mission.outcomes.killed.text = "It's dead. You strip what you can off its kit and take the body home.";
+    mission.outcomes.fled = { title: "You pulled back", text: "You got clear. It's gone again, and so is the chance." };
+  }
   return { mission, city, biome, style, battle, lights: field.lights, seed };
 }
 
