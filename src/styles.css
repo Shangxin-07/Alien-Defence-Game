@@ -190,3 +190,25 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   .clock { font-size: 17px; }
   .speeds button { padding: 4px 5px; font-size: 10px; }
 }
+/* Staff and research */
+#globeScreen .staffbtn { display: grid; gap: 1px; text-align: left; width: 100%; }
+.staffbtn .name { font-family: var(--display); font-weight: 700; font-size: 12px; letter-spacing: 0.08em; color: var(--coast); }
+.staffbtn .meta { color: var(--dim); font-size: 10px; }
+.staffcard { max-width: 620px; }
+.staffcard .cardhead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.staffcard .meter { height: 6px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); }
+.staffcard .meter i { display: block; height: 100%; background: var(--coast); }
+.staffcard ul.projects, .staffcard ul.people { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+#globeScreen .projects button { width: 100%; display: grid; gap: 2px; text-align: left; padding: 6px 8px; }
+.projects .name { font-family: var(--display); font-weight: 700; letter-spacing: 0.06em; }
+.projects .meta { color: var(--dim); font-size: 11px; }
+#globeScreen .projects button[aria-pressed="true"] { background: var(--amber); color: var(--void); border-color: var(--amber); }
+#globeScreen .projects button[aria-pressed="true"] .meta { color: var(--void); }
+#globeScreen .projects button:disabled { opacity: 0.5; cursor: default; }
+.people li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.people b { font-family: var(--display); letter-spacing: 0.06em; }
+.people .meta { color: var(--dim); font-size: 11px; }
+.people select { font: inherit; font-size: 12px; color: var(--ink); background: var(--void); border: 1px solid var(--line); padding: 4px 6px; }
+.staffcard .note { font-size: 11px; }
+.donelist summary { cursor: pointer; color: var(--coast); }
+.donelist ul { margin-top: 6px; font-size: 12px; }

@@ -18,6 +18,10 @@
         <h2>Global defence network</h2>
         <div class="row"><span>Funds</span><span id="globeFunds">—</span></div>
         <div id="spoils" class="spoils" hidden></div>
+        <button id="openStaff" class="staffbtn" type="button" hidden>
+          <span class="name">Staff &amp; research</span>
+          <span class="meta" id="staffSummary">—</span>
+        </button>
         <ul id="baseList" class="baselist" aria-label="Bases"></ul>
         <div class="cmds">
           <button id="replayPrologue" class="quiet" type="button">Replay prologue</button>
@@ -51,6 +55,25 @@
       </section>
 
       <div class="banner" id="banner" hidden></div>
+
+      <div class="modal" id="staffModal" hidden>
+        <div class="card staffcard" role="dialog" aria-modal="true" aria-labelledby="staffTitle">
+          <div class="cardhead">
+            <h1 id="staffTitle">Staff &amp; research</h1>
+            <button id="closeStaff" type="button">Close</button>
+          </div>
+          <h2>Research</h2>
+          <div id="researchNow"></div>
+          <ul id="projectList" class="projects"></ul>
+          <h2>People</h2>
+          <ul id="staffList" class="people"></ul>
+          <p class="dim note">Anyone can do any job. Fewer people means slower work, never no work. Labs speed research at their base by half again; each builder brings construction forward a quarter of a day each day. Anyone under half health rests until they heal, a point a day.</p>
+          <details class="donelist" id="doneBox" hidden>
+            <summary>What we've learned</summary>
+            <ul id="doneList"></ul>
+          </details>
+        </div>
+      </div>
     </div>
 
     <div id="baseScreen" class="base" hidden>
@@ -113,6 +136,11 @@
           <li>Kill the alien, or stun it with the baton to take it alive.</li>
           <li class="dim">Taken alive, it's worth far more.</li>
         </ul>
+        <label class="setting" title="How long the pointer rests on a tile before its route is drawn">
+          <span>Route preview</span>
+          <input id="routeDelay" type="range" min="1" max="7" step="1" />
+          <span id="routeDelayValue">2 s</span>
+        </label>
         <button id="abandon" class="quiet" type="button">Run for it</button>
       </section>
 

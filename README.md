@@ -19,6 +19,19 @@ pistol; running or dying brings nothing. Then you choose a city for your first b
 the one you just escaped. The geoscape panel shows what you recovered, and you can replay the
 prologue from there.
 
+- **The survivors become your first staff.** Whoever walked out (wounds and all) moves into
+  your first base. If nobody did, the council sends a liaison, so there is always someone. In
+  **Staff & research** on the geoscape, put each person on research, construction or rest. Anyone
+  can do any job: fewer people makes everything slower, never impossible. Research works on one
+  project at a time, at about a point a day per person (each has a random aptitude of 80–120%), and
+  labs at their base add half again. Builders bring their base's construction forward a quarter of a
+  day each per day. Anyone under half health rests and heals a point a day. The first projects come
+  from the night itself (debrief, the crash site, alien alloys) and from what you brought home (the
+  plasma pistol, an autopsy, interrogating a live captive once you have alien containment, the
+  tracking implant).
+- **Route preview.** Rest the pointer on a tile and the route there is drawn after a delay you
+  set with the Route preview slider (1–6 seconds, default 2, or off). The tiles you can reach are
+  always tinted.
 - **Everything runs on stats.** Each person has time units, health, accuracy, reactions,
   bravery, melee and armour, varied a little per person. Moving costs 4 TU a step, 6 diagonally,
   more through doors and rubble; turning costs 1 TU per 45°; kneeling 4, standing 8. Snap, aimed
@@ -121,7 +134,8 @@ a spot and again to build.
 - `src/geoscape/mapTextures.ts`: draws the map, night lights and border textures
 - `src/geoscape/globe.ts`, `labels.ts`, `baseMarks.ts`, `orbitView.ts`: rendering, labels, base
   markers and camera controls
-- `src/campaign.ts`: the campaign: shared clock and funds, site surveys, founding bases, saving
+- `src/campaign.ts`: the campaign: shared clock and funds, site surveys, founding bases, staff, research, saving
+- `src/staff.ts`: people, jobs and the research projects
 - `src/main.ts`, `src/base.ts`, `src/combat.ts`: the geoscape, base and combat screens
 - `src/tactical/rules.ts`: stats, weapons, TU costs, accuracy and damage
 - `src/tactical/map.ts`: the battlefield grid, line of sight and pathfinding

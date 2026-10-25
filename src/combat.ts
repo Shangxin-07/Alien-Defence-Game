@@ -4,13 +4,15 @@ import { Battle, BattleEvent, Outcome, Unit, alive, conscious } from "./tactical
 import { TacticalCamera } from "./tactical/camera";
 import { Point } from "./tactical/map";
 import { OUTCOME_TEXT, Prologue, SPOILS, briefing, unitLook } from "./tactical/prologue";
-import { FireMode, KNEEL_TU, STAND_TU, tuCost } from "./tactical/rules";
+import { FireMode, KNEEL_TU, STAND_TU, Stats, tuCost } from "./tactical/rules";
 import { TacticalView } from "./tactical/view";
 
 export interface CombatResult {
   outcome: Outcome;
   recovered: string[];
   survivors: number;
+  /** Who walked out, as they are now. */
+  people: { name: string; role: string; stats: Stats; health: number }[];
   turns: number;
 }
 
@@ -129,6 +131,8 @@ function preview() {
     const i = battle.map.idx(hover.x, hover.y);
     const c = reach.cost[i];
     if (!Number.isFinite(c)) return hint(`<span class="bad">Can't get there this turn.</span>`);
+    // With a mouse the route waits until the pointer has rested on a tile a while; a tap shows it at once.
+    if (lastPointer === "mouse" && !routeReady) return hint(`<b>Move</b> <span class="dim">${routeDelay ? "Hold still to plot the route." : ""} Click to go.</span>`);
     const path = battle.map.route(reach.prev, hover);
     view.showPath(path, true);
     const stand = selected.kneeling ? STAND_TU : 0;
@@ -170,12 +174,54 @@ function hint(html: string) {
   $("combatHint").innerHTML = html;
 }
 
+// ---------- Route preview delay ----------
+/** Seconds the pointer must rest on a tile before its route is plotted; 0 means never. */
+const ROUTE_KEY = "alien-defence.routeDelay";
+const ROUTE_OFF = 7;
+let routeDelay = 2;
+try {
+  const saved = Number(localStorage.getItem(ROUTE_KEY));
+  if (saved >= 1 && saved <= ROUTE_OFF) routeDelay = saved === ROUTE_OFF ? 0 : saved;
+} catch {
+  // Settings are a convenience only.
+}
+let routeReady = false;
+let routeTimer = 0;
+function restartRouteTimer() {
+  routeReady = false;
+  clearTimeout(routeTimer);
+  if (!routeDelay) return;
+  routeTimer = window.setTimeout(() => {
+    routeReady = true;
+    preview();
+  }, routeDelay * 1000);
+}
+{
+  const slider = $("routeDelay") as HTMLInputElement;
+  const label = $("routeDelayValue");
+  const show = () => (label.textContent = routeDelay ? `${routeDelay} s` : "Off");
+  slider.value = String(routeDelay || ROUTE_OFF);
+  show();
+  slider.addEventListener("input", () => {
+    const v = Number(slider.value);
+    routeDelay = v === ROUTE_OFF ? 0 : v;
+    show();
+    try {
+      localStorage.setItem(ROUTE_KEY, String(v));
+    } catch {
+      // Not saved; fine.
+    }
+    restartRouteTimer();
+  });
+}
+
 canvas.addEventListener("pointermove", (e) => {
   if (e.pointerType !== "mouse" || cam.isDragging) return;
   lastPointer = "mouse";
   const t = pickTile(e);
   if (same(t, hover)) return;
   hover = t;
+  restartRouteTimer();
   preview();
 });
 
@@ -491,15 +537,16 @@ function results(o: Outcome) {
   const t = OUTCOME_TEXT[o];
   const survivors = b.humans.filter(alive);
   const recovered = SPOILS[o];
-  const result: CombatResult = { outcome: o, recovered, survivors: survivors.length, turns: b.turn };
+  const people = survivors.map((u) => ({ name: u.name, role: u.role, stats: { ...u.stats }, health: Math.max(1, u.health) }));
+  const result: CombatResult = { outcome: o, recovered, survivors: survivors.length, turns: b.turn, people };
   const won = o === "captured" || o === "killed";
-  const people = b.humans.map((u) => `<li>${escape(u.name)} <span class="${alive(u) ? "dim" : "bad"}">${alive(u) ? `${u.health}/${u.stats.health} HP` : "killed"}</span></li>`).join("");
+  const roll = b.humans.map((u) => `<li>${escape(u.name)} <span class="${alive(u) ? "dim" : "bad"}">${alive(u) ? `${u.health}/${u.stats.health} HP` : "killed"}</span></li>`).join("");
   modal(
     t.title,
     `<p>${t.text}</p>
      ${recovered.length ? `<h2>Recovered</h2><ul class="spoillist">${recovered.map((r) => `<li>${r}</li>`).join("")}</ul>` : ""}
-     <h2>Survivors</h2><ul class="squadlist">${people}</ul>
-     <p class="dim">${won ? "This is where the war starts. Choose a city for your first base." : "The war starts anyway, without anything to show for tonight."}</p>`,
+     <h2>Survivors</h2><ul class="squadlist">${roll}</ul>
+     <p class="dim">${won ? "This is where the war starts. Choose a city for your first base: whoever made it out moves in and goes to work." : "The war starts anyway, without anything to show for tonight."}</p>`,
     won
       ? [{ label: "Continue to the geoscape", go: true, run: () => host?.finish(result) }]
       : [
