@@ -111,32 +111,17 @@ export class BaseLayout {
   }
 
   /**
-   * A small working base like the one you start the campaign with.
-   * A city base hides under a block of buildings and starts with a lab; a remote one has a hangar and radar up top.
+   * A new base, as bought. A city base is a single front building in a city block, with no way down
+   * until it's converted into an access point. A remote base is just the access lift.
    */
   static starter(site: Site = "city", seed = 7): BaseLayout {
     const b = new BaseLayout(4_000_000, site);
-    const put = (type: RoomId, level: number, x: number, y: number, rotated = false) =>
-      b.place(type, level, x, y, rotated, { free: true, instant: true });
-    put("lift", 0, 4, 4);
     if (site === "city") {
+      b.insert({ uid: b.nextUid++, type: "frontBuilding", level: 0, x: 3, y: 3, w: 2, h: 2, daysLeft: 0 });
       b.raiseCity(seed);
-      put("lift", 1, 4, 4);
-      for (const [x, y] of [[4, 3], [4, 5], [3, 4], [5, 4]]) put("tunnel", 1, x, y);
-      put("quarters", 1, 2, 2);
-      put("generator", 1, 5, 2);
-      put("stores", 1, 2, 5);
-      put("lab", 1, 5, 5);
-      return b;
+    } else {
+      b.place("lift", 0, 4, 4, false, { free: true, instant: true });
     }
-    put("tunnel", 0, 4, 3);
-    put("hangar", 0, 1, 1);
-    put("radar", 0, 5, 4);
-    put("lift", 1, 4, 4);
-    for (const [x, y] of [[4, 3], [4, 5], [3, 4], [5, 4]]) put("tunnel", 1, x, y);
-    put("quarters", 1, 2, 2);
-    put("generator", 1, 5, 2);
-    put("stores", 1, 2, 5);
     return b;
   }
 
@@ -175,9 +160,18 @@ export class BaseLayout {
     if (def.siting === "surface" && level !== 0) return `${def.name} must be on the surface`;
     if (def.siting === "underground" && level === 0) return `${def.name} must be underground`;
     if (!inGrid(x, y) || !inGrid(x + w - 1, y + h - 1)) return "Outside the base perimeter";
+    if (def.convertsFrom) {
+      const from = ROOMS[def.convertsFrom];
+      const target = this.itemAt(level, x, y);
+      if (target?.type !== def.convertsFrom || target.x !== x || target.y !== y) return `Must be built in place of your ${from.name.toLowerCase()}`;
+      return this.cost(type, level) > this.funds ? "Not enough funds" : null;
+    }
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (this.itemAt(level, i, j)) return "Space already taken";
     if (this.cost(type, level) > this.funds) return "Not enough funds";
-    if (!this.items.size) return type === "lift" && level === 0 ? null : "Start with an access lift on the surface";
+    if (!this.hasEntrance()) {
+      if (this.site === "city") return `Convert your ${ROOMS.frontBuilding.name.toLowerCase()} into an access point first`;
+      return type === "lift" && level === 0 ? null : "Start with an access lift on the surface";
+    }
     if (!this.wouldJoin(type, level, x, y, w, h)) {
       return def.conductor ? "Must join an existing room, tunnel or lift" : "Must open onto a tunnel or lift";
     }
@@ -195,6 +189,7 @@ export class BaseLayout {
     const reason = opts.free ? this.checkIgnoringFunds(type, level, x, y, rotated) : this.check(type, level, x, y, rotated);
     if (reason) throw new Error(reason);
     if (!opts.free) this.funds -= this.cost(type, level);
+    if (ROOMS[type].convertsFrom) this.remove(this.itemAt(level, x, y)!);
     const item: Item = { uid: this.nextUid++, type, level, x, y, ...this.footprint(type, rotated), daysLeft: opts.instant ? 0 : ROOMS[type].days };
     this.insert(item);
     return item;
@@ -204,9 +199,10 @@ export class BaseLayout {
   checkDemolish(uid: number): string | null {
     const it = this.items.get(uid);
     if (!it) return "Nothing there";
+    if (ROOMS[it.type].owned) return "This is your base. Convert it into an access point instead";
     if (ROOMS[it.type].detritus && ROOMS[it.type].cost > this.funds) return "Not enough funds to clear it";
-    if (it.type === "lift" && it.level === 0) {
-      const others = [...this.items.values()].some((o) => o !== it && o.type === "lift" && o.level === 0);
+    if (ROOMS[it.type].shaft && it.level === 0) {
+      const others = [...this.items.values()].some((o) => o !== it && ROOMS[o.type].shaft && o.level === 0);
       if (!others) return "The base needs a surface entrance";
     }
     return null;
@@ -221,9 +217,7 @@ export class BaseLayout {
       this.funds -= def.cost;
       this.heat += def.exposure ?? 0;
     }
-    this.forCells(it, (i) => (this.cells[it.level][i] = 0));
-    this.items.delete(uid);
-    this.statusCache = null;
+    this.remove(it);
   }
 
   /** Runs the clock forward; returns what finished building. */
@@ -317,12 +311,12 @@ export class BaseLayout {
     return { supply, demand, capacity, radar, building };
   }
 
-  /** Built items with a route back to a surface lift. */
+  /** Built items with a route back to a surface lift or access point. */
   private linked(): Set<number> {
     const seen = new Set<number>();
     const queue: Item[] = [];
     for (const it of this.items.values()) {
-      if (it.type === "lift" && it.level === 0 && !it.daysLeft) {
+      if (ROOMS[it.type].shaft && it.level === 0 && !it.daysLeft) {
         seen.add(it.uid);
         queue.push(it);
       }
@@ -332,12 +326,7 @@ export class BaseLayout {
       // Only tunnels and lifts pass people along; rooms are dead ends.
       if (!ROOMS[it.type].conductor) continue;
       const next: Item[] = this.neighbours(it);
-      if (it.type === "lift") {
-        for (const dl of [-1, 1]) {
-          const o = this.itemAt(it.level + dl, it.x, it.y);
-          if (o?.type === "lift") next.push(o);
-        }
-      }
+      if (ROOMS[it.type].shaft) next.push(...this.stackedShafts(it.level, it.x, it.y, it.w, it.h));
       for (const o of next) {
         if (o.daysLeft || seen.has(o.uid)) continue;
         seen.add(o.uid);
@@ -372,9 +361,26 @@ export class BaseLayout {
         }
       }
     }
-    if (type === "lift") {
-      for (const dl of [-1, 1]) if (this.itemAt(level + dl, x, y)?.type === "lift") return true;
+    return !!ROOMS[type].shaft && this.stackedShafts(level, x, y, w, h).length > 0;
+  }
+
+  /** Lift shafts directly above or below any cell of this footprint. */
+  private stackedShafts(level: number, x: number, y: number, w: number, h: number): Item[] {
+    const out = new Set<Item>();
+    for (const dl of [-1, 1]) {
+      for (let j = y; j < y + h; j++) {
+        for (let i = x; i < x + w; i++) {
+          const o = this.itemAt(level + dl, i, j);
+          if (o && ROOMS[o.type].shaft) out.add(o);
+        }
+      }
     }
+    return [...out];
+  }
+
+  /** A way in from the surface exists or is being built. */
+  hasEntrance(): boolean {
+    for (const it of this.items.values()) if (it.level === 0 && ROOMS[it.type].shaft) return true;
     return false;
   }
 
@@ -402,6 +408,12 @@ export class BaseLayout {
     } finally {
       this.funds = funds;
     }
+  }
+
+  private remove(it: Item) {
+    this.forCells(it, (i) => (this.cells[it.level][i] = 0));
+    this.items.delete(it.uid);
+    this.statusCache = null;
   }
 
   private insert(it: Item) {

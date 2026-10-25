@@ -20,9 +20,11 @@ Geoscape prototype: a stylised 3D Earth you can spin and zoom.
 Base building prototype (`base.html`): dig out a base on an 8×8 grid over four levels, the
 surface plus three underground.
 
-- **Two kinds of site.** The first base is covert, dug under a city block. The surface is already
-  built on: clearing a building costs money and **cover**, and so does anything you put up in plain
-  sight. Underground is never seen. Remote bases get open ground and no cover to lose.
+- **Two kinds of site.** The first base is covert, in a city block. It starts as a single front
+  building with no way down: convert it into an access point (a lift inside the building) before
+  you can dig. The rest of the surface is already built on: clearing a building costs money and
+  **cover**, and so does anything you put up in plain sight. Underground is never seen. Remote bases
+  start as just the access lift on open ground, with no cover to lose.
 - **Base types come from what you build.** Labs and containment count as research, workshops and
   stores as manufacturing, radar as surveillance, and hangars, missile batteries and medical bays as
   military. When one role holds 40%, 60% or 80% of that floor space the base becomes a specialist

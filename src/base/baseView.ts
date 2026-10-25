@@ -101,6 +101,9 @@ export class BaseView {
         if (it.level !== level) continue;
         if (ROOMS[it.type].detritus) {
           g.add(this.building(it.x + it.w / 2 - GRID / 2, it.y + it.h / 2 - GRID / 2, it.w - 0.1, it.h - 0.1, ROOMS[it.type].height, new Color(ROOMS[it.type].color)));
+          if (depth === 0 && ROOMS[it.type].owned) {
+            this.tags.push({ uid: it.uid, text: ROOMS[it.type].short, status: "online", pos: new Vector3(it.x + it.w / 2 - GRID / 2, levelY(level) + ROOMS[it.type].height + 0.15, it.y + it.h / 2 - GRID / 2) });
+          }
           continue;
         }
         const st = statuses.get(it.uid)!;
@@ -114,14 +117,19 @@ export class BaseView {
     }
   }
 
-  /** Outlines where lifts sit on the levels above and below, so new lifts can be stacked on them. */
+  /** Outlines where lift shafts sit on the levels above and below, so new lifts can be stacked on them. */
   private markLiftsNearby(g: Group, layout: BaseLayout, level: number) {
     for (const it of layout.items.values()) {
-      if (it.type !== "lift" || Math.abs(it.level - level) !== 1 || layout.itemAt(level, it.x, it.y)) continue;
-      const e = new LineSegments(boxEdges, new LineBasicMaterial({ color: ROOMS.lift.color, transparent: true, opacity: 0.8 }));
-      e.scale.set(0.8, 0.02, 0.8);
-      e.position.set(it.x + 0.5 - GRID / 2, 0.02, it.y + 0.5 - GRID / 2);
-      g.add(e);
+      if (!ROOMS[it.type].shaft || Math.abs(it.level - level) !== 1) continue;
+      for (let y = it.y; y < it.y + it.h; y++) {
+        for (let x = it.x; x < it.x + it.w; x++) {
+          if (layout.itemAt(level, x, y)) continue;
+          const e = new LineSegments(boxEdges, new LineBasicMaterial({ color: ROOMS.lift.color, transparent: true, opacity: 0.8 }));
+          e.scale.set(0.8, 0.02, 0.8);
+          e.position.set(x + 0.5 - GRID / 2, 0.02, y + 0.5 - GRID / 2);
+          g.add(e);
+        }
+      }
     }
   }
 
@@ -245,11 +253,16 @@ export class BaseView {
     }
 
     // Lift shafts drop to the lift on the level below.
-    if (it.type === "lift" && layout.itemAt(it.level + 1, it.x, it.y)?.type === "lift") {
-      const shaft = new Mesh(box, new MeshStandardMaterial({ color: def.color, transparent: true, opacity: 0.25 * opacity, depthWrite: false }));
-      shaft.scale.set(0.34, LEVEL_GAP, 0.34);
-      shaft.position.set(cx, -LEVEL_GAP / 2, cz);
-      g.add(shaft);
+    if (!def.shaft) return;
+    for (let y = it.y; y < it.y + it.h; y++) {
+      for (let x = it.x; x < it.x + it.w; x++) {
+        const below = layout.itemAt(it.level + 1, x, y);
+        if (!below || !ROOMS[below.type].shaft) continue;
+        const shaft = new Mesh(box, new MeshStandardMaterial({ color: def.color, transparent: true, opacity: 0.25 * opacity, depthWrite: false }));
+        shaft.scale.set(0.34, LEVEL_GAP, 0.34);
+        shaft.position.set(x + 0.5 - GRID / 2, -LEVEL_GAP / 2, y + 0.5 - GRID / 2);
+        g.add(shaft);
+      }
     }
   }
 }

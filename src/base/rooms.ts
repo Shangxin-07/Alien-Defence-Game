@@ -2,6 +2,7 @@
 
 export type RoomId =
   | "lift"
+  | "accessPoint"
   | "tunnel"
   | "hangar"
   | "radar"
@@ -15,6 +16,7 @@ export type RoomId =
   | "generator"
   | "containment"
   // City buildings already standing on the site. They can't be built, only cleared.
+  | "frontBuilding"
   | "tower"
   | "apartments"
   | "warehouse"
@@ -45,6 +47,10 @@ export interface RoomDef {
   radar?: number;
   /** Tunnels and lifts carry people between rooms. Rooms only open onto them, never onto each other. */
   conductor?: boolean;
+  /** Carries a lift shaft: links to shafts directly above and below, and on the surface it's an entrance. */
+  shaft?: boolean;
+  /** Built by converting this existing building in place, rather than on open ground. */
+  convertsFrom?: RoomId;
   role?: Role;
   /**
    * How much a city base's cover suffers when this stands on the surface.
@@ -53,6 +59,8 @@ export interface RoomDef {
   exposure?: number;
   /** A city building that was here first. Clearing it costs `cost` and some cover. */
   detritus?: boolean;
+  /** One of ours: can't be cleared, only converted. */
+  owned?: boolean;
   color: string;
   /** Height of the room's block in the base view, in cells. */
   height: number;
@@ -61,9 +69,14 @@ export interface RoomDef {
 
 export const ROOMS: Record<RoomId, RoomDef> = {
   lift: {
-    id: "lift", name: "Access lift", short: "LIFT", w: 1, h: 1, cost: 120_000, days: 6, power: 1, siting: "any",
-    provides: {}, conductor: true, color: "#9fb3bb", height: 0.75,
+    id: "lift", name: "Access lift", short: "LIFT", w: 1, h: 1, cost: 120_000, days: 6, power: 0, siting: "any",
+    provides: {}, conductor: true, shaft: true, color: "#9fb3bb", height: 0.75,
     blurb: "Connects to lifts directly above and below. The lift on the surface is the base entrance.",
+  },
+  accessPoint: {
+    id: "accessPoint", name: "Access point", short: "ACCESS", w: 2, h: 2, cost: 150_000, days: 8, power: 0, siting: "surface",
+    provides: {}, conductor: true, shaft: true, convertsFrom: "frontBuilding", exposure: 0, color: "#7f939c", height: 1,
+    blurb: "Your front building, gutted and fitted with a lift shaft. From outside nothing has changed.",
   },
   tunnel: {
     id: "tunnel", name: "Tunnel", short: "", w: 1, h: 1, cost: 20_000, days: 2, power: 0, siting: "any",
@@ -125,6 +138,11 @@ export const ROOMS: Record<RoomId, RoomDef> = {
     provides: { containment: 10 }, role: "research", color: "#b05cc7", height: 0.6,
     blurb: "Holds 10 live aliens. Underground only, and only a fool keeps it near the quarters.",
   },
+  frontBuilding: {
+    id: "frontBuilding", name: "Front building", short: "FRONT", w: 2, h: 2, cost: 0, days: 0, power: 0, siting: "surface",
+    provides: {}, detritus: true, owned: true, exposure: 0, color: "#55636e", height: 1,
+    blurb: "Bought through a shell company. Convert it into an access point to start digging.",
+  },
   tower: {
     id: "tower", name: "Office tower", short: "", w: 2, h: 2, cost: 450_000, days: 0, power: 0, siting: "surface",
     provides: {}, detritus: true, exposure: 10, color: "#4a5761", height: 1.9,
@@ -164,7 +182,7 @@ export const ROLE_BONUS: Record<Role, string> = {
 
 /** Build menu order. */
 export const ROOM_ORDER: RoomId[] = [
-  "tunnel", "lift", "quarters", "lab", "workshop", "stores", "medbay", "generator",
+  "accessPoint", "tunnel", "lift", "quarters", "lab", "workshop", "stores", "medbay", "generator",
   "containment", "hangar", "radar", "largeRadar", "defence",
 ];
 

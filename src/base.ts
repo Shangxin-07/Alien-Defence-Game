@@ -6,8 +6,8 @@ import { BaseView, levelY } from "./base/baseView";
 import { BaseLayout, GRID, Item, ItemStatus, LEVELS, LEVEL_NAMES, Site, surfaceExposure } from "./base/layout";
 import { ROLE_BONUS, ROLE_NAMES, ROOMS, ROOM_ORDER, RoomId, powerSupply } from "./base/rooms";
 
-// Bumped when city sites arrived so everyone starts on the new city base. Older saves load as remote bases.
-const SAVE_KEY = "alien-defence.base.v2";
+// Bumped whenever the starting base changes, so everyone gets the new start. Older saves load as remote bases.
+const SAVE_KEY = "alien-defence.base.v3";
 document.body.classList.add("base");
 
 const css = getComputedStyle(document.documentElement);
@@ -80,6 +80,9 @@ function pickCell(e: PointerEvent): { x: number; y: number } | null {
 /** Top-left cell of the room being placed, so the cursor sits near the middle of it. */
 function anchor(type: RoomId, at: { x: number; y: number }) {
   const { w, h } = layout.footprint(type, rotated);
+  // Conversions snap onto the building they replace.
+  const under = layout.itemAt(active, at.x, at.y);
+  if (under && under.type === ROOMS[type].convertsFrom) return { x: under.x, y: under.y, w, h };
   return { x: at.x - Math.floor((w - 1) / 2), y: at.y - Math.floor((h - 1) / 2), w, h };
 }
 
@@ -94,6 +97,7 @@ const STATUS_TEXT: Record<ItemStatus, string> = {
 };
 function describeItem(it: Item): string {
   const def = ROOMS[it.type];
+  if (def.owned) return `<b>${def.name}</b> <span class="dim">Yours</span><br>${def.blurb} ${convertHint()}`;
   if (def.detritus) return `<b>${def.name}</b> <span class="dim">City building</span><br>${def.blurb} ${clearingCost(it.type)}`;
   const st = layout.status(it.uid);
   const state = st === "building" ? `${STATUS_TEXT[st]}, ${it.daysLeft} days left` : STATUS_TEXT[st];
@@ -159,7 +163,14 @@ function updatePreview() {
 
 let lastPointer: "mouse" | "touch" = "mouse";
 const tapToAct = (verb: string) => (lastPointer === "mouse" ? `Click to ${verb}.` : `Tap again to ${verb}.`);
+function convertHint(): string {
+  return `<span class="dim">Pick ${ROOMS.accessPoint.name} in the build list, then this building.</span>`;
+}
+
 function defaultHint() {
+  if (!layout.hasEntrance() && layout.site === "city" && tool.kind !== "demolish") {
+    return `<span class="dim">No way underground yet. Convert your front building into an access point to start digging: pick ${ROOMS.accessPoint.name} in the build list, then the building.</span>`;
+  }
   if (tool.kind === "build") return `<span class="dim">Pick a spot for the ${ROOMS[tool.type].name.toLowerCase()}. Rooms must open onto a tunnel or lift.</span>`;
   if (tool.kind === "demolish") {
     return `<span class="dim">Pick something to tear down.${layout.site === "city" ? " City buildings cost money and cover to clear." : ""}</span>`;
@@ -207,6 +218,7 @@ cam.onClick = (e) => {
     const reason = layout.check(tool.type, active, a.x, a.y, rotated);
     if (reason) return toast(reason, true);
     layout.place(tool.type, active, a.x, a.y, rotated);
+    if (ROOMS[tool.type].convertsFrom) setTool({ kind: "inspect" });
     if (lastPointer === "touch") hover = null;
   } else {
     const it = layout.itemAt(active, c.x, c.y);
@@ -253,6 +265,11 @@ function updatePalette() {
   for (const li of $("palette").children) {
     const b = li.firstElementChild as HTMLButtonElement;
     const def = ROOMS[b.dataset.type as RoomId];
+    // Conversions only show while there's something to convert.
+    if (def.convertsFrom) {
+      const from = def.convertsFrom;
+      (li as HTMLElement).hidden = ![...layout.items.values()].some((it) => it.type === from);
+    }
     const wrongLevel = (def.siting === "surface" && active !== 0) || (def.siting === "underground" && active === 0);
     const cost = layout.cost(def.id, active);
     const power = def.id === "generator" ? (active ? `+${powerSupply(active)}` : "") : def.power ? `−${def.power}` : "";
