@@ -79,7 +79,7 @@
 .st.building { color: var(--amber); }
 .st.isolated, .st.unpowered { color: var(--alert); }
 
-#labels .tag {
+.labels .tag {
   font-family: var(--display);
   font-size: 10px;
   font-weight: 700;
@@ -87,8 +87,8 @@
   color: var(--ink);
   text-shadow: 0 0 3px var(--void), 0 0 2px var(--void);
 }
-#labels .tag.building { color: var(--amber); }
-#labels .tag.isolated, #labels .tag.unpowered { color: var(--alert); }
+.labels .tag.building { color: var(--amber); }
+.labels .tag.isolated, .labels .tag.unpowered { color: var(--alert); }
 
 #toast {
   position: fixed;
@@ -146,6 +146,7 @@
 .type { display: grid; gap: 2px; padding: 4px 0; border-block: 1px solid var(--line); cursor: help; }
 #baseType { font-family: var(--display); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); font-size: 12px; }
 #bonus { font-size: 11px; }
-.newbase { display: flex; gap: 4px; margin-top: 10px; }
-.newbase button { flex: 1; }
 .base button.bad { border-color: var(--alert); color: var(--alert); }
+.stats > details { justify-self: stretch; }
+.base button.nav { border: 0; padding: 0; color: var(--coast); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.base button.nav:hover { text-decoration: underline; }

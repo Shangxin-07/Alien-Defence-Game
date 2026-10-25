@@ -15,7 +15,10 @@ export class OrbitView {
   distance = 3.4;
   targetDistance = 3.4;
   onClick: (e: PointerEvent) => void = () => {};
+  /** Off while another screen is showing, so its keys don't spin the globe. */
+  enabled = true;
 
+  private focus: { lat: number; lon: number } | null = null;
   private vLat = 0;
   private vLon = 0;
   private readonly pointers = new Map<number, { x: number; y: number; t: number }>();
@@ -42,7 +45,23 @@ export class OrbitView {
     this.touch();
   }
 
+  /** Swings the camera round to look down on a spot. Any drag takes back control. */
+  flyTo(lat: number, lon: number): void {
+    this.focus = { lat: MathUtils.clamp(lat, -MAX_LAT, MAX_LAT), lon };
+    this.vLat = this.vLon = 0;
+    this.touch();
+  }
+
   update(dt: number, now: number): void {
+    if (this.focus) {
+      const k = Math.min(1, dt * 4);
+      // Go the short way round.
+      const dLon = ((((this.focus.lon - this.lon) % 360) + 540) % 360) - 180;
+      this.lon += dLon * k;
+      this.lat += (this.focus.lat - this.lat) * k;
+      if (Math.abs(dLon) < 0.05 && Math.abs(this.focus.lat - this.lat) < 0.05) this.focus = null;
+      this.touch();
+    }
     if (!this.pointers.size) {
       this.lon += this.vLon * dt * 57.6;
       this.lat = MathUtils.clamp(this.lat + this.vLat * dt * 57.6, -MAX_LAT, MAX_LAT);
@@ -71,6 +90,7 @@ export class OrbitView {
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now() });
     this.dragMoved = 0;
     this.vLat = this.vLon = 0;
+    this.focus = null;
     if (this.pointers.size === 2) {
       const [a, b] = [...this.pointers.values()];
       this.pinch = { span: Math.hypot(a.x - b.x, a.y - b.y), distance: this.targetDistance };
@@ -120,6 +140,7 @@ export class OrbitView {
   };
 
   private key = (e: KeyboardEvent) => {
+    if (!this.enabled) return;
     const step: Record<string, [number, number]> = { ArrowLeft: [0, -6], ArrowRight: [0, 6], ArrowUp: [4, 0], ArrowDown: [-4, 0] };
     const s = step[e.key];
     if (s) {

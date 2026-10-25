@@ -7,6 +7,8 @@ import {
   Color,
   DoubleSide,
   Group,
+  LineBasicMaterial,
+  LineLoop,
   Mesh,
   MeshBasicMaterial,
   Points,
@@ -85,10 +87,12 @@ export class Globe {
   readonly sunDirection = new Vector3(1, 0, 0);
   private readonly marker = new Group();
   private readonly pulse: Mesh<RingGeometry, MeshBasicMaterial>;
+  private readonly radar = new Group();
+  private readonly radarMaterial: LineBasicMaterial;
 
   private readonly uniforms;
 
-  constructor(scene: Scene, map: Texture, overlay: Texture, markerColor: Color, borderColor: Color) {
+  constructor(scene: Scene, map: Texture, overlay: Texture, markerColor: Color, borderColor: Color, radarColor: Color) {
     this.uniforms = {
       map: { value: map },
       overlay: { value: overlay },
@@ -131,6 +135,41 @@ export class Globe {
     );
     this.marker.visible = false;
     scene.add(this.marker);
+
+    this.radarMaterial = new LineBasicMaterial({ color: radarColor, transparent: true, opacity: 0.9, depthWrite: false });
+    scene.add(this.radar);
+  }
+
+  /** Draws each base's radar cover as a ring on the ground. Radius is the angle at the Earth's centre, in radians. */
+  setRadar(rings: { lat: number; lon: number; radius: number }[]): void {
+    for (const c of this.radar.children) (c as LineLoop).geometry.dispose();
+    this.radar.clear();
+    const centre = new Vector3();
+    const u = new Vector3();
+    const v = new Vector3();
+    for (const r of rings) {
+      latLonToVector(r.lat, r.lon, 1, centre);
+      // Two directions at right angles to the centre to sweep the ring around.
+      u.set(0, 1, 0).cross(centre);
+      if (u.lengthSq() < 1e-6) u.set(1, 0, 0);
+      u.normalize();
+      v.copy(centre).cross(u);
+      const n = 96;
+      const pos = new Float32Array(n * 3);
+      const p = new Vector3();
+      for (let i = 0; i < n; i++) {
+        const t = (i / n) * Math.PI * 2;
+        p.copy(centre)
+          .multiplyScalar(Math.cos(r.radius))
+          .addScaledVector(u, Math.cos(t) * Math.sin(r.radius))
+          .addScaledVector(v, Math.sin(t) * Math.sin(r.radius))
+          .multiplyScalar(1.003);
+        p.toArray(pos, i * 3);
+      }
+      const g = new BufferGeometry();
+      g.setAttribute("position", new BufferAttribute(pos, 3));
+      this.radar.add(new LineLoop(g, this.radarMaterial));
+    }
   }
 
   setSun(subsolar: LatLon): void {
@@ -142,6 +181,10 @@ export class Globe {
     this.marker.position.copy(p);
     this.marker.lookAt(p.clone().multiplyScalar(2));
     this.marker.visible = true;
+  }
+
+  hideMarker(): void {
+    this.marker.visible = false;
   }
 
   /** Bloc borders fade in as the camera zooms in. */
