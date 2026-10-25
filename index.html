@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Alien Defence: Geoscape</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Share+Tech+Mono&display=swap" />
+  </head>
+  <body>
+    <canvas id="stage" aria-label="Rotatable globe of Earth"></canvas>
+
+    <section class="hud tl">
+      <h1>Geoscape</h1>
+      <h2>Global defence network</h2>
+    </section>
+
+    <section class="hud tr" aria-label="Time controls">
+      <div class="clock" id="clock">00:00:00</div>
+      <div class="date" id="date">—</div>
+      <div class="speeds" id="speeds"></div>
+    </section>
+
+    <section class="hud bl" aria-label="Site readout">
+      <div class="row"><span>Cursor</span><span id="cursor">—</span></div>
+      <div class="row"><span>Base site</span><span id="site" class="site" aria-live="polite">none marked</span></div>
+      <div class="row"><span>Site lighting</span><span id="light">—</span></div>
+      <div class="hint">Drag to spin. Scroll or pinch to zoom. Click land or sea to mark a base site.</div>
+    </section>
+
+    <section class="hud br zoom" aria-label="Zoom">
+      <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
+      <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
