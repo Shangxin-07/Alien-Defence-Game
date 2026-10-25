@@ -1,3 +1,4 @@
+import { SCRAP_VALUE } from "../scavenge";
 import { Capacity, DEPTH_COST, ROOMS, Role, RoomDef, RoomId, TIER_RANK, Tier, powerSupply } from "./rooms";
 
 /** Cells along each side of a level. */
@@ -123,6 +124,8 @@ const inGrid = (x: number, y: number) => x >= 0 && y >= 0 && x < GRID && y < GRI
 /** A base: up to four stacked grids of rooms joined by tunnels and lifts. */
 export class BaseLayout {
   funds: number;
+  /** Scrap on hand, lent by the campaign like funds. It pays for rooms before money does. */
+  scrap = 0;
   day = 0;
   readonly site: Site;
   /** Cover already spent clearing city buildings. */
@@ -177,6 +180,17 @@ export class BaseLayout {
     return Math.round((ROOMS[type].cost * DEPTH_COST[level]) / 1000) * 1000;
   }
 
+  /** How a price gets paid: scrap first, then money for the rest. */
+  payment(cost: number): { scrap: number; money: number } {
+    const scrap = Math.min(this.scrap, Math.ceil(cost / SCRAP_VALUE));
+    return { scrap, money: Math.max(0, cost - scrap * SCRAP_VALUE) };
+  }
+
+  /** True if scrap and money together cover it. */
+  canAfford(cost: number): boolean {
+    return cost <= this.funds + this.scrap * SCRAP_VALUE;
+  }
+
   /** Person-days to build, deeper digging taking longer. */
   work(type: RoomId, level: number): number {
     return Math.round(ROOMS[type].work * DEPTH_COST[level]);
@@ -203,10 +217,10 @@ export class BaseLayout {
         return def.convertsFrom === "frontBuilding" ? `Must be built in place of your ${from.name.toLowerCase()}` : `Must be fitted into a finished ${from.name.toLowerCase()}`;
       }
       if (target.workLeft) return `Finish the ${from.name.toLowerCase()} first`;
-      return this.cost(type, level) > this.funds ? "Not enough funds" : null;
+      return this.canAfford(this.cost(type, level)) ? null : "Not enough funds or scrap";
     }
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (this.itemAt(level, i, j)) return "Space already taken";
-    if (this.cost(type, level) > this.funds) return "Not enough funds";
+    if (!this.canAfford(this.cost(type, level))) return "Not enough funds or scrap";
     if (!this.hasEntrance()) {
       if (this.site === "city") return `Convert your ${ROOMS.frontBuilding.name.toLowerCase()} into an access point first`;
       return ROOMS[type].shaft && level === 0 ? null : "Start with a way down from the surface";
@@ -227,7 +241,11 @@ export class BaseLayout {
   ): Item {
     const reason = opts.free ? this.checkIgnoringFunds(type, level, x, y, rotated) : this.check(type, level, x, y, rotated);
     if (reason) throw new Error(reason);
-    if (!opts.free) this.funds -= this.cost(type, level);
+    if (!opts.free) {
+      const pay = this.payment(this.cost(type, level));
+      this.scrap -= pay.scrap;
+      this.funds -= pay.money;
+    }
     let from: RoomId | undefined;
     if (ROOMS[type].convertsFrom) {
       from = this.itemAt(level, x, y)!.type;

@@ -19,6 +19,11 @@
         <div class="row"><span>Funds</span><span id="globeFunds">—</span></div>
         <div class="row"><span>Council grant</span><span id="globeGrant">—</span></div>
         <div id="spoils" class="spoils" hidden></div>
+        <div class="row" id="suppliesRow" hidden><span>Supplies</span><span id="globeSupplies">—</span></div>
+        <button id="openScavenge" class="staffbtn" type="button" hidden>
+          <span class="name">Scavenging</span>
+          <span class="meta" id="scavengeSummary">—</span>
+        </button>
         <button id="openStaff" class="staffbtn" type="button" hidden>
           <span class="name">Staff &amp; research</span>
           <span class="meta" id="staffSummary">—</span>
@@ -56,6 +61,37 @@
       </section>
 
       <div class="banner" id="banner" hidden></div>
+
+      <div class="modal" id="scavengeModal" hidden>
+        <div class="card staffcard" role="dialog" aria-modal="true" aria-labelledby="scavengeTitle">
+          <div class="cardhead">
+            <h1 id="scavengeTitle">Scavenging</h1>
+            <button id="closeScavenge" type="button">Close</button>
+          </div>
+          <div id="supplyRows"></div>
+          <h2>Out now</h2>
+          <ul id="runList" class="people"></ul>
+          <h2>Where</h2>
+          <ul id="siteList" class="projects"></ul>
+          <h2>How long</h2>
+          <div class="seg" id="runDays"></div>
+          <h2>Who goes</h2>
+          <ul id="teamList" class="people"></ul>
+          <div class="sendrow"><span id="runOdds" class="dim"></span><button id="sendRun" class="go" type="button">Send them</button></div>
+          <p class="dim note">Everyone eats a unit of food a day. Hungry people work at half pace and stop healing, and after a few hungry days they start to leave. Medicine goes to whoever is too hurt to work and heals them faster. Scrap pays for rooms before money does, at $10k a unit. Places get picked over as you work them and fill up again slowly. Small teams are harder to spot, but a lone scavenger who meets an alien is on their own.</p>
+        </div>
+      </div>
+
+      <div class="modal" id="ambushModal" hidden>
+        <div class="card" role="dialog" aria-modal="true" aria-labelledby="ambushTitle">
+          <h1 id="ambushTitle">Contact</h1>
+          <div id="ambushBody"></div>
+          <div class="actions">
+            <button id="ambushFlee" type="button">Run for it</button>
+            <button id="ambushFight" class="go" type="button">Fight</button>
+          </div>
+        </div>
+      </div>
 
       <div class="modal" id="staffModal" hidden>
         <div class="card staffcard" role="dialog" aria-modal="true" aria-labelledby="staffTitle">

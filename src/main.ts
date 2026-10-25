@@ -4,6 +4,7 @@ import { closeBase, openBase } from "./base";
 import { ROOMS } from "./base/rooms";
 import { BaseRecord, Campaign, Completion, GRANT, nmiToRadians } from "./campaign";
 import { closeCombat, openCombat } from "./combat";
+import { MAX_RUN_DAYS, MAX_TEAM, SITES, SITE_ORDER, SiteId, cleanChance, describeSupplies } from "./scavenge";
 import type { Stats } from "./tactical/rules";
 import { BaseMarks } from "./geoscape/baseMarks";
 import { BIOMES, BIOME_ORDER, biomeAt } from "./geoscape/biomes";
@@ -16,7 +17,7 @@ import { GlobeLabels } from "./geoscape/labels";
 import { buildMapTextures } from "./geoscape/mapTextures";
 import { OrbitView } from "./geoscape/orbitView";
 import { JOB_NAMES, Job, buildSkill, fitToWork, project, rollBuild } from "./staff";
-import { prologueCity, startPrologue } from "./tactical/prologue";
+import { prologueCity, startAmbush, startPrologue } from "./tactical/prologue";
 
 const css = getComputedStyle(document.documentElement);
 const token = (name: string) => css.getPropertyValue(name).trim();
@@ -197,6 +198,16 @@ function refreshBases() {
   const spoils = $("spoils");
   spoils.hidden = !pro?.recovered.length;
   $("openStaff").hidden = !campaign.staff.length;
+  const started = !!campaign.bases.length;
+  $("suppliesRow").hidden = !started;
+  $("openScavenge").hidden = !started;
+  const s = campaign.supplies;
+  const days = campaign.foodDays;
+  $("globeSupplies").textContent = `${s.food} food (${days === Infinity ? "—" : `${days}d`}) · ${s.medicine} med · ${s.scrap} scrap`;
+  $("globeSupplies").className = days < 3 ? "bad" : "";
+  $("scavengeSummary").textContent = campaign.runs.length
+    ? campaign.runs.map((r) => `${SITES[r.site].name}${r.ambush ? ", in trouble" : `, ${r.daysLeft}d`}`).join(" · ")
+    : "Nobody out";
   $("staffSummary").textContent = staffSummary();
   if (pro?.recovered.length) spoils.innerHTML = `<b>Recovered in ${escape(pro.city)}</b><span class="dim">${pro.recovered.map(escape).join(", ")}</span>`;
   marks.set(
@@ -249,6 +260,8 @@ function lightText(ll: LatLon): string {
 function refresh() {
   refreshBases();
   refreshSurvey();
+  if (!$("scavengeModal").hidden) refreshScavenge();
+  checkAmbush();
   lastClock = "";
 }
 
@@ -292,24 +305,28 @@ function enterBase(b: BaseRecord) {
       clock.time = campaign.time;
       campaign.open(b);
       persist();
+      // A run in trouble pulls you out of the base to deal with it.
+      if (campaign.ambush) window.setTimeout(() => leaveBase(b), 0);
       return done.map(({ base, item }) => ({ base: base.name, item }));
     },
     save: () => {
       campaign.settle(b);
       persist();
     },
-    leave: () => {
-      campaign.settle(b);
-      persist();
-      closeBase();
-      screen.hidden = false;
-      view.enabled = true;
-      picked = { kind: "base", id: b.id };
-      globe.hideMarker();
-      resize();
-      refresh();
-    },
+    leave: () => leaveBase(b),
   });
+}
+
+function leaveBase(b: BaseRecord) {
+  campaign.settle(b);
+  persist();
+  closeBase();
+  screen.hidden = false;
+  view.enabled = true;
+  picked = { kind: "base", id: b.id };
+  globe.hideMarker();
+  resize();
+  refresh();
 }
 
 // ---------- Staff and research ----------
@@ -362,8 +379,11 @@ function refreshStaff() {
     li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div></div><div class="pick"><select aria-label="Base"></select><select aria-label="Job"></select></div>`;
     li.querySelector("b")!.textContent = p.name;
     li.querySelector(".dim")!.textContent = p.role;
-    li.querySelector(".meta")!.textContent = `${where} · HP ${p.health}/${p.stats.health}${fit ? "" : " · recovering"} · build ${buildSkill(p).toFixed(2)} · research ${p.aptitude.toFixed(2)}`;
+    const run = campaign.runs.find((r) => r.id === p.away);
+    const status = `${run ? ` · out at the ${SITES[run.site].name.toLowerCase()}` : ""}${p.hunger ? ` · hungry ${p.hunger}d` : ""}`;
+    li.querySelector(".meta")!.textContent = `${where}${status} · HP ${p.health}/${p.stats.health}${fit ? "" : " · recovering"} · build ${buildSkill(p).toFixed(2)} · research ${p.aptitude.toFixed(2)}`;
     const [baseSel, sel] = li.querySelectorAll("select");
+    baseSel.disabled = sel.disabled = !!p.away;
     baseSel.hidden = campaign.bases.length < 2;
     for (const b of campaign.bases) {
       const o = document.createElement("option");
@@ -405,6 +425,165 @@ $("closeStaff").addEventListener("click", () => ($("staffModal").hidden = true))
 $("staffModal").addEventListener("click", (e) => {
   if (e.target === $("staffModal")) $("staffModal").hidden = true;
 });
+
+// ---------- Scavenging ----------
+let runSite: SiteId = "homes";
+let runDays = 1;
+const runTeam = new Set<number>();
+
+function refreshScavenge() {
+  const s = campaign.supplies;
+  const days = campaign.foodDays;
+  $("supplyRows").innerHTML = `
+    <div class="row"><span>Food</span><span${days < 3 ? ' class="bad"' : ""}>${s.food}, ${days === Infinity ? "nobody to feed" : `${days} day${days === 1 ? "" : "s"} for ${campaign.staff.length}`}</span></div>
+    <div class="row"><span>Medicine</span><span>${s.medicine}</span></div>
+    <div class="row"><span>Scrap</span><span>${s.scrap} (worth ${money(s.scrap * 10_000)} in rooms)</span></div>`;
+  const runs = $("runList");
+  runs.replaceChildren();
+  for (const r of campaign.runs) {
+    const li = document.createElement("li");
+    const names = r.team.map((id) => campaign.staff.find((p) => p.id === id)?.name ?? "?").join(", ");
+    li.innerHTML = `<div><b></b><div class="meta"></div></div>`;
+    li.querySelector("b")!.textContent = SITES[r.site].name;
+    li.querySelector(".meta")!.textContent = `${names} · ${r.ambush ? "in a fight" : `back in ${r.daysLeft}d`} · found ${describeSupplies(r.loot)}`;
+    runs.appendChild(li);
+  }
+  if (!campaign.runs.length) runs.innerHTML = `<li class="dim">Nobody is out.</li>`;
+  const sites = $("siteList");
+  sites.replaceChildren();
+  for (const id of SITE_ORDER) {
+    const site = SITES[id];
+    const rich = campaign.richness[id] ?? 1;
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(id === runSite));
+    const finds = Object.entries(site.yields).map(([k, [lo, hi]]) => `${k} ${lo}–${hi}`).join(", ");
+    b.innerHTML = `<span class="name"></span><span class="meta"></span>`;
+    b.querySelector(".name")!.textContent = site.name;
+    b.querySelector(".meta")!.textContent = `${site.blurb} Each person finds ${finds} a day${rich < 0.95 ? `, ${Math.round(rich * 100)}% of that now it's been picked over` : ""}.`;
+    b.addEventListener("click", () => {
+      runSite = id;
+      refreshScavenge();
+    });
+    li.appendChild(b);
+    sites.appendChild(li);
+  }
+  const seg = $("runDays");
+  seg.replaceChildren();
+  for (let d = 1; d <= MAX_RUN_DAYS; d++) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = `${d} day${d === 1 ? "" : "s"}`;
+    b.setAttribute("aria-pressed", String(d === runDays));
+    b.addEventListener("click", () => {
+      runDays = d;
+      refreshScavenge();
+    });
+    seg.appendChild(b);
+  }
+  const team = $("teamList");
+  team.replaceChildren();
+  for (const p of campaign.staff) {
+    const free = campaign.canScavenge(p);
+    if (!free) runTeam.delete(p.id);
+    const li = document.createElement("li");
+    li.innerHTML = `<label><input type="checkbox" /><span><b></b> <span class="dim"></span><span class="meta"></span></span></label>`;
+    const box = li.querySelector("input")!;
+    box.checked = runTeam.has(p.id);
+    box.disabled = !free || (!box.checked && runTeam.size >= MAX_TEAM);
+    li.querySelector("b")!.textContent = p.name;
+    li.querySelector(".dim")!.textContent = p.role;
+    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !free ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`} · HP ${p.health}/${p.stats.health}`;
+    box.addEventListener("change", () => {
+      if (box.checked) runTeam.add(p.id);
+      else runTeam.delete(p.id);
+      refreshScavenge();
+    });
+    team.appendChild(li);
+  }
+  const reason = campaign.checkRun(runSite, [...runTeam], runDays);
+  ($("sendRun") as HTMLButtonElement).disabled = !!reason;
+  $("runOdds").textContent = reason ?? `${Math.round(cleanChance(runSite, runTeam.size, runDays) * 100)}% chance of getting back without trouble`;
+}
+
+$("openScavenge").addEventListener("click", () => {
+  refreshScavenge();
+  $("scavengeModal").hidden = false;
+});
+$("closeScavenge").addEventListener("click", () => ($("scavengeModal").hidden = true));
+$("scavengeModal").addEventListener("click", (e) => {
+  if (e.target === $("scavengeModal")) $("scavengeModal").hidden = true;
+});
+$("sendRun").addEventListener("click", () => {
+  const run = campaign.startRun(runSite, [...runTeam], runDays);
+  runTeam.clear();
+  persist();
+  toast(`${run.team.length === 1 ? "One person heads" : `${run.team.length} head`} out to the ${SITES[run.site].name.toLowerCase()}`);
+  refreshScavenge();
+  refreshBases();
+});
+
+/** Puts a run that's met an alien in front of the player. The clock waits until they choose. */
+function checkAmbush() {
+  const run = campaign.ambush;
+  const box = $("ambushModal");
+  if (!run || screen.hidden) {
+    box.hidden = true;
+    return;
+  }
+  if (!box.hidden) return;
+  $("scavengeModal").hidden = true;
+  $("staffModal").hidden = true;
+  const team = run.team.map((id) => campaign.staff.find((p) => p.id === id)!);
+  $("ambushBody").innerHTML = `<p>The run to the ${SITES[run.site].name.toLowerCase()} has run into an alien, alone and close.</p>
+    <ul>${team.map((p) => `<li><b>${escape(p.name)}</b> <span class="dim">${escape(p.role)}, ${p.health}/${p.stats.health} HP</span></li>`).join("")}</ul>
+    <p class="dim">Fight it and you might bring home a body or a prisoner as well as the supplies. Run and you drop everything, and someone may get hurt getting away.</p>`;
+  box.hidden = false;
+}
+
+$("ambushFlee").addEventListener("click", () => {
+  campaign.fleeAmbush();
+  persist();
+  $("ambushModal").hidden = true;
+  completed([]);
+  refresh();
+});
+$("ambushFight").addEventListener("click", () => {
+  const run = campaign.ambush;
+  if (!run) return;
+  $("ambushModal").hidden = true;
+  const home = campaign.bases.find((b) => b.id === campaign.staff.find((p) => p.id === run.team[0])?.base) ?? campaign.bases[0];
+  const city = CITIES.find((c) => c.name === home?.city) ?? nearestCityTo(home);
+  const team = run.team.map((id) => campaign.staff.find((p) => p.id === id)!);
+  screen.hidden = true;
+  view.enabled = false;
+  const fight = startAmbush(city, Math.floor(Math.random() * 2 ** 31), team, SITES[run.site].name);
+  const back = () => {
+    closeCombat();
+    screen.hidden = false;
+    view.enabled = true;
+    resize();
+    persist();
+    completed([]);
+    refresh();
+  };
+  openCombat({
+    prologue: fight,
+    finish: (r) => {
+      campaign.resolveAmbush({ outcome: r.outcome, people: r.people.map((p) => ({ id: p.id, health: p.health })) });
+      back();
+    },
+    retry: () => {},
+    skip: () => {},
+  });
+});
+
+/** The city a base hides under, or the nearest one to a remote base. */
+function nearestCityTo(b: BaseRecord | undefined) {
+  if (!b) return CITIES[0];
+  return CITIES.reduce((best, c) => (Math.hypot(c.lat - b.lat, c.lon - b.lon) < Math.hypot(best.lat - b.lat, best.lon - b.lon) ? c : best));
+}
 
 // ---------- Prologue ----------
 /** The opening battle: one night in a city, hunted by a single alien. */
@@ -508,6 +687,8 @@ function updateHud() {
     refreshBases();
     refreshSurvey();
     if (!$("staffModal").hidden) refreshStaff();
+    if (!$("scavengeModal").hidden) refreshScavenge();
+    checkAmbush();
   }
 }
 window.addEventListener("pagehide", persist);
@@ -538,9 +719,14 @@ function frame(now: number) {
   requestAnimationFrame(frame);
   if (screen.hidden) return;
   // Nothing happens in the world until the first base is up.
-  if (campaign.bases.length) {
+  // A run in a fight holds the clock until the player deals with it.
+  if (campaign.bases.length && !campaign.ambush) {
     clock.tick(dt);
     completed(campaign.advanceTo(clock.time));
+    if (campaign.ambush) {
+      clock.time = campaign.time;
+      checkAmbush();
+    }
   }
   view.update(dt, now);
   globe.setSun(subsolarPoint(clock.time));

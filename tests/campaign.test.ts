@@ -255,8 +255,9 @@ describe("staff and research", () => {
     const access = c.open(b).place("accessPoint", 0, 3, 3, false);
     expect(access.workLeft).toBe(ROOMS.accessPoint.work);
     for (const s of c.staff) s.job = "construction";
-    // One of them is too hurt to work, so three builders get 3 person-days done a day.
+    // One of them is too hurt to work, so three builders get 3 person-days done a day. No medicine to speed them up.
     c.staff[3].health = 5;
+    c.supplies.medicine = 0;
     expect(c.researchRate()).toBe(0);
     c.advanceDays(4);
     expect(access.workLeft).toBeCloseTo(ROOMS.accessPoint.work - 4 * 3);
