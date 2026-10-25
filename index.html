@@ -17,8 +17,12 @@
         <h1>Geoscape</h1>
         <h2>Global defence network</h2>
         <div class="row"><span>Funds</span><span id="globeFunds">—</span></div>
+        <div id="spoils" class="spoils" hidden></div>
         <ul id="baseList" class="baselist" aria-label="Bases"></ul>
-        <button id="newCampaign" class="quiet" type="button">New campaign</button>
+        <div class="cmds">
+          <button id="replayPrologue" class="quiet" type="button">Replay prologue</button>
+          <button id="newCampaign" class="quiet" type="button">New campaign</button>
+        </div>
       </section>
 
       <section class="hud tr" aria-label="Time controls">
@@ -95,6 +99,78 @@
       </section>
 
       <div class="hud info" id="info" aria-live="polite"></div>
+    </div>
+
+    <div id="combatScreen" class="combat" hidden>
+      <canvas id="battlefield" class="stage" aria-label="Tactical battlefield"></canvas>
+      <div id="combatLabels" class="labels" aria-hidden="true"></div>
+
+      <section class="hud tl mission" aria-label="Mission">
+        <h1 id="missionName">Prologue</h1>
+        <h2 id="missionPlace">—</h2>
+        <div class="row"><span>Turn</span><span id="turnNo">1</span></div>
+        <ul class="objectives">
+          <li>Kill the alien, or stun it with the baton to take it alive.</li>
+          <li class="dim">Taken alive, it's worth far more.</li>
+        </ul>
+        <button id="abandon" class="quiet" type="button">Run for it</button>
+      </section>
+
+      <section class="hud tr squad" aria-label="Squad">
+        <div id="roster"></div>
+      </section>
+
+      <section class="hud log" aria-label="Combat log" aria-live="polite">
+        <ol id="combatLog"></ol>
+      </section>
+
+      <section class="hud unitpanel" aria-label="Selected unit">
+        <div class="who">
+          <div>
+            <b id="unitName">—</b>
+            <span id="unitRole" class="dim">—</span>
+          </div>
+          <span id="unitGear" class="dim">—</span>
+        </div>
+        <div class="bars">
+          <div class="bar tu"><span>TU</span><i><em id="barTu"></em></i><span id="valTu">—</span></div>
+          <div class="bar hp"><span>HP</span><i><em id="barHp"></em></i><span id="valHp">—</span></div>
+          <div class="bar mo"><span>MOR</span><i><em id="barMo"></em></i><span id="valMo">—</span></div>
+        </div>
+        <div id="unitStats" class="stats dim">—</div>
+        <div class="actions" id="actions">
+          <button type="button" data-mode="snap" title="Snap shot (1)">Snap</button>
+          <button type="button" data-mode="aimed" title="Aimed shot (2)">Aimed</button>
+          <button type="button" data-mode="auto" title="Auto fire, three rounds (3)">Auto</button>
+          <button type="button" data-mode="stun" title="Stun baton: hit an adjacent alien (B)">Stun</button>
+          <button type="button" data-mode="heal" title="Medikit: yourself or someone next to you (H)">Medikit</button>
+          <button type="button" data-mode="face" title="Turn to face a tile, 1 TU per 45° (F)">Turn</button>
+          <button type="button" id="kneel" title="Kneel or stand (K)">Kneel</button>
+        </div>
+        <div class="turnbar">
+          <button type="button" id="nextUnit" title="Next unit with time left (N)">Next unit</button>
+          <button type="button" id="endTurn" class="go">End turn</button>
+        </div>
+      </section>
+
+      <div class="hud hint" id="combatHint" aria-live="polite"></div>
+
+      <section class="hud camctl" aria-label="View">
+        <button id="camLeft" type="button" aria-label="Turn view left" title="Turn view (Q)">⟲</button>
+        <button id="camRight" type="button" aria-label="Turn view right" title="Turn view (E)">⟳</button>
+        <button id="camOut" type="button" aria-label="Zoom out">−</button>
+        <button id="camIn" type="button" aria-label="Zoom in">+</button>
+      </section>
+
+      <div class="turnbanner" id="turnBanner" hidden></div>
+
+      <div class="modal" id="combatModal" hidden>
+        <div class="card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+          <h1 id="modalTitle">—</h1>
+          <div id="modalBody"></div>
+          <div class="buttons" id="modalButtons"></div>
+        </div>
+      </div>
     </div>
 
     <div id="toast" role="status"></div>

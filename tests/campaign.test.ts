@@ -124,3 +124,29 @@ describe("saving", () => {
     expect(copy.found(LAGOS, true).name).toBe("Base Charlie");
   });
 });
+
+describe("the prologue", () => {
+  it("is remembered with the campaign, and older saves load without it", () => {
+    const c = new Campaign();
+    expect(c.prologue).toBeNull();
+    c.recordPrologue({ city: "Lagos", outcome: "captured", recovered: ["Live alien"], survivors: 2, turns: 7 });
+    const copy = Campaign.load(JSON.parse(JSON.stringify(c.save())));
+    expect(copy.prologue).toMatchObject({ city: "Lagos", outcome: "captured" });
+    const old = c.save();
+    delete old.prologue;
+    expect(Campaign.load(old).prologue).toBeNull();
+  });
+
+  it("never swaps a better result for a worse replay", () => {
+    const c = new Campaign();
+    c.recordPrologue({ city: "Lagos", outcome: "fled", recovered: [], survivors: 4, turns: 2 });
+    c.recordPrologue({ city: "Cairo", outcome: "killed", recovered: ["Alien corpse"], survivors: 3, turns: 9 });
+    expect(c.prologue?.city).toBe("Cairo");
+    c.recordPrologue({ city: "Paris", outcome: "wiped", recovered: [], survivors: 0, turns: 4 });
+    expect(c.prologue?.city).toBe("Cairo");
+    c.recordPrologue({ city: "Tokyo", outcome: "captured", recovered: ["Live alien"], survivors: 1, turns: 12 });
+    expect(c.prologue?.outcome).toBe("captured");
+    c.recordPrologue({ city: "Delhi", outcome: "killed", recovered: ["Alien corpse"], survivors: 4, turns: 5 });
+    expect(c.prologue?.city).toBe("Tokyo");
+  });
+});

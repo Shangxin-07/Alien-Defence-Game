@@ -6,8 +6,38 @@ tracking contacts, building bases and managing the war) and **tactical combat** 
 
 ## Status
 
-The geoscape and base building run as one game on one page, with one campaign clock and one
-budget.
+The geoscape, base building and the first tactical battle run as one game on one page, with one
+campaign clock and one budget.
+
+**A new campaign opens with the prologue**, a turn-based tactical battle. It's night in one of the
+world's megacities. Something came down in the junction, and four people who were in the wrong
+place (a police officer, an army reservist, a security guard and a paramedic) are hiding in a
+building while a single alien hunts them. Turn the tables: kill it, or knock it out with the
+police officer's stun baton and take it alive, and take its tech. A live capture brings home the
+alien, its plasma pistol and the implant it tracked you with; a kill brings a corpse and the
+pistol; running or dying brings nothing. Then you choose a city for your first base, starting with
+the one you just escaped. The geoscape panel shows what you recovered, and you can replay the
+prologue from there.
+
+- **Everything runs on stats.** Each person has time units, health, accuracy, reactions,
+  bravery, melee and armour, varied a little per person. Moving costs 4 TU a step, 6 diagonally,
+  more through doors and rubble; turning costs 1 TU per 45°; kneeling 4, standing 8. Snap, aimed
+  and auto shots cost a share of your full TU and multiply your accuracy, and kneeling steadies it.
+- **Shots are traced.** A miss flies off somewhere near the target and can hit someone else;
+  cover on the line (cars, crates, windows, trees) soaks up shots, more so if the target is kneeling
+  right behind it. Damage rolls 0–200% of the weapon's power, minus armour.
+- **Reaction fire, like the original.** TU you don't spend carry through the enemy's turn. When
+  someone moves or shoots in view of an enemy, the one with more reactions × share of TU left
+  gets to fire first.
+- **Night.** People see 9 tiles in the dark, further under the street lights; the alien sees 20
+  in any light. Firing gives your position away. You only see what's in front of you (a 90° cone).
+- **Brutal**: big hits leave you bleeding a point a turn until a medikit stops it, friends dying
+  drains morale and frightened people freeze. The alien has a plasma pistol that often kills in one
+  hit, heals slowly, senses anyone within 12 tiles through walls, hunts the last noise it heard and
+  breaks off to hide when badly hurt.
+- **City maps** are generated per city: a crossroads with four blocks of buildings, alleys, car
+  parks and parks, with rooms, doors, windows, cars, street lights (some out) and a crash site.
+  The geoscape biome under the city dresses it: snow, sand, palms, pines or plane trees.
 
 - **Found bases from the globe.** Click a spot to survey it. Anywhere within 120 km of a city
   is a covert base under that city; other dry land is a remote base. The first base has to be
@@ -72,6 +102,11 @@ npm run build:single  # one self-contained HTML file in dist-single/, handy for 
 Controls: drag to spin, scroll or pinch to zoom, arrow keys and `+`/`-` also work. Click the
 globe to survey a site for a base.
 
+In battle: click or tap one of your people to select them, then a tile to move (on touch, tap
+once to preview and again to go). Click the alien to line up your best shot, or pick Snap, Aimed or
+Auto (`1`/`2`/`3`) and then a target. `B` stun baton, `H` medikit, `F` turn to face, `K` kneel,
+`N` next unit. Drag to pan, right-drag or `Q`/`E` to turn the view, scroll or pinch to zoom.
+
 In the base view: drag to turn, scroll or pinch to zoom, `[`/`]` or Page Up/Down to change level,
 `R` rotates, `X` demolishes, `Esc` goes back to inspecting. On touch screens, tap once to preview
 a spot and again to build.
@@ -87,7 +122,13 @@ a spot and again to build.
 - `src/geoscape/globe.ts`, `labels.ts`, `baseMarks.ts`, `orbitView.ts`: rendering, labels, base
   markers and camera controls
 - `src/campaign.ts`: the campaign: shared clock and funds, site surveys, founding bases, saving
-- `src/main.ts`, `src/base.ts`: the geoscape and base screens
+- `src/main.ts`, `src/base.ts`, `src/combat.ts`: the geoscape, base and combat screens
+- `src/tactical/rules.ts`: stats, weapons, TU costs, accuracy and damage
+- `src/tactical/map.ts`: the battlefield grid, line of sight and pathfinding
+- `src/tactical/battle.ts`: turns, actions, reaction fire, bleeding, morale and the alien's AI
+- `src/tactical/cityMap.ts`: the city map generator and its per-biome looks
+- `src/tactical/prologue.ts`: the opening battle, the survivors and what they can bring home
+- `src/tactical/view.ts`, `camera.ts`: battlefield rendering and camera controls
 - `src/base/rooms.ts`: base facilities, costs and power
 - `src/base/layout.ts`: the base grid, placement rules, tunnel connectivity, power, construction,
   city cover and base specialism
