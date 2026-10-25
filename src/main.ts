@@ -5,7 +5,7 @@ import { ROOMS } from "./base/rooms";
 import { BaseRecord, Campaign, Completion, GRANT, nmiToRadians } from "./campaign";
 import { closeCombat, openCombat } from "./combat";
 import { WANT_TEXT } from "./recruit";
-import { MARKET_LOT, MARKET_PRICE, MAX_RECRUITERS, MAX_RUN_DAYS, MAX_TEAM, SITES, SITE_ORDER, SiteId, Traded, cleanChance, describeSupplies } from "./scavenge";
+import { MARKET_LOT, MARKET_PRICE, MAX_RECRUITERS, MAX_RUN_DAYS, MAX_SEARCHERS, MAX_TEAM, SEARCH_CHANCE, SITES, Traded, cleanChance, describeSupplies, runWhere } from "./scavenge";
 import type { Stats } from "./tactical/rules";
 import { BaseMarks } from "./geoscape/baseMarks";
 import { BIOMES, BIOME_ORDER, biomeAt } from "./geoscape/biomes";
@@ -231,7 +231,7 @@ function refreshBases() {
   $("globeSupplies").className = days < 3 ? "bad" : "";
   const scavs = campaign.runs.filter((r) => !r.recruit);
   $("scavengeSummary").textContent = scavs.length
-    ? scavs.map((r) => `${SITES[r.site].name}${r.ambush ? ", in trouble" : `, ${r.daysLeft}d`}`).join(" · ")
+    ? scavs.map((r) => `${r.search ? "Searching" : r.where ?? SITES[r.site].name}${r.ambush ? ", in trouble" : `, ${r.daysLeft}d`}`).join(" · ")
     : "Nobody out";
   $("staffSummary").textContent = staffSummary();
   if (pro?.recovered.length) spoils.innerHTML = `<b>Recovered in ${escape(pro.city)}</b><span class="dim">${pro.recovered.map(escape).join(", ")}</span>`;
@@ -406,7 +406,7 @@ function refreshStaff() {
     li.querySelector("b")!.textContent = p.name;
     li.querySelector(".dim")!.textContent = p.role;
     const run = campaign.runs.find((r) => r.id === p.away);
-    const status = `${run ? (run.recruit ? " · out recruiting" : ` · out at the ${SITES[run.site].name.toLowerCase()}`) : ""}${p.hunger ? ` · hungry ${p.hunger}d` : ""}${p.loyalty !== undefined ? ` · loyalty ${p.loyalty}` : ""}${p.dependants ? ` · family of ${p.dependants}` : ""}`;
+    const status = `${run ? (run.recruit ? " · out recruiting" : run.search ? " · out searching" : ` · out at ${runWhere(run)}`) : ""}${p.hunger ? ` · hungry ${p.hunger}d` : ""}${p.loyalty !== undefined ? ` · loyalty ${p.loyalty}` : ""}${p.dependants ? ` · family of ${p.dependants}` : ""}`;
     li.querySelector(".meta")!.textContent = `${where}${status} · HP ${p.health}/${p.stats.health}${fit ? "" : " · recovering"} · build ${buildSkill(p).toFixed(2)} · research ${p.aptitude.toFixed(2)}`;
     const [baseSel, sel] = li.querySelectorAll("select");
     baseSel.disabled = sel.disabled = !!p.away;
@@ -453,7 +453,8 @@ $("staffModal").addEventListener("click", (e) => {
 });
 
 // ---------- Scavenging ----------
-let runSite: SiteId = "homes";
+/** A known place by id, or "search" to look for new ones. */
+let runSite: number | "search" = 1;
 let runDays = 1;
 const runTeam = new Set<number>();
 
@@ -492,31 +493,42 @@ function refreshScavenge() {
     const li = document.createElement("li");
     const names = r.team.map((id) => campaign.staff.find((p) => p.id === id)?.name ?? "?").join(", ");
     li.innerHTML = `<div><b></b><div class="meta"></div></div>`;
-    li.querySelector("b")!.textContent = SITES[r.site].name;
-    li.querySelector(".meta")!.textContent = `${names} · ${r.ambush ? "in a fight" : `back in ${r.daysLeft}d`} · found ${describeSupplies(r.loot)}`;
+    li.querySelector("b")!.textContent = r.search ? "Searching for new places" : r.where ?? SITES[r.site].name;
+    const found = r.search ? `${r.found ?? 0} new place${r.found === 1 ? "" : "s"}` : describeSupplies(r.loot);
+    li.querySelector(".meta")!.textContent = `${names} · ${r.ambush ? "in a fight" : `back in ${r.daysLeft}d`} · found ${found}`;
     runs.appendChild(li);
   }
   if (!campaign.runs.some((x) => !x.recruit)) runs.innerHTML = `<li class="dim">Nobody is out.</li>`;
   const sites = $("siteList");
   sites.replaceChildren();
-  for (const id of SITE_ORDER) {
-    const site = SITES[id];
-    const rich = campaign.richness[id] ?? 1;
+  if (runSite !== "search" && !campaign.findPlace(runSite)) runSite = campaign.places[0]?.id ?? "search";
+  const option = (picked: boolean, name: string, meta: string, pick: () => void) => {
     const li = document.createElement("li");
     const b = document.createElement("button");
     b.type = "button";
-    b.setAttribute("aria-pressed", String(id === runSite));
-    const finds = Object.entries(site.yields).map(([k, [lo, hi]]) => `${k} ${lo}–${hi}`).join(", ");
+    b.setAttribute("aria-pressed", String(picked));
     b.innerHTML = `<span class="name"></span><span class="meta"></span>`;
-    b.querySelector(".name")!.textContent = site.name;
-    b.querySelector(".meta")!.textContent = `${site.blurb} Each person finds ${finds} a day${rich < 0.95 ? `, ${Math.round(rich * 100)}% of that now it's been picked over` : ""}.`;
+    b.querySelector(".name")!.textContent = name;
+    b.querySelector(".meta")!.textContent = meta;
     b.addEventListener("click", () => {
-      runSite = id;
+      pick();
       refreshScavenge();
     });
     li.appendChild(b);
     sites.appendChild(li);
+  };
+  for (const place of campaign.places) {
+    const site = SITES[place.kind];
+    const finds = Object.entries(site.yields).map(([k, [lo, hi]]) => `${k} ${lo}–${hi}`).join(", ");
+    option(place.id === runSite, place.name, `${site.name}. ${describeSupplies(place.stock)} left. Each person finds ${finds} a day while it lasts.`, () => (runSite = place.id));
   }
+  if (!campaign.places.length) sites.innerHTML = `<li class="dim">Nowhere left that you know of.</li>`;
+  option(
+    runSite === "search",
+    "Search for new places",
+    `${SITES.search.blurb} Up to ${MAX_SEARCHERS} people; each has a ${Math.round(SEARCH_CHANCE * 100)}% chance a day of finding somewhere new.`,
+    () => (runSite = "search"),
+  );
   const seg = $("runDays");
   seg.replaceChildren();
   for (let d = 1; d <= MAX_RUN_DAYS; d++) {
@@ -539,7 +551,7 @@ function refreshScavenge() {
     li.innerHTML = `<label><input type="checkbox" /><span><b></b> <span class="dim"></span><span class="meta"></span></span></label>`;
     const box = li.querySelector("input")!;
     box.checked = runTeam.has(p.id);
-    box.disabled = !free || (!box.checked && runTeam.size >= MAX_TEAM);
+    box.disabled = !free || (!box.checked && runTeam.size >= (runSite === "search" ? MAX_SEARCHERS : MAX_TEAM));
     li.querySelector("b")!.textContent = p.name;
     li.querySelector(".dim")!.textContent = p.role;
     li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !free ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`} · HP ${p.health}/${p.stats.health}`;
@@ -550,9 +562,11 @@ function refreshScavenge() {
     });
     team.appendChild(li);
   }
-  const reason = campaign.checkRun(runSite, [...runTeam], runDays);
+  const searching = runSite === "search";
+  const reason = searching && runTeam.size > MAX_SEARCHERS ? `No more than ${MAX_SEARCHERS} searching at once` : campaign.checkRun(runSite, [...runTeam], runDays);
   ($("sendRun") as HTMLButtonElement).disabled = !!reason;
-  $("runOdds").textContent = reason ?? `${Math.round(cleanChance(runSite, runTeam.size, runDays) * 100)}% chance of getting back without trouble`;
+  const kind = searching ? "search" : campaign.findPlace(runSite)!.kind;
+  $("runOdds").textContent = reason ?? `${Math.round(cleanChance(kind, runTeam.size, runDays) * 100)}% chance of getting back without trouble`;
 }
 
 $("openScavenge").addEventListener("click", () => {
@@ -564,10 +578,11 @@ $("scavengeModal").addEventListener("click", (e) => {
   if (e.target === $("scavengeModal")) $("scavengeModal").hidden = true;
 });
 $("sendRun").addEventListener("click", () => {
-  const run = campaign.startRun(runSite, [...runTeam], runDays);
+  const run = runSite === "search" ? campaign.startSearch([...runTeam], runDays) : campaign.startRun(runSite, [...runTeam], runDays);
   runTeam.clear();
   persist();
-  toast(`${run.team.length === 1 ? "One person heads" : `${run.team.length} head`} out to the ${SITES[run.site].name.toLowerCase()}`);
+  const who = run.team.length === 1 ? "One person heads" : `${run.team.length} head`;
+  toast(run.search ? `${who} out to look for new places` : `${who} out to ${runWhere(run)}`);
   refreshScavenge();
   refreshBases();
 });
@@ -689,7 +704,7 @@ function checkAmbush() {
   $("recruitModal").hidden = true;
   $("staffModal").hidden = true;
   const team = run.team.map((id) => campaign.staff.find((p) => p.id === id)!);
-  $("ambushBody").innerHTML = `<p>The run to the ${SITES[run.site].name.toLowerCase()} has run into an alien, alone and close.</p>
+  $("ambushBody").innerHTML = `<p>The run to ${escape(runWhere(run))} has run into an alien, alone and close.</p>
     <ul>${team.map((p) => `<li><b>${escape(p.name)}</b> <span class="dim">${escape(p.role)}, ${p.health}/${p.stats.health} HP</span></li>`).join("")}</ul>
     <p class="dim">Fight it and you might bring home a body or a prisoner as well as the supplies. Run and you drop everything, and someone may get hurt getting away.</p>`;
   box.hidden = false;

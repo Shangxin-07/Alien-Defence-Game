@@ -3,7 +3,7 @@ import { BaseLayout } from "../src/base/layout";
 import { CROP_DAYS, Campaign, DAY_MS } from "../src/campaign";
 import { ROOMS, RoomId } from "../src/base/rooms";
 import { CAMPAIGN_START } from "../src/geoscape/clock";
-import { DESERT_AFTER, MARKET_PRICE, MAX_TEAM, SCRAP_VALUE, START_SUPPLIES, cleanChance, dayLoot, dayRisk, marketCost } from "../src/scavenge";
+import { DESERT_AFTER, MARKET_PRICE, STOCK, rollPlace, MAX_TEAM, SCRAP_VALUE, START_SUPPLIES, cleanChance, dayLoot, dayRisk, marketCost } from "../src/scavenge";
 import { startAmbush } from "../src/tactical/prologue";
 import { CITIES } from "../src/geoscape/cities";
 
@@ -95,22 +95,95 @@ describe("scavenging runs", () => {
     expect(c.runs).toHaveLength(0);
     expect(c.supplies.scrap).toBe(run.loot.scrap);
     expect(c.staff.every((p) => !p.away)).toBe(true);
-    expect(c.news.some((n) => n.startsWith("Back from the hardware stores"))).toBe(true);
+    expect(c.news.some((n) => n.startsWith("Back from DIY superstore"))).toBe(true);
   });
 
-  it("picks places over, and they fill up again slowly", () => {
-    const c = camp();
-    c.startRun("grocery", [c.staff[0].id], 3);
-    c.advanceDays(3);
-    const rich = c.richness.grocery!;
-    expect(rich).toBeLessThan(1);
-    c.advanceDays(5);
-    expect(c.richness.grocery).toBeGreaterThan(rich);
-  });
-
-  it("finds less in a picked-over place", () => {
+  it("takes what it finds out of what's left, and a big team only empties a place faster", () => {
     const rand = () => 0.5;
-    expect(dayLoot("grocery", 2, 0.4, rand).food).toBeLessThan(dayLoot("grocery", 2, 1, rand).food);
+    const small = { ...camp().findPlace("grocery")! };
+    small.stock = { ...small.stock };
+    const big = { ...small, stock: { ...small.stock } };
+    let fromSmall = 0;
+    let fromBig = 0;
+    let smallDays = 0;
+    let bigDays = 0;
+    while (small.stock.food > 0) {
+      fromSmall += dayLoot(small, 1, rand).food;
+      smallDays++;
+    }
+    while (big.stock.food > 0) {
+      fromBig += dayLoot(big, 4, rand).food;
+      bigDays++;
+    }
+    expect(fromSmall).toBe(STOCK.grocery.food);
+    expect(fromBig).toBe(STOCK.grocery.food);
+    expect(bigDays).toBeLessThan(smallDays);
+  });
+
+  it("forgets a place once it's picked clean, and says so", () => {
+    const c = camp(0.5);
+    const shop = c.findPlace("grocery")!;
+    shop.stock.food = 5;
+    const run = c.startRun(shop.id, c.staff.slice(0, 2).map((p) => p.id), 3);
+    c.advanceDays(1);
+    expect(c.runs).not.toContain(run);
+    expect(c.supplies.food).toBe(START_SUPPLIES.food - 4 + 5);
+    expect(c.findPlace(shop.id)).toBeUndefined();
+    expect(c.news.some((n) => n === `${shop.name} is picked clean`)).toBe(true);
+    expect(c.checkRun(shop.id, [c.staff[0].id], 1)).toMatch(/any more/);
+  });
+
+  it("starts out knowing one place of each kind, with a fixed stock", () => {
+    const c = camp();
+    expect(c.places.map((p) => p.kind)).toEqual(["homes", "grocery", "pharmacy", "hardware", "industrial"]);
+    expect(c.findPlace("homes")!.stock).toEqual({ food: 40, medicine: 6, scrap: 25 });
+  });
+});
+
+describe("searching for new places", () => {
+  it("turns up new places with their own stock", () => {
+    const c = camp(0.1);
+    const before = c.places.length;
+    c.startSearch(c.staff.slice(0, 2).map((p) => p.id), 2);
+    c.advanceDays(2);
+    expect(c.places.length).toBe(before + 4);
+    const found = c.places.slice(before);
+    expect(new Set(found.map((p) => p.id)).size).toBe(4);
+    for (const p of found) expect(Object.values(p.stock).some((n) => n > 0)).toBe(true);
+    expect(c.news.some((n) => /4 new places/.test(n))).toBe(true);
+  });
+
+  it("can come back with nothing, and takes no more than two", () => {
+    const c = camp(0.99);
+    const ids = c.staff.map((p) => p.id);
+    expect(() => c.startSearch(ids.slice(0, 3), 1)).toThrow(/2/);
+    c.startSearch(ids.slice(0, 1), 1);
+    c.advanceDays(1);
+    expect(c.places.length).toBe(5);
+    expect(c.news.some((n) => /nowhere new/.test(n))).toBe(true);
+  });
+
+  it("rolls smaller places than the ones everyone knew about", () => {
+    let seed = 1;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 50; i++) {
+      const p = rollPlace(i, rand);
+      for (const [k, n] of Object.entries(STOCK[p.kind])) expect(p.stock[k as "food"]).toBeLessThanOrEqual(Math.round(n * 1.2));
+      expect(p.name.length).toBeGreaterThan(5);
+    }
+  });
+
+  it("keeps places and their stock in the save", () => {
+    const c = camp(0.1);
+    c.startSearch([c.staff[0].id], 1);
+    c.advanceDays(1);
+    c.places[0].stock.food = 3;
+    const back = Campaign.load(JSON.parse(JSON.stringify(c.save())));
+    expect(back.places).toEqual(c.places);
+    back.startSearch([back.staff[0].id], 1);
+    back.rand = () => 0.1;
+    back.advanceDays(1);
+    expect(new Set(back.places.map((p) => p.id)).size).toBe(back.places.length);
   });
 
   it("is riskier with a bigger team, a longer stay and a worse place", () => {

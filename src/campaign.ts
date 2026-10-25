@@ -7,8 +7,8 @@ import {
   MEDICINE_DAYS, Pledge, RECRUIT_LOYALTY, STEAL_BELOW, rollCandidate, rollDrifter,
 } from "./recruit";
 import {
-  MAX_RECRUITERS, DESERT_AFTER, DESERT_CHANCE, MAX_RUN_DAYS, MAX_TEAM, MEDICINE_HEAL, PICKED_PER_DAY, MIN_RICHNESS, RATION, RECOVER_PER_DAY, Run, SITES,
-  MARKET_EASE, MARKET_RISE, START_SUPPLIES, SiteId, Supplies, Traded, addSupplies, marketCost, dayLoot, dayRisk, describeSupplies, emptySupplies,
+  MAX_RECRUITERS, MAX_SEARCHERS, DESERT_AFTER, DESERT_CHANCE, MAX_RUN_DAYS, MAX_TEAM, MEDICINE_HEAL, Place, RATION, Run, SEARCH_CHANCE,
+  MARKET_EASE, MARKET_RISE, START_SUPPLIES, SiteId, Supplies, Traded, addSupplies, isEmpty, marketCost, rollPlace, runWhere, startPlaces, dayLoot, dayRisk, describeSupplies, emptySupplies,
 } from "./scavenge";
 import { ROOMS } from "./base/rooms";
 import { LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, workPace } from "./staff";
@@ -92,7 +92,9 @@ interface SavedCampaign {
   supplies?: Supplies;
   runs?: Run[];
   nextRun?: number;
-  richness?: Partial<Record<SiteId, number>>;
+  /** Missing in saves from before places held a fixed stock. */
+  places?: Place[];
+  nextPlace?: number;
   trophies?: string[];
   candidates?: Candidate[];
   pledges?: Pledge[];
@@ -155,8 +157,9 @@ export class Campaign {
   supplies: Supplies = { ...START_SUPPLIES };
   /** Scavenging runs out in the city. */
   readonly runs: Run[] = [];
-  /** How much is left to find at each kind of place, 1 = untouched. */
-  richness: Partial<Record<SiteId, number>> = {};
+  /** Places the survivors know about, and what's left in each. Empty ones are forgotten. */
+  places: Place[] = startPlaces();
+  private nextPlace = this.places.length + 1;
   /** Alien remains and prisoners brought back since the prologue. */
   readonly trophies: string[] = [];
   /** People recruiters have met, waiting for an answer. */
@@ -297,6 +300,24 @@ export class Campaign {
     }
   }
 
+  /** A searcher's day: maybe somewhere nobody has stripped yet. */
+  private searchDay(run: Run) {
+    for (let i = 0; i < run.team.length; i++) {
+      if (this.rand() >= SEARCH_CHANCE) continue;
+      const place = rollPlace(this.nextPlace++, this.rand);
+      this.places.push(place);
+      run.found = (run.found ?? 0) + 1;
+    }
+  }
+
+  /** Sends one or two people to look for new places to scavenge. Works like a run, and can go wrong like one. */
+  startSearch(team: number[], days: number): Run {
+    if (team.length > MAX_SEARCHERS) throw new Error(`No more than ${MAX_SEARCHERS} searching at once`);
+    const run = this.startRun("search", team, days);
+    run.search = true;
+    return run;
+  }
+
   /** Who's free to go out: at a base, not already out, and not too hurt. */
   /** What the next lot of `n` costs on the black market. */
   buyCost(kind: Traded, n: number): number {
@@ -333,10 +354,18 @@ export class Campaign {
     return p.base !== null && !p.away && fitToWork(p);
   }
 
-  /** Why this run can't go, or null if it can. */
-  checkRun(site: SiteId, team: number[], days: number): string | null {
+  /** A known place by id; for a kind of place, the first known one of that kind. */
+  findPlace(where: number | SiteId): Place | undefined {
+    return this.places.find((p) => (typeof where === "number" ? p.id === where : p.kind === where));
+  }
+
+  /**
+   * Why this run can't go, or null if it can. `where` is a known place by id (or the first of a
+   * kind), or the streets for recruiting, or "search" for finding new places.
+   */
+  checkRun(where: number | SiteId, team: number[], days: number): string | null {
     if (!this.bases.length) return "You need a base to go out from";
-    if (!SITES[site]) return "No such place";
+    if (where !== "streets" && where !== "search" && !this.findPlace(where)) return "Nobody knows a place like that any more";
     if (!team.length) return "Pick who goes";
     if (team.length > MAX_TEAM) return `No more than ${MAX_TEAM} on a run`;
     if (!Number.isInteger(days) || days < 1 || days > MAX_RUN_DAYS) return `Runs last 1 to ${MAX_RUN_DAYS} days`;
@@ -348,10 +377,16 @@ export class Campaign {
   }
 
   /** Sends people out. They stop their other work until they're back. */
-  startRun(site: SiteId, team: number[], days: number): Run {
-    const reason = this.checkRun(site, team, days);
+  startRun(where: number | SiteId, team: number[], days: number): Run {
+    const reason = this.checkRun(where, team, days);
     if (reason) throw new Error(reason);
+    const place = where === "streets" || where === "search" ? undefined : this.findPlace(where)!;
+    const site = place?.kind ?? (where as SiteId);
     const run: Run = { id: this.nextRun++, site, team: [...new Set(team)], daysLeft: days, loot: emptySupplies() };
+    if (place) {
+      run.place = place.id;
+      run.where = place.name;
+    }
     for (const id of run.team) this.person(id)!.away = run.id;
     this.runs.push(run);
     for (const base of this.bases) base.layout.setCrew(this.builders(base.id));
@@ -407,7 +442,10 @@ export class Campaign {
     if (run.recruit) {
       const met = this.candidates.length;
       this.news.push(`Back from the streets${met ? `: ${met} ${met === 1 ? "person wants" : "people want"} to talk` : ", with nobody"}`);
-    } else this.news.push(`Back from the ${SITES[run.site].name.toLowerCase()}: ${describeSupplies(kept)}`);
+    } else if (run.search) {
+      const n = run.found ?? 0;
+      this.news.push(`Back from searching${n ? `: ${n} new place${n === 1 ? "" : "s"} to scavenge` : ", with nowhere new"}`);
+    } else this.news.push(`Back from ${runWhere(run)}: ${describeSupplies(kept)}`);
   }
 
   /** If everyone is gone, the council sends someone: losing people is never the end. */
@@ -425,11 +463,11 @@ export class Campaign {
         // Someone gets hurt: a fall, a fight with other scavengers, a collapse. They come home now.
         const p = this.person(run.team[Math.floor(this.rand() * size)])!;
         p.health = Math.max(1, p.health - Math.ceil(p.stats.health * (0.25 + this.rand() * 0.25)));
-        this.news.push(`${p.name} was hurt at the ${SITES[run.site].name.toLowerCase()}`);
+        this.news.push(`${p.name} was hurt at ${runWhere(run)}`);
         this.endRun(run);
       } else {
         run.ambush = true;
-        this.news.push(`The run to the ${SITES[run.site].name.toLowerCase()} has run into an alien`);
+        this.news.push(`The run to ${runWhere(run)} has run into an alien`);
       }
       return;
     }
@@ -438,10 +476,21 @@ export class Campaign {
       if (--run.daysLeft <= 0) this.endRun(run);
       return;
     }
-    const rich = this.richness[run.site] ?? 1;
-    addSupplies(run.loot, dayLoot(run.site, size, rich, this.rand));
-    this.richness[run.site] = Math.max(MIN_RICHNESS, rich - PICKED_PER_DAY);
-    if (--run.daysLeft <= 0) this.endRun(run);
+    if (run.search) {
+      this.searchDay(run);
+      if (--run.daysLeft <= 0) this.endRun(run);
+      return;
+    }
+    // Runs saved before places had stock just went to a kind of place.
+    const place = run.place ? this.places.find((p) => p.id === run.place) : this.findPlace(run.site);
+    if (place) addSupplies(run.loot, dayLoot(place, size, this.rand));
+    if (!place || isEmpty(place)) {
+      if (place) {
+        this.places.splice(this.places.indexOf(place), 1);
+        this.news.push(`${place.name} is picked clean`);
+      }
+      this.endRun(run);
+    } else if (--run.daysLeft <= 0) this.endRun(run);
   }
 
   /** Everyone eats; whoever can't goes hungry, and the long hungry start to leave. */
@@ -566,7 +615,6 @@ export class Campaign {
     this.disloyal();
     for (let i = this.candidates.length - 1; i >= 0; i--) if (this.candidates[i].until < day) this.candidates.splice(i, 1);
     for (const run of [...this.runs]) if (!run.ambush) this.runDay(run);
-    for (const k of Object.keys(this.richness) as SiteId[]) this.richness[k] = Math.min(1, this.richness[k]! + RECOVER_PER_DAY);
     const id = this.research.active;
     if (id) {
       const done = (this.research.progress[id] ?? 0) + this.researchRate();
@@ -695,7 +743,8 @@ export class Campaign {
       supplies: this.supplies,
       runs: this.runs,
       nextRun: this.nextRun,
-      richness: this.richness,
+      places: this.places,
+      nextPlace: this.nextPlace,
       trophies: this.trophies,
       candidates: this.candidates,
       pledges: this.pledges,
@@ -718,7 +767,10 @@ export class Campaign {
     if (data.supplies) c.supplies = { ...data.supplies };
     if (data.runs) c.runs.push(...data.runs);
     c.nextRun = data.nextRun ?? 1;
-    c.richness = { ...data.richness };
+    if (data.places) {
+      c.places = data.places.map((p) => ({ ...p, stock: { ...p.stock } }));
+      c.nextPlace = data.nextPlace ?? c.places.reduce((n, p) => Math.max(n, p.id + 1), 1);
+    }
     if (data.trophies) c.trophies.push(...data.trophies);
     if (data.candidates) c.candidates.push(...data.candidates);
     if (data.pledges) c.pledges.push(...data.pledges);

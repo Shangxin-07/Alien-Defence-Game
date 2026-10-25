@@ -28,13 +28,13 @@ export const MAX_RUN_DAYS = 3;
 /** Most people out recruiting together: it's talk, not muscle. */
 export const MAX_RECRUITERS = 2;
 
-export type SiteId = "homes" | "grocery" | "pharmacy" | "hardware" | "industrial" | "streets";
+export type SiteId = "homes" | "grocery" | "pharmacy" | "hardware" | "industrial" | "streets" | "search";
 
 export interface Site {
   id: SiteId;
   name: string;
   blurb: string;
-  /** What one person finds in a day, as a range, before the place gets picked over. */
+  /** What one person finds in a day, as a range, while the place has it. */
   yields: Partial<Record<Supply, [number, number]>>;
   /** Chance a day that something goes wrong, for a team of three. */
   danger: number;
@@ -65,6 +65,10 @@ export const SITES: Record<SiteId, Site> = {
     id: "streets", name: "Streets", danger: 0.05, yields: {},
     blurb: "Talking people into joining. Nothing to carry home but promises.",
   },
+  search: {
+    id: "search", name: "Unknown streets", danger: 0.08, yields: {},
+    blurb: "Looking for somewhere nobody has stripped yet. Nothing to carry home but directions.",
+  },
   industrial: {
     id: "industrial", name: "Industrial estate", danger: 0.15,
     yields: { scrap: [4, 8], food: [0, 1] },
@@ -72,13 +76,76 @@ export const SITES: Record<SiteId, Site> = {
   },
 };
 
-export const SITE_ORDER: SiteId[] = ["homes", "grocery", "pharmacy", "hardware", "industrial"];
+export const SITE_ORDER: ScavengeKind[] = ["homes", "grocery", "pharmacy", "hardware", "industrial"];
 
-/** Each day a team works a kind of place, there's less left there. It slowly fills up again. */
-export const PICKED_PER_DAY = 0.1;
-export const RECOVER_PER_DAY = 0.02;
-/** Even a stripped place gives something to whoever looks hard enough. */
-export const MIN_RICHNESS = 0.3;
+/**
+ * Every place holds a fixed amount. Each person takes what they can find and carry out of what's
+ * left, so a big team empties a place faster but never gets more out of it than is there. Once
+ * it's empty, it's gone; finding new places is a job of its own.
+ */
+export const STOCK: Record<ScavengeKind, Partial<Supplies>> = {
+  homes: { food: 40, medicine: 6, scrap: 25 },
+  grocery: { food: 70 },
+  pharmacy: { medicine: 20, food: 6 },
+  hardware: { scrap: 50 },
+  industrial: { scrap: 90, food: 5 },
+};
+
+export type ScavengeKind = Exclude<SiteId, "streets" | "search">;
+
+/** A known place to scavenge, and what's still there. */
+export interface Place {
+  id: number;
+  kind: ScavengeKind;
+  name: string;
+  stock: Supplies;
+}
+
+const STARTERS: Record<ScavengeKind, string> = {
+  homes: "Flats on Mill Street",
+  grocery: "Supermarket by the ring road",
+  pharmacy: "Health centre on Church Lane",
+  hardware: "DIY superstore",
+  industrial: "Riverside industrial estate",
+};
+
+/** The places the survivors already know about on the first night: one of each kind. */
+export const startPlaces = (): Place[] =>
+  SITE_ORDER.map((kind, i) => ({ id: i + 1, kind, name: STARTERS[kind], stock: { ...emptySupplies(), ...STOCK[kind] } }));
+
+/** Most people searching together: it's walking and looking, not carrying. */
+export const MAX_SEARCHERS = 2;
+/** Chance each searcher finds somewhere new on a day out. */
+export const SEARCH_CHANCE = 0.3;
+/** How often a new find is each kind of place. */
+const FIND_WEIGHTS: [ScavengeKind, number][] = [["homes", 0.35], ["grocery", 0.2], ["pharmacy", 0.15], ["hardware", 0.15], ["industrial", 0.15]];
+
+const STREETS = ["Albert Road", "Station Road", "Victoria Street", "the high street", "Park Lane", "Queen's Road", "the canal", "Hill Street", "the old docks", "North Road", "the bypass", "Chapel Street", "Market Square", "the railway arches"];
+const KIND_NAMES: Record<ScavengeKind, string[]> = {
+  homes: ["Terraced houses on", "Tower block by", "Flats off", "Bungalows near"],
+  grocery: ["Corner shop on", "Supermarket on", "Cash and carry by", "Petrol station on"],
+  pharmacy: ["Chemist on", "Vet's surgery off", "Dental practice on", "Care home near"],
+  hardware: ["Builders' merchant by", "Garden centre off", "Tool hire on", "Garage on"],
+  industrial: ["Depot by", "Factory units off", "Scrapyard near", "Works on"],
+};
+
+/** Somewhere new that a searcher turned up. Most places have already been picked at by someone. */
+export function rollPlace(id: number, rand: () => number): Place {
+  let r = rand();
+  let kind: ScavengeKind = "homes";
+  for (const [k, w] of FIND_WEIGHTS) {
+    kind = k;
+    if ((r -= w) < 0) break;
+  }
+  const scale = 0.4 + rand() * 0.8;
+  const stock = emptySupplies();
+  for (const [k, n] of Object.entries(STOCK[kind]) as [Supply, number][]) stock[k] = Math.max(1, Math.round(n * scale));
+  const names = KIND_NAMES[kind];
+  const name = `${names[Math.floor(rand() * names.length)]} ${STREETS[Math.floor(rand() * STREETS.length)]}`;
+  return { id, kind, name, stock };
+}
+
+export const isEmpty = (p: Place) => !Object.values(p.stock).some((n) => n > 0);
 
 /** Small teams are quieter; big teams are noticed. */
 export const teamRisk = (size: number) => 0.55 + 0.15 * size;
@@ -99,17 +166,29 @@ export interface Run {
   loot: Supplies;
   /** Waiting on the player: they ran into an alien. */
   ambush?: boolean;
+  /** The place being scavenged, and its name in case it's gone by the time they're back. */
+  place?: number;
+  where?: string;
+  /** New places a search has turned up so far. */
+  found?: number;
   /** Out recruiting rather than scavenging. */
   recruit?: boolean;
+  /** Out looking for new places to scavenge. */
+  search?: boolean;
 }
+
+/** Where a run went, for the news: the place's name, or the kind of place. */
+export const runWhere = (run: Run) => run.where ?? `the ${SITES[run.site].name.toLowerCase()}`;
 
 export const emptySupplies = (): Supplies => ({ food: 0, medicine: 0, scrap: 0 });
 
-/** One day of finds for a team of `size` at a place this rich. */
-export function dayLoot(site: SiteId, size: number, richness: number, rand: () => number): Supplies {
+/** One day of finds for a team of `size`, taken out of what's left at the place. */
+export function dayLoot(place: Place, size: number, rand: () => number): Supplies {
   const out = emptySupplies();
-  for (const [k, [lo, hi]] of Object.entries(SITES[site].yields) as [Supply, [number, number]][]) {
-    for (let i = 0; i < size; i++) out[k] += Math.floor((lo + rand() * (hi - lo + 1)) * richness);
+  for (const [k, [lo, hi]] of Object.entries(SITES[place.kind].yields) as [Supply, [number, number]][]) {
+    for (let i = 0; i < size; i++) out[k] += Math.floor(lo + rand() * (hi - lo + 1));
+    out[k] = Math.min(out[k], place.stock[k]);
+    place.stock[k] -= out[k];
   }
   return out;
 }
