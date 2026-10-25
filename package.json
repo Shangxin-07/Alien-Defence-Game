@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build:geo": "node scripts/build-geo.mjs",
-    "build:single": "vite build --mode single"
+    "build:single": "vite build --mode single",
+    "build:single:base": "vite build --mode single-base"
   },
   "dependencies": {
     "three": "0.170.0"

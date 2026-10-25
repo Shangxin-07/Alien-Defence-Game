@@ -13,6 +13,8 @@ const css = getComputedStyle(document.documentElement);
 const token = (name: string) => css.getPropertyValue(name).trim();
 const $ = (id: string) => document.getElementById(id)!;
 
+if (import.meta.env.MODE.startsWith("single")) $("nav").hidden = true;
+
 const canvas = $("stage") as HTMLCanvasElement;
 const renderer = new WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
