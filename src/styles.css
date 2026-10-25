@@ -222,6 +222,7 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .people input[type="checkbox"] { accent-color: var(--amber); width: 16px; height: 16px; }
 #ambushModal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 #ambushBody { display: grid; gap: 8px; }
+#ambushBody .reads { list-style: none; margin: 0; padding-left: 0; display: grid; gap: 2px; font-style: italic; }
 #globeScreen .sendrow button.go, #globeScreen #ambushModal button.go { width: auto; }
 .donelist summary { cursor: pointer; color: var(--coast); }
 .donelist ul { margin-top: 6px; font-size: 12px; }

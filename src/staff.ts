@@ -157,6 +157,23 @@ export const PROJECTS: Project[] = [
     blurb: "Put together what we know about how they live, heal and die.",
     result: "They heal fast but not instantly. Hit one hard and keep hitting it, or it will be back.",
   },
+  {
+    id: "commanderAutopsy",
+    name: "Commander autopsy",
+    points: 22,
+    items: ["Commander corpse"],
+    blurb: "The one the others kept looking at. Find out what made it different.",
+    result: "An extra organ at the base of the skull, wired into the others' through something we can't see. When it died, they lost more than an officer. Our people now know what to look for in a squad.",
+  },
+  {
+    id: "commanderInterrogation",
+    name: "Interrogate the commander",
+    points: 30,
+    items: ["Live commander"],
+    containment: true,
+    blurb: "A live one that gave orders. The others would never let us take one.",
+    result: "It knows who it was speaking to, and it doesn't stop trying. Watching it, we've learned how their squads hold together, and how they come apart.",
+  },
 ];
 
 export const project = (id: string) => PROJECTS.find((p) => p.id === id)!;

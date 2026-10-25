@@ -16,6 +16,7 @@ import {
   carName, freshness, rollCall, travelHours, tripFuel,
 } from "./sightings";
 import { LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, workPace } from "./staff";
+import type { RaceId } from "./tactical/aliens";
 import type { Outcome } from "./tactical/battle";
 
 export const DAY_MS = 86_400_000;
@@ -78,6 +79,10 @@ export const prologueWon = (p: PrologueRecord | null) => p?.outcome === "capture
 /** How a fight on a scavenging run ended, and who walked away. */
 export interface AmbushResult {
   outcome: Outcome;
+  /** One item per alien brought down. Missing means the old rule: one body or prisoner for a win. */
+  recovered?: string[];
+  /** Who you fought, so your people learn to read them. */
+  race?: RaceId;
   /** Survivors by person id, with what health they have left. */
   people: { id: number; health: number }[];
 }
@@ -103,6 +108,7 @@ interface SavedCampaign {
   candidates?: Candidate[];
   pledges?: Pledge[];
   kills?: number;
+  encounters?: Partial<Record<RaceId, number>>;
   nextCandidate?: number;
   market?: Record<Traded, number>;
   calls?: Call[];
@@ -176,6 +182,8 @@ export class Campaign {
   readonly pledges: Pledge[] = [];
   /** Aliens killed or caught since the prologue. */
   kills = 0;
+  /** Fights fought against each race. Experience is how your people learn to read them. */
+  encounters: Partial<Record<RaceId, number>> = {};
   /** How far each black-market price has been pushed up: 1 is the going rate. */
   market: Record<Traded, number> = { food: 1, medicine: 1, fuel: 1 };
   /** Days each hydroponic farm has been running, by "base:uid". */
@@ -515,9 +523,12 @@ export class Campaign {
     }
     run.team = run.team.filter((id) => alive.has(id));
     const spoils = AMBUSH_SPOILS[result.outcome];
-    if (spoils.item && !this.trophies.includes(spoils.item)) this.trophies.push(spoils.item);
-    if (spoils.item) this.kills++;
-    if (spoils.item && run.call) {
+    const items = result.recovered ?? (spoils.item ? [spoils.item] : []);
+    for (const item of items) if (!this.trophies.includes(item)) this.trophies.push(item);
+    this.kills += items.length;
+    if (result.race) this.encounters[result.race] = (this.encounters[result.race] ?? 0) + 1;
+    if (items.some((i) => i.includes("ommander"))) this.news.push("You brought down one of their leaders");
+    if (items.length && run.call) {
       run.loot.scrap += SIGHTING_SCRAP;
       for (const p of this.staff) if (p.loyalty !== undefined) p.loyalty = Math.min(100, p.loyalty + SIGHTING_LOYALTY);
       this.news.push("Word gets round that you came when called");
@@ -525,6 +536,15 @@ export class Campaign {
     if (dead.length) this.news.push(`Lost on the run: ${dead.map((p) => p.name).join(", ")}`);
     this.endRun(run, spoils.share);
     this.backfill();
+  }
+
+  /**
+   * How well your people can read a race before a fight: one step for each fight against it,
+   * and two more once research has opened up one of their leaders.
+   */
+  knowledge(race: RaceId): number {
+    const leaders = ["commanderAutopsy", "commanderInterrogation"].some((id) => this.research.done.includes(id));
+    return (this.encounters[race] ?? 0) + (race === "strider" && this.prologue && prologueWon(this.prologue) ? 1 : 0) + (leaders ? 2 : 0);
   }
 
   /** Run for it instead of fighting: drop everything, and maybe get hurt getting away. */
@@ -880,6 +900,7 @@ export class Campaign {
       candidates: this.candidates,
       pledges: this.pledges,
       kills: this.kills,
+      encounters: this.encounters,
       nextCandidate: this.nextCandidate,
       market: this.market,
       calls: this.calls,
@@ -910,6 +931,7 @@ export class Campaign {
     if (data.candidates) c.candidates.push(...data.candidates);
     if (data.pledges) c.pledges.push(...data.pledges);
     c.kills = data.kills ?? 0;
+    c.encounters = { ...data.encounters };
     c.nextCandidate = data.nextCandidate ?? 1;
     if (data.calls) c.calls.push(...data.calls);
     if (data.vehicles) c.vehicles.push(...data.vehicles);

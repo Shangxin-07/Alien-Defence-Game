@@ -1,3 +1,4 @@
+import { AlienMind, Personality, RACES, firstLook } from "./aliens";
 import { DIRS, Point, TacMap, dist, facingTo, turnSteps } from "./map";
 import { mulberry32 } from "./random";
 import {
@@ -43,7 +44,15 @@ export interface Unit {
   tools: { tool: Tool; uses: number }[];
   /** Gave away their position by firing this turn. */
   revealed: boolean;
+  /** An alien's race, rank and personality. Aliens without one think like the first night's Hunter. */
+  mind?: AlienMind;
 }
+
+/** How well the aliens are working together: under their leader, under a stand-in, or each for itself. */
+export type Coordination = "full" | "partial" | "none";
+
+/** How an alien without a rolled mind thinks: the first night's Hunter, roughly. */
+const DEFAULT_MIND: Personality = { aggression: 55, caution: 60, cohesion: 50, cunning: 50 };
 
 export type Outcome = "captured" | "killed" | "wiped" | "fled";
 
@@ -71,8 +80,13 @@ export interface ShotPreview {
 
 /** How far the alien can track a heartbeat through walls. */
 export const TRACKER_RANGE = 12;
-/** Under this share of its health, the alien breaks off and looks for somewhere to hide. */
-const RETREAT_AT = 0.4;
+/** Turns the aliens fight badly after losing whoever was giving orders. */
+const LEADERLESS_TURNS = 2;
+/** Accuracy and reactions while they reorganise. */
+const LEADERLESS_ACCURACY = 0.75;
+const LEADERLESS_REACTIONS = 0.65;
+/** Your people's aim while shaken by losing whoever led them. */
+const SHAKEN_ACCURACY = 0.85;
 /** Health the alien grows back each turn. */
 export const ALIEN_REGEN = 2;
 /** Reaction fire and plain misses fly this far before they're spent. */
@@ -92,10 +106,30 @@ export class Battle {
   /** Tiles your people have ever seen, and can see right now. */
   readonly seen: Uint8Array;
   readonly visible: Uint8Array;
-  /** Where your people last saw the alien. */
-  lastSeen: Point | null = null;
-  /** Where the alien thinks you are: noises, glimpses. */
-  private scent: Point | null;
+  /** Where your people last saw each alien, by id. */
+  readonly lastSeen = new Map<number, Point>();
+  /** Aliens your people can see right now, by id. */
+  private readonly inView = new Set<number>();
+  /** Where each alien thinks you are: noises, glimpses. A coordinated squad shares what it knows. */
+  private readonly scent = new Map<number, Point | null>();
+  /** Who leads your people. Losing them shakes everyone. */
+  readonly humanLeader: number | null;
+  /** The alien giving orders now, if any. */
+  inCharge: number | null = null;
+  /** Who steps up when the one in charge falls, and from which turn. */
+  private nextUp: number | null = null;
+  private stepUpTurn = 0;
+  /** Penalties run up to and including these turns. */
+  private alienShakenUntil = 0;
+  private humanShakenUntil = 0;
+  /** Your people saw their leader die: steadier against panic for the rest of the fight. */
+  steady = false;
+  /** Units whose fall has been dealt with. */
+  private readonly fallen = new Set<number>();
+  /** Aliens a soldier has already remarked on. */
+  private readonly remarked = new Set<number>();
+  /** Humans the aliens have hit this turn: a coordinated squad piles onto them. */
+  private readonly focus = new Set<number>();
   private readonly rand: () => number;
   private events: BattleEvent[] = [];
 
@@ -103,7 +137,12 @@ export class Battle {
     this.rand = mulberry32(seed);
     this.seen = new Uint8Array(map.w * map.h);
     this.visible = new Uint8Array(map.w * map.h);
-    this.scent = scent;
+    for (const a of this.aliens) this.scent.set(a.id, scent);
+    this.inCharge = this.aliens.find((a) => a.mind?.rank === "leader")?.id ?? null;
+    this.nextUp = this.aliens.find((a) => a.mind?.rank === "second")?.id ?? null;
+    // The bravest leads, when there's anyone to lead.
+    const people = this.humans;
+    this.humanLeader = people.length > 1 ? people.reduce((p, q) => (q.stats.bravery > p.stats.bravery ? q : p)).id : null;
     this.updateVision();
   }
 
@@ -111,8 +150,13 @@ export class Battle {
     return this.units.filter((u) => u.side === "human");
   }
 
+  get aliens(): Unit[] {
+    return this.units.filter((u) => u.side === "alien");
+  }
+
+  /** The first alien: the only one in a fight against a lone alien. */
   get alien(): Unit {
-    return this.units.find((u) => u.side === "alien")!;
+    return this.aliens[0];
   }
 
   unit(id: number): Unit {
@@ -121,6 +165,44 @@ export class Battle {
 
   unitAt(x: number, y: number): Unit | undefined {
     return this.units.find((u) => alive(u) && u.x === x && u.y === y);
+  }
+
+  /** Whether your people can see this alien right now. */
+  isSeen(u: Unit): boolean {
+    return this.inView.has(u.id);
+  }
+
+  /** Whether any alien is in view. */
+  get alienSeen(): boolean {
+    return this.inView.size > 0;
+  }
+
+  /** How well the aliens are working together right now. */
+  coordination(): Coordination {
+    const boss = this.inCharge === null ? null : this.unit(this.inCharge);
+    if (!boss || !conscious(boss)) return "none";
+    return boss.mind?.rank === "leader" ? "full" : "partial";
+  }
+
+  /** Accuracy and reactions after leaders fall. */
+  accuracyOf(u: Unit): number {
+    if (u.side === "alien" && this.turn <= this.alienShakenUntil) return u.stats.accuracy * LEADERLESS_ACCURACY;
+    if (u.side === "human" && this.turn <= this.humanShakenUntil) return u.stats.accuracy * SHAKEN_ACCURACY;
+    return u.stats.accuracy;
+  }
+
+  reactionsOf(u: Unit): number {
+    if (u.side === "alien" && this.turn <= this.alienShakenUntil) return u.stats.reactions * LEADERLESS_REACTIONS;
+    return u.stats.reactions;
+  }
+
+  /** Whether the aliens are still reeling from losing whoever gave the orders. */
+  get aliensReeling(): boolean {
+    return this.turn <= this.alienShakenUntil;
+  }
+
+  get humansShaken(): boolean {
+    return this.turn <= this.humanShakenUntil;
   }
 
   // ---------- Sight ----------
@@ -145,8 +227,8 @@ export class Battle {
     return this.units.some((o) => o.side !== u.side && conscious(o) && this.canSee(o, u, u.revealed));
   }
 
-  /** Recomputes what your people can see. Returns true if the alien just came into view. */
-  private updateVision(): boolean {
+  /** Recomputes what your people can see. Returns the aliens that just came into view. */
+  private updateVision(): Unit[] {
     this.visible.fill(0);
     for (const u of this.humans) {
       if (!conscious(u)) continue;
@@ -158,13 +240,30 @@ export class Battle {
         }
       }
     }
-    const a = this.alien;
-    const wasSeen = this.alienSeen;
-    this.alienSeen = alive(a) && this.spotted(a);
-    if (this.alienSeen) this.lastSeen = { x: a.x, y: a.y };
-    return this.alienSeen && !wasSeen;
+    const fresh: Unit[] = [];
+    for (const a of this.aliens) {
+      const now = alive(a) && this.spotted(a);
+      if (now && !this.inView.has(a.id)) fresh.push(a);
+      if (now) {
+        this.inView.add(a.id);
+        this.lastSeen.set(a.id, { x: a.x, y: a.y });
+      } else this.inView.delete(a.id);
+    }
+    return fresh;
   }
-  alienSeen = false;
+
+  /** Spot events for aliens that just came into view, and what your people make of them. */
+  private announce(fresh: Unit[]) {
+    for (const a of fresh) {
+      this.events.push({ kind: "spot", unit: a.id });
+      if (!a.mind || this.remarked.has(a.id) || !conscious(a)) continue;
+      this.remarked.add(a.id);
+      // You can only tell who's in charge while they're still following orders.
+      if (a.mind.rank === "leader" && this.coordination() !== "full") continue;
+      const line = firstLook(a.mind);
+      if (line) this.events.push({ kind: "say", text: `"${line}"` });
+    }
+  }
 
   // ---------- Your actions ----------
 
@@ -201,7 +300,11 @@ export class Battle {
     u.tu -= cost;
     u.facing = f;
     this.events.push({ kind: "face", unit: u.id, facing: f });
-    if (this.updateVision()) this.events.push({ kind: "spot", unit: this.alien.id }, { kind: "say", text: `${u.name}: "There it is!"`, tone: "bad" });
+    const fresh = this.updateVision();
+    if (fresh.length) {
+      this.announce(fresh);
+      this.events.push({ kind: "say", text: `${u.name}: "There it is!"`, tone: "bad" });
+    }
     return this.flush();
   }
 
@@ -223,7 +326,7 @@ export class Battle {
     if (u.ammo <= 0) return no("Out of ammo");
     if (tu > u.tu) return no("Not enough time units");
     if (!this.map.clearLine(u, target)) return no("No line of fire");
-    const base = baseHitChance(u.stats.accuracy, m, w, dist(u, target), u.kneeling, u.wounds * 4);
+    const base = baseHitChance(this.accuracyOf(u), m, w, dist(u, target), u.kneeling, u.wounds * 4);
     let through = 1;
     let cover = false;
     const target_ = this.unitAt(target.x, target.y);
@@ -244,9 +347,9 @@ export class Battle {
     const p = this.previewShot(id, target, mode);
     if (p.reason) return this.flush();
     this.fire(u, target, mode);
-    if (u.side === "human" && alive(this.alien)) {
-      // The alien hears every shot.
-      this.scent = { x: u.x, y: u.y };
+    if (u.side === "human") {
+      // They hear every shot.
+      for (const a of this.aliens) this.scent.set(a.id, { x: u.x, y: u.y });
       this.react(u);
     }
     this.check();
@@ -284,7 +387,7 @@ export class Battle {
     } else {
       this.events.push({ kind: "say", text: `${u.name} swings and misses.`, tone: "bad" });
     }
-    if (alive(t) && conscious(t) && t.side === "alien") this.scent = { x: u.x, y: u.y };
+    if (conscious(t) && t.side === "alien") this.smell(t, u);
     this.react(u);
     this.check();
     return this.flush();
@@ -332,7 +435,7 @@ export class Battle {
     if (!this.outcome) {
       this.turn++;
       this.side = "human";
-      this.alien.revealed = false;
+      for (const a of this.aliens) a.revealed = false;
       this.events.push({ kind: "turn", side: "human", number: this.turn });
       this.startTurn("human");
     }
@@ -390,14 +493,18 @@ export class Battle {
       u.facing = facingTo(u, step);
       u.x = step.x;
       u.y = step.y;
-      const spottedNow = this.updateVision();
-      this.events.push({ kind: "move", unit: u.id, to: { x: u.x, y: u.y }, facing: u.facing, seen: u.side === "human" || this.alienSeen });
-      if (u.side === "human" && spottedNow) {
-        this.events.push({ kind: "spot", unit: this.alien.id }, { kind: "say", text: `${u.name}: "Contact!"`, tone: "bad" });
+      const fresh = this.updateVision();
+      this.events.push({ kind: "move", unit: u.id, to: { x: u.x, y: u.y }, facing: u.facing, seen: u.side === "human" || this.isSeen(u) });
+      if (u.side === "human" && fresh.length) {
+        this.announce(fresh);
+        this.events.push({ kind: "say", text: `${u.name}: "Contact!"`, tone: "bad" });
         this.react(u);
         return false;
       }
-      if (u.side === "alien" && spottedNow) this.events.push({ kind: "spot", unit: u.id }, { kind: "say", text: "Movement! It's out there.", tone: "bad" });
+      if (u.side === "alien" && fresh.includes(u)) {
+        this.announce([u]);
+        this.events.push({ kind: "say", text: "Movement! Something's out there.", tone: "bad" });
+      }
       this.react(u);
       if (!conscious(u) || this.outcome) return false;
     }
@@ -407,17 +514,17 @@ export class Battle {
   /** Enemies who see a unit spend its moment to shoot at it, if they're quicker. */
   private react(mover: Unit) {
     if (!conscious(mover)) return;
-    const moverScore = mover.stats.reactions * (mover.tu / mover.stats.tu);
+    const moverScore = this.reactionsOf(mover) * (mover.tu / mover.stats.tu);
     for (const e of this.units) {
       if (e.side === mover.side || !conscious(e) || !e.weapon || e.ammo <= 0 || this.outcome) continue;
       const snap = e.weapon.modes.snap;
       if (!snap) continue;
       const cost = tuCost(e.stats.tu, snap.tuPct) + turnSteps(e.facing, facingTo(e, mover)) * TURN_TU;
       if (cost > e.tu || !this.canSee(e, mover, mover.revealed)) continue;
-      if (e.stats.reactions * (e.tu / e.stats.tu) <= moverScore) continue;
+      if (this.reactionsOf(e) * (e.tu / e.stats.tu) <= moverScore) continue;
       this.events.push({ kind: "say", text: e.side === "alien" ? "It fires as you move!" : `${e.name} fires on reflex!`, tone: e.side === "alien" ? "bad" : "good" });
       this.fire(e, { x: mover.x, y: mover.y }, "snap");
-      if (e.side === "human") this.scent = { x: e.x, y: e.y };
+      if (e.side === "human") this.smell(mover, e);
       this.check();
       if (!conscious(mover)) return;
     }
@@ -441,7 +548,7 @@ export class Battle {
     const aimedAt = this.unitAt(target.x, target.y);
     for (let s = 0; s < m.shots && u.ammo > 0; s++) {
       u.ammo--;
-      const chance = baseHitChance(u.stats.accuracy, m, w, dist(u, target), u.kneeling, u.wounds * 4);
+      const chance = baseHitChance(this.accuracyOf(u), m, w, dist(u, target), u.kneeling, u.wounds * 4);
       const onTarget = this.rand() < chance;
       let end = target;
       if (!onTarget) {
@@ -506,21 +613,25 @@ export class Battle {
       });
       if (dead) for (const h of this.humans) if (alive(h) && h !== t) h.morale = Math.max(0, h.morale - moraleLoss(h.stats.bravery));
       if (by.side === "human" && t !== by) this.events.push({ kind: "say", text: `Friendly fire from ${by.name}.`, tone: "bad" });
+      if (by.side === "alien" && amount) this.focus.add(t.id);
     } else {
-      this.events.push({ kind: "say", text: dead ? "The alien goes down. It's dead." : amount ? `Hit! ${amount} damage.` : "Hit, but it shrugs it off.", tone: "good" });
-      if (!dead) this.scent = { x: by.x, y: by.y };
+      const it = this.aliens.length > 1 ? `The ${t.name.toLowerCase()}` : "The alien";
+      this.events.push({ kind: "say", text: dead ? `${it} goes down. It's dead.` : amount ? `Hit! ${amount} damage.` : "Hit, but it shrugs it off.", tone: "good" });
+      if (!dead && by.side === "human") this.smell(t, by);
     }
     if (dead) t.kneeling = false;
   }
 
   /** Bleeding, then morale and panic, at the start of a side's turn. */
   private startTurn(side: Side) {
+    if (side === "alien") this.stepUp();
+    const together = this.coordination() !== "none" || this.aliens.length === 1;
     for (const u of this.units) {
       if (u.side !== side || !alive(u)) continue;
       // Its wounds close by themselves, and it slowly heals.
       if (u.side === "alien") {
         u.wounds = 0;
-        u.health = Math.min(u.stats.health, u.health + ALIEN_REGEN);
+        u.health = Math.min(u.stats.health, u.health + (u.mind ? RACES[u.mind.race].regen : ALIEN_REGEN));
       }
       if (u.wounds) {
         u.health = Math.max(0, u.health - u.wounds);
@@ -531,20 +642,100 @@ export class Battle {
       }
       if (!conscious(u)) continue;
       u.tu = u.stats.tu;
-      u.morale = Math.min(100, u.morale + 10);
-      if (side === "human" && this.rand() < panicChance(u.morale)) {
-        u.tu = 0;
-        this.events.push({ kind: "say", text: `${u.name} panics and freezes.`, tone: "bad" });
+      if (side === "human") {
+        u.morale = Math.min(100, u.morale + 10);
+        if (this.rand() < panicChance(u.morale) * (this.steady ? 0.5 : 1)) {
+          u.tu = 0;
+          this.events.push({ kind: "say", text: `${u.name} panics and freezes.`, tone: "bad" });
+        }
+        continue;
       }
+      // Without anyone giving orders, their nerve comes back slowly.
+      u.morale = Math.min(100, u.morale + (together ? 10 : 3));
+      if (u.mind) this.nerve(u, u.mind);
     }
     this.check();
   }
 
+  /** A frightened alien may charge, bolt or freeze, by its nature. */
+  private nerve(a: Unit, m: AlienMind) {
+    m.state = "steady";
+    if (this.rand() >= panicChance(a.morale)) return;
+    m.state = m.mind.aggression >= 65 ? "berserk" : m.mind.caution >= 50 || m.mind.cunning >= 60 ? "cowering" : "frozen";
+    const seen = this.isSeen(a);
+    const text =
+      m.state === "berserk"
+        ? seen
+          ? `The ${a.name.toLowerCase()} shrieks and comes straight at you.`
+          : "Something out there is screaming."
+        : m.state === "cowering"
+          ? seen
+            ? `The ${a.name.toLowerCase()} breaks and scrambles for cover.`
+            : "You hear something scrambling away."
+          : seen
+            ? `The ${a.name.toLowerCase()} just stands there.`
+            : null;
+    if (text) this.events.push({ kind: "say", text, tone: "good" });
+    if (m.state === "frozen") a.tu = 0;
+  }
+
+  /** The next in line takes charge once the shock has passed, if they're still standing. */
+  private stepUp() {
+    if (this.inCharge !== null || this.nextUp === null || this.turn < this.stepUpTurn) return;
+    const s = this.unit(this.nextUp);
+    this.nextUp = null;
+    if (!s || !conscious(s)) return;
+    this.inCharge = s.id;
+    // It pulls them back together: the worst of the confusion ends now.
+    this.alienShakenUntil = Math.min(this.alienShakenUntil, this.turn - 1);
+    this.events.push({ kind: "say", text: this.isSeen(s) ? `Another one is giving the orders now.` : "The noises out there are getting organised again.", tone: "bad" });
+  }
+
+  /** Someone just died or dropped: what it does to both sides. */
+  private onFall(u: Unit) {
+    if (u.side === "human") {
+      if (u.id !== this.humanLeader) return;
+      this.humanShakenUntil = this.turn + 1;
+      for (const h of this.humans) if (conscious(h)) h.morale = Math.max(0, h.morale - 20);
+      for (const a of this.aliens) if (conscious(a)) a.morale = Math.min(100, a.morale + 15);
+      this.events.push({ kind: "say", text: `${u.name} is down. Nobody's sure who's calling it now.`, tone: "bad" });
+      return;
+    }
+    const commander = u.id === this.inCharge;
+    for (const a of this.aliens) {
+      if (a === u || !conscious(a)) continue;
+      const cohesion = (a.mind ?? { mind: DEFAULT_MIND }).mind.cohesion;
+      a.morale = Math.max(0, a.morale - Math.round(moraleLoss(a.stats.bravery) * (0.5 + cohesion / 100)));
+      if (!commander) continue;
+      // A tight squad leaned on its leader, and falls harder.
+      a.morale = Math.max(0, a.morale - Math.round(15 + cohesion * 0.35));
+      if (a.mind) {
+        const m = a.mind.mind;
+        // Hotheads get reckless; the rest get careful.
+        if (m.aggression >= 60 || a.mind.maverick) m.aggression = Math.min(100, m.aggression + 15);
+        else m.caution = Math.min(100, m.caution + 15);
+      }
+    }
+    if (!commander) return;
+    this.inCharge = null;
+    this.alienShakenUntil = this.turn + LEADERLESS_TURNS;
+    this.stepUpTurn = this.turn + LEADERLESS_TURNS;
+    if (this.nextUp === u.id) this.nextUp = null;
+    if (!this.aliens.some((a) => a !== u && conscious(a))) return;
+    this.steady = true;
+    for (const h of this.humans) if (conscious(h)) h.morale = Math.min(100, h.morale + 25);
+    this.events.push({ kind: "say", text: "That one was giving the orders. The rest are falling apart.", tone: "good" });
+  }
+
   private check() {
     if (this.outcome) return;
-    const a = this.alien;
-    if (!alive(a)) return this.finish("killed");
-    if (!conscious(a)) return this.finish("captured");
+    for (const u of this.units) {
+      if (conscious(u) || this.fallen.has(u.id)) continue;
+      this.fallen.add(u.id);
+      this.onFall(u);
+    }
+    const aliens = this.aliens;
+    if (!aliens.some(conscious)) return this.finish(aliens.some(alive) ? "captured" : "killed");
     if (!this.humans.some(conscious)) return this.finish("wiped");
   }
 
@@ -553,57 +744,139 @@ export class Battle {
     this.events.push({ kind: "end", outcome: o });
   }
 
-  // ---------- The alien ----------
+  // ---------- The aliens ----------
 
   private alienTurn() {
-    const a = this.alien;
-    if (!conscious(a)) return;
+    this.focus.clear();
+    for (const a of this.aliens) {
+      if (this.outcome) return;
+      if (conscious(a)) this.alienActs(a);
+    }
+  }
+
+  /** How an alien leans right now. */
+  private mindOf(a: Unit): Personality {
+    return a.mind?.mind ?? DEFAULT_MIND;
+  }
+
+  /** One alien's turn, played the way its personality and nerve say. */
+  private alienActs(a: Unit) {
+    const p = this.mindOf(a);
+    const state = a.mind?.state ?? "steady";
+    if (state === "frozen") return;
+    const berserk = state === "berserk";
     const snapCost = tuCost(a.stats.tu, a.weapon!.modes.snap!.tuPct);
+    // The reckless keep nothing back for reflexes.
+    const reserve = berserk || (p.aggression >= 75 && p.caution < 40) ? 0 : snapCost;
+    // How good a shot has to be before it takes it.
+    const minShot = berserk ? 0.05 : Math.max(0.12, Math.min(0.4, 0.35 - p.aggression * 0.002));
+    // Under this share of its health, it breaks off and looks for somewhere to hide.
+    const retreatAt = berserk ? 0 : state === "cowering" ? 2 : Math.max(0.05, Math.min(0.7, 0.2 + p.caution * 0.005 - p.aggression * 0.0018));
+    // How far it will close in for a better shot. Leaders hang back.
+    const closeSteps = berserk ? 99 : a.mind?.rank === "leader" && this.coordination() === "full" ? 2 : Math.round(2 + p.aggression / 20);
     let closedIn = false;
     for (let guard = 0; guard < 12 && !this.outcome && conscious(a); guard++) {
-      const targets = this.humans.filter((h) => conscious(h) && this.canSee(a, h, h.revealed));
-      // Hurt badly, it breaks contact and hides.
-      if (a.health < a.stats.health * RETREAT_AT) {
-        if (targets.length && this.tryShoot(a, targets, 0.45)) continue;
-        this.retreat(a, snapCost);
+      const targets = this.targetsFor(a);
+      if (targets.length && a.mind) a.mind.waited = 0;
+      if (a.health < a.stats.health * retreatAt) {
+        if (targets.length && this.tryShoot(a, targets, Math.max(0.45, minShot))) continue;
+        this.retreat(a, reserve);
         break;
       }
       if (targets.length) {
-        if (this.tryShoot(a, targets, 0.25)) continue;
+        if (this.tryShoot(a, targets, minShot)) continue;
         // Poor odds: close in on the nearest once, keeping enough to fire on reflex.
-        const t = targets.sort((p, q) => dist(a, p) - dist(a, q))[0];
-        if (!closedIn && this.advance(a, t, snapCost, 4, 3, true)) {
+        const t = targets.sort((x, y) => dist(a, x) - dist(a, y))[0];
+        if (!closedIn && this.advance(a, t, reserve, closeSteps, berserk ? 1 : 3, true)) {
           closedIn = true;
           continue;
         }
-        // Can't get closer: take whatever shot there is.
-        if (this.tryShoot(a, targets, 0.08)) continue;
+        // Can't get a view this turn: take whatever shot there is, or start walking.
+        if (this.tryShoot(a, targets, berserk ? 0.02 : 0.08)) continue;
+        if (!closedIn && this.advance(a, t, reserve, closeSteps * 2, 3)) {
+          closedIn = true;
+          continue;
+        }
         break;
       }
       const goal = this.hunt(a);
       if (!goal) break;
-      if (!this.advance(a, goal, snapCost, 99, 10)) break;
+      if (this.lieInWait(a, goal, p)) return;
+      const plan = this.approach(a, goal, p);
+      if (!this.advance(a, plan.goal, reserve, 99, plan.within, false, plan.alone)) break;
     }
     // Ends its turn looking where it expects you to come from.
     const goal = this.hunt(a);
-    if (goal && conscious(a)) {
-      const f = facingTo(a, goal);
-      if (f !== a.facing) {
-        a.facing = f;
-        this.events.push({ kind: "face", unit: a.id, facing: f });
-      }
-    }
+    if (goal && conscious(a)) this.look(a, goal);
   }
 
-  /** The best shot it can afford, if the odds are good enough. */
+  private look(a: Unit, p: Point) {
+    const f = facingTo(a, p);
+    if (f === a.facing) return;
+    a.facing = f;
+    this.events.push({ kind: "face", unit: a.id, facing: f });
+  }
+
+  /** Who it can shoot at: what it sees, or, while the squad works together, what any of them sees. */
+  private targetsFor(a: Unit): Unit[] {
+    const eyes = this.coordination() === "none" ? [a] : this.aliens.filter(conscious);
+    return this.humans.filter((h) => conscious(h) && eyes.some((e) => this.canSee(e, h, h.revealed)));
+  }
+
+  /** It knows where you are now; a squad working together all know. */
+  private smell(a: Unit, at: Point) {
+    const p = { x: at.x, y: at.y };
+    this.scent.set(a.id, p);
+    if (this.coordination() !== "none") for (const o of this.aliens) if (conscious(o)) this.scent.set(o.id, p);
+  }
+
+  /** A cunning alien close to its prey may wait for it to come round the corner, for a turn or two. */
+  private lieInWait(a: Unit, goal: Point, p: Personality): boolean {
+    const m = a.mind;
+    if (!m || m.state !== "steady" || p.cunning < 65 || m.waited >= 2) return false;
+    if (this.isSeen(a) || dist(a, goal) > 10) return false;
+    if (this.rand() > (p.cunning - 50) / 50) return false;
+    m.waited++;
+    this.look(a, goal);
+    return true;
+  }
+
+  /**
+   * Where to head while hunting. Under its leader, a cunning squad spreads out to come at you from
+   * the sides. Without one, a tight squad regroups before it does anything else.
+   */
+  private approach(a: Unit, goal: Point, p: Personality): { goal: Point; within: number; alone: boolean } {
+    const squad = this.aliens.filter(conscious);
+    const co = this.coordination();
+    if (co === "full" && squad.length > 1 && p.cunning >= 40 && p.cohesion >= 35 && a.mind?.rank !== "leader") {
+      const flankers = squad.filter((x) => x.mind?.rank !== "leader");
+      const side = flankers.indexOf(a) % 2 ? -1 : 1;
+      const cx = squad.reduce((n, x) => n + x.x, 0) / squad.length;
+      const cy = squad.reduce((n, x) => n + x.y, 0) / squad.length;
+      const len = Math.hypot(goal.x - cx, goal.y - cy) || 1;
+      const flank = {
+        x: Math.max(0, Math.min(this.map.w - 1, Math.round(goal.x - ((goal.y - cy) / len) * 6 * side))),
+        y: Math.max(0, Math.min(this.map.h - 1, Math.round(goal.y + ((goal.x - cx) / len) * 6 * side))),
+      };
+      if (dist(a, flank) > 3 && dist(a, goal) > 6) return { goal: flank, within: 2, alone: true };
+    }
+    if (co === "none" && squad.length > 1 && p.cohesion >= 60) {
+      const ally = squad.filter((x) => x !== a).sort((x, y) => dist(a, x) - dist(a, y))[0];
+      if (ally && dist(a, ally) > 5) return { goal: ally, within: 2, alone: true };
+    }
+    return { goal, within: 10, alone: false };
+  }
+
+  /** The best shot it can afford, if the odds are good enough. A squad working together piles onto whoever's already hurt. */
   private tryShoot(a: Unit, targets: Unit[], minChance: number): boolean {
+    const together = this.coordination() !== "none";
     let best: { t: Unit; mode: FireMode; score: number } | null = null;
     for (const t of targets) {
       for (const mode of ["aimed", "snap"] as FireMode[]) {
         const p = this.previewShot(a.id, t, mode);
         if (p.reason || p.chance < minChance) continue;
         // Prefer sure shots on the weak.
-        const score = p.chance * (1.5 - t.health / t.stats.health) + (mode === "aimed" ? 0.05 : 0);
+        const score = p.chance * (1.5 - t.health / t.stats.health) + (mode === "aimed" ? 0.05 : 0) + (together && this.focus.has(t.id) ? 0.25 : 0);
         if (!best || score > best.score) best = { t, mode, score };
       }
     }
@@ -616,24 +889,40 @@ export class Battle {
 
   /** Where it's heading: a heartbeat it can track, the last noise, or the middle of town. */
   private hunt(a: Unit): Point | null {
-    const near = this.humans.filter((h) => conscious(h) && dist(a, h) <= TRACKER_RANGE).sort((p, q) => dist(a, p) - dist(a, q))[0];
+    const range = a.mind ? RACES[a.mind.race].tracker : TRACKER_RANGE;
+    const near = this.humans.filter((h) => conscious(h) && dist(a, h) <= range).sort((p, q) => dist(a, p) - dist(a, q))[0];
     if (near) {
-      this.scent = { x: near.x, y: near.y };
+      this.smell(a, near);
       return near;
     }
-    if (this.scent && dist(a, this.scent) > 1.5) return this.scent;
-    this.scent = null;
-    return { x: this.map.w >> 1, y: this.map.h >> 1 };
+    const scent = this.scent.get(a.id);
+    // Somewhere it can see with nobody there is a cold trail.
+    const cold = scent && (dist(a, scent) <= 1.5 || (this.canSee(a, scent) && !this.humans.some((h) => conscious(h) && h.x === scent.x && h.y === scent.y)));
+    if (scent && !cold) return scent;
+    // Lost the trail: cast about somewhere near one of you. They know roughly where people are, and
+    // nobody can hide from them for ever.
+    const quarry = this.humans.filter(conscious);
+    if (!quarry.length) return null;
+    const q = quarry[Math.floor(this.rand() * quarry.length)];
+    const guess = {
+      x: Math.max(0, Math.min(this.map.w - 1, Math.round(q.x + (this.rand() * 2 - 1) * 8))),
+      y: Math.max(0, Math.min(this.map.h - 1, Math.round(q.y + (this.rand() * 2 - 1) * 8))),
+    };
+    this.scent.set(a.id, guess);
+    return guess;
   }
 
   /**
    * Moves toward a spot within `within` tiles of a point with a clear line to it, up to `maxSteps`,
    * keeping `reserve` TUs. Returns false if it couldn't move. `strict` only goes for a spot with a view that it can reach this turn.
+   * `alone` heads for the point itself rather than anyone near it, for flanking and regrouping.
    */
-  private advance(a: Unit, goal: Point, reserve: number, maxSteps: number, within: number, strict = false): boolean {
+  private advance(a: Unit, goal: Point, reserve: number, maxSteps: number, within: number, strict = false, alone = false): boolean {
     const { cost, prev } = this.map.reach(a, Infinity, this.occupied(a));
     // Head for the cheapest spot with a clear line to the goal or anyone near it; failing that, the nearest it can get.
-    const prey = [goal, ...this.humans.filter((h) => conscious(h) && dist(h, goal) <= TRACKER_RANGE)];
+    const prey = alone ? [goal] : [goal, ...this.humans.filter((h) => conscious(h) && dist(h, goal) <= TRACKER_RANGE)];
+    // The careful like a spot next to cover.
+    const coverPull = Math.max(0, this.mindOf(a).caution - 40) / 10;
     let best = -1;
     let bestD = Infinity;
     let sight: Point | null = null;
@@ -642,7 +931,8 @@ export class Battle {
       const p = { x: i % this.map.w, y: Math.floor(i / this.map.w) };
       const d = dist(p, goal);
       const view = prey.find((h) => dist(p, h) <= within && this.map.clearLine(p, h));
-      const score = view ? cost[i] + dist(p, view) * 2 : 10_000 + d * 100 + cost[i] * 0.01;
+      let score = view ? cost[i] + dist(p, view) * 2 : 10_000 + d * 100 + cost[i] * 0.01;
+      if (view && coverPull && this.nearCover(p)) score -= coverPull;
       if (score < bestD) [best, bestD, sight] = [i, score, view ?? null];
     }
     // Closing in only makes sense toward a spot with a view of its prey.
@@ -669,6 +959,11 @@ export class Battle {
     }
     this.walk(a, steps);
     return true;
+  }
+
+  private nearCover(p: Point): boolean {
+    for (const d of DIRS) if (this.map.inside(p.x + d.x, p.y + d.y) && this.map.isCover(p.x + d.x, p.y + d.y)) return true;
+    return false;
   }
 
   /** Could the alien see a human from a tile, facing the way it would be walking? */
