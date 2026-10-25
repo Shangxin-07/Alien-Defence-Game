@@ -118,7 +118,7 @@ globe to survey a site for a base.
 In battle: click or tap one of your people to select them, then a tile to move (on touch, tap
 once to preview and again to go). Click the alien to line up your best shot, or pick Snap, Aimed or
 Auto (`1`/`2`/`3`) and then a target. `B` stun baton, `H` medikit, `F` turn to face, `K` kneel,
-`N` next unit. Drag to pan, right-drag or `Q`/`E` to turn the view, scroll or pinch to zoom.
+`N` next unit. Drag or hold `W`/`A`/`S`/`D` to pan, right-drag or `Q`/`E` to turn the view, scroll or pinch to zoom.
 
 In the base view: drag to turn, scroll or pinch to zoom, `[`/`]` or Page Up/Down to change level,
 `R` rotates, `X` demolishes, `Esc` goes back to inspecting. On touch screens, tap once to preview
