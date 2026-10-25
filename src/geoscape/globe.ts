@@ -33,19 +33,27 @@ const globeVertex = /* glsl */ `
 
 const globeFragment = /* glsl */ `
   uniform sampler2D map;
+  uniform sampler2D overlay;
   uniform vec3 sun;
+  uniform vec3 borderColor;
+  uniform float borderOpacity;
   varying vec2 vUv;
   varying vec3 vN;
   varying vec3 vView;
   void main() {
     vec3 base = texture2D(map, vUv).rgb;
+    vec4 over = texture2D(overlay, vUv);
     float d = dot(vN, normalize(sun));
-    float day = smoothstep(-0.12, 0.18, d);
-    vec3 lit = base * (0.55 + 0.6 * max(d, 0.0));
-    vec3 night = base * 0.42 + vec3(0.0, 0.01, 0.03);
+    // A fairly hard terminator: night is properly dark, lit only by cities.
+    float day = smoothstep(-0.03, 0.07, d);
+    vec3 lit = base * (0.72 + 0.45 * max(d, 0.0));
+    vec3 night = base * 0.17 + vec3(0.0, 0.008, 0.03);
+    night += over.r * vec3(1.0, 0.76, 0.42) * 0.95;
     vec3 col = mix(night, lit, day);
-    // Amber band along the terminator.
-    col += vec3(0.9, 0.55, 0.15) * 0.10 * (1.0 - abs(d * 6.0 - 0.1)) * step(abs(d), 0.17);
+    // Thin amber band along the terminator.
+    col += vec3(0.95, 0.55, 0.15) * 0.12 * (1.0 - smoothstep(0.0, 0.035, abs(d - 0.02)));
+    // Bloc borders stay readable on the night side.
+    col = mix(col, borderColor * mix(0.55, 1.0, day), over.g * borderOpacity);
     // Rim light toward the limb.
     float rim = pow(1.0 - max(dot(vN, normalize(vView)), 0.0), 3.0);
     col += vec3(0.25, 0.55, 0.75) * rim * 0.35;
@@ -78,11 +86,20 @@ export class Globe {
   private readonly marker = new Group();
   private readonly pulse: Mesh<RingGeometry, MeshBasicMaterial>;
 
-  constructor(scene: Scene, map: Texture, markerColor: Color) {
+  private readonly uniforms;
+
+  constructor(scene: Scene, map: Texture, overlay: Texture, markerColor: Color, borderColor: Color) {
+    this.uniforms = {
+      map: { value: map },
+      overlay: { value: overlay },
+      sun: { value: this.sunDirection },
+      borderColor: { value: borderColor },
+      borderOpacity: { value: 0 },
+    };
     this.surface = new Mesh(
       new SphereGeometry(1, 128, 96),
       new ShaderMaterial({
-        uniforms: { map: { value: map }, sun: { value: this.sunDirection } },
+        uniforms: this.uniforms,
         vertexShader: globeVertex,
         fragmentShader: globeFragment,
       })
@@ -125,6 +142,11 @@ export class Globe {
     this.marker.position.copy(p);
     this.marker.lookAt(p.clone().multiplyScalar(2));
     this.marker.visible = true;
+  }
+
+  /** Bloc borders fade in as the camera zooms in. */
+  setBorderOpacity(opacity: number): void {
+    this.uniforms.borderOpacity.value = opacity;
   }
 
   /** Animates the marker pulse; scales it with camera distance so it stays a readable size. */

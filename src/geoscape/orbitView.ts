@@ -17,7 +17,7 @@ export class OrbitView {
   onClick: (e: PointerEvent) => void = () => {};
 
   private vLat = 0;
-  private vLon = -0.6;
+  private vLon = 0;
   private readonly pointers = new Map<number, { x: number; y: number; t: number }>();
   private dragMoved = 0;
   private pinch: { span: number; distance: number } | null = null;
