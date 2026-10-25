@@ -6,7 +6,23 @@ tracking contacts, building bases and managing the war) and **tactical combat** 
 
 ## Status
 
-Geoscape prototype: a stylised 3D Earth you can spin and zoom.
+The geoscape and base building run as one game on one page, with one campaign clock and one
+budget.
+
+- **Found bases from the globe.** Click a spot to survey it. Anywhere within 120 km of a city
+  is a covert base under that city; other dry land is a remote base. The first base has to be
+  in a city and is paid for; later ones cost $900k (city) or $600k (remote), must sit at least
+  400 km from another base, and command runs at most eight.
+- **The clock starts with your first base.** Construction in every base moves on at each day
+  boundary, at whatever time speed the geoscape runs. When something finishes, fast time drops
+  back to a crawl so you notice. Time stands still while you're in a base, and its `+1 day` and
+  skip buttons move the whole campaign on.
+- **Your bases on the globe**: markers (dashed for covert bases), working radar shown as a ring
+  of its real range, and a base list with cover, radar and construction at a glance. Pick a
+  base from the list or its marker to go into it, and `Geoscape` brings you back.
+- The campaign saves in the browser.
+
+The geoscape: a stylised 3D Earth you can spin and zoom.
 
 - **Terrain biomes** painted on the map. Each biome is a tactical map family, so the ground
   under a crash site decides what the battle looks like: polar ice, tundra, boreal forest,
@@ -15,9 +31,9 @@ Geoscape prototype: a stylised 3D Earth you can spin and zoom.
 - **Post-war blocs**: after the last war the old countries were merged into 16 blocs with
   smoothed borders (the funding nations). Borders and bloc names fade in as you zoom in.
 - **Day and night** driven by a game clock using the original's time speeds.
-- Hover for terrain and territory, click to mark a base site.
+- Hover for terrain and territory, click to survey a site.
 
-Base building prototype (`base.html`): dig out a base on an 8×8 grid over four levels, the
+Base building: dig out a base on an 8×8 grid over four levels, the
 surface plus three underground.
 
 - **Two kinds of site.** The first base is covert, in a city block. It starts as a single front
@@ -54,11 +70,11 @@ npm run build:single  # one self-contained HTML file in dist-single/, handy for 
 ```
 
 Controls: drag to spin, scroll or pinch to zoom, arrow keys and `+`/`-` also work. Click the
-globe to mark a base site.
+globe to survey a site for a base.
 
 In the base view: drag to turn, scroll or pinch to zoom, `[`/`]` or Page Up/Down to change level,
 `R` rotates, `X` demolishes, `Esc` goes back to inspecting. On touch screens, tap once to preview
-a spot and again to build. `npm run build:single:base` makes a single-file copy of the base view.
+a spot and again to build.
 
 ## Layout
 
@@ -68,7 +84,10 @@ a spot and again to build. `npm run build:single:base` makes a single-file copy 
 - `src/geoscape/blocs.ts`: the 16 blocs, territory lookup
 - `src/geoscape/cities.ts`: major cities
 - `src/geoscape/mapTextures.ts`: draws the map, night lights and border textures
-- `src/geoscape/globe.ts`, `labels.ts`, `orbitView.ts`: rendering, labels and camera controls
+- `src/geoscape/globe.ts`, `labels.ts`, `baseMarks.ts`, `orbitView.ts`: rendering, labels, base
+  markers and camera controls
+- `src/campaign.ts`: the campaign: shared clock and funds, site surveys, founding bases, saving
+- `src/main.ts`, `src/base.ts`: the geoscape and base screens
 - `src/base/rooms.ts`: base facilities, costs and power
 - `src/base/layout.ts`: the base grid, placement rules, tunnel connectivity, power, construction,
   city cover and base specialism

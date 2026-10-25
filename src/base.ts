@@ -1,41 +1,34 @@
-import "./styles.css";
 import "./base/base.css";
 import { Color, PerspectiveCamera, Plane, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
 import { BaseCamera } from "./base/baseCamera";
 import { BaseView, levelY } from "./base/baseView";
-import { BaseLayout, GRID, Item, ItemStatus, LEVELS, LEVEL_NAMES, Site, surfaceExposure } from "./base/layout";
+import { BaseLayout, GRID, Item, ItemStatus, LEVELS, LEVEL_NAMES, surfaceExposure } from "./base/layout";
 import { ROLE_BONUS, ROLE_NAMES, ROOMS, ROOM_ORDER, RoomId, powerSupply } from "./base/rooms";
 
-// Bumped whenever the starting base changes, so everyone gets the new start. Older saves load as remote bases.
-const SAVE_KEY = "alien-defence.base.v3";
-document.body.classList.add("base");
+/** What the base screen needs from the campaign around it. */
+export interface BaseHost {
+  name: string;
+  /** Where the base is, e.g. the city hiding it. */
+  place: string;
+  layout: BaseLayout;
+  /** The campaign date, for the header. */
+  date(): string;
+  /** Runs the campaign clock on; returns what finished building in any base. */
+  wait(days: number): { base: string; item: Item }[];
+  /** Called after every change the player makes. */
+  save(): void;
+  leave(): void;
+}
 
 const css = getComputedStyle(document.documentElement);
 const token = (name: string) => css.getPropertyValue(name).trim();
 const $ = (id: string) => document.getElementById(id)!;
-
-if (import.meta.env.MODE.startsWith("single")) $("nav").hidden = true;
+const root = $("baseScreen");
 
 // ---------- State ----------
-function loadBase(): BaseLayout {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) return BaseLayout.load(JSON.parse(raw));
-  } catch {
-    // A broken or blocked save just means a fresh base.
-  }
-  return BaseLayout.starter();
-}
-function persist() {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(layout.save()));
-  } catch {
-    // Saving is a convenience only.
-  }
-}
-
 type Tool = { kind: "inspect" } | { kind: "build"; type: RoomId } | { kind: "demolish" };
-let layout = loadBase();
+let host: BaseHost | null = null;
+let layout = new BaseLayout();
 let tool: Tool = { kind: "inspect" };
 let rotated = false;
 let active = 0;
@@ -59,8 +52,6 @@ const view = new BaseView(scene, {
   ok: token("--coast"),
 });
 const cam = new BaseCamera(camera, canvas);
-// Portrait screens need to stand further back to fit the grid when it's turned.
-if (canvas.clientWidth < canvas.clientHeight) cam.distance = cam.targetDistance = 16;
 
 const ray = new Raycaster();
 const ndc = new Vector2();
@@ -332,7 +323,8 @@ function updateStats() {
 }
 
 function updateHead() {
-  $("site").textContent = layout.site === "city" ? "City, covert" : "Remote";
+  $("baseName").textContent = host?.name ?? "Base";
+  $("site").textContent = host?.place ?? (layout.site === "city" ? "City, covert" : "Remote");
   const cover = layout.cover();
   $("coverRow").hidden = cover === null;
   if (cover !== null) {
@@ -357,7 +349,7 @@ function updateHead() {
   $("funds").textContent = money(layout.funds);
   // The phone layout stacks the level and status panels under the header, whatever its height.
   document.documentElement.style.setProperty("--head-h", `${$("head").offsetHeight}px`);
-  $("day").textContent = String(layout.day);
+  $("day").textContent = host?.date() ?? String(layout.day);
   const next = layout.nextCompletion();
   ($("waitNext") as HTMLButtonElement).disabled = !next;
   $("waitNext").textContent = next ? `Skip ${next}d` : "Nothing building";
@@ -405,15 +397,17 @@ function refresh() {
   updatePreview();
 }
 function changed() {
-  persist();
+  host?.save();
   refresh();
 }
 
 function wait(days: number) {
-  if (days <= 0) return;
-  const done = layout.advance(days);
+  if (days <= 0 || !host) return;
+  const done = host.wait(days);
   if (done.length) {
-    const names = done.map((it) => `${ROOMS[it.type].name} (${LEVEL_NAMES[it.level]})`);
+    const names = done.map(({ base, item }) =>
+      base === host!.name ? `${ROOMS[item.type].name} (${LEVEL_NAMES[item.level]})` : `${ROOMS[item.type].name} at ${base}`,
+    );
     toast(`Complete: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` and ${names.length - 3} more` : ""}`);
   }
   changed();
@@ -427,34 +421,10 @@ $("rotate").addEventListener("click", () => {
   rotated = !rotated;
   updatePreview();
 });
-// Two presses to scrap the base, since there's no undo.
-for (const site of ["city", "remote"] as Site[]) {
-  const b = $(site === "city" ? "newCity" : "newRemote");
-  const label = b.textContent!;
-  let timer = 0;
-  b.addEventListener("click", () => {
-    if (!timer) {
-      b.textContent = "Press again";
-      b.classList.add("bad");
-      timer = window.setTimeout(() => {
-        timer = 0;
-        b.textContent = label;
-        b.classList.remove("bad");
-      }, 3000);
-      return;
-    }
-    clearTimeout(timer);
-    timer = 0;
-    b.textContent = label;
-    b.classList.remove("bad");
-    layout = BaseLayout.starter(site, Math.floor(Math.random() * 1e9));
-    setLevel(0);
-    changed();
-  });
-}
+$("nav").addEventListener("click", () => host?.leave());
 
 window.addEventListener("keydown", (e) => {
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (root.hidden || e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key;
   if (k === "r" || k === "R") $("rotate").click();
   else if (k === "x" || k === "X" || k === "Delete") $("demolish").click();
@@ -482,16 +452,35 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 window.addEventListener("resize", resize);
-resize();
-refresh();
+
+/** Shows the base screen for one base, starting on the surface. */
+export function openBase(h: BaseHost): void {
+  host = h;
+  layout = h.layout;
+  root.hidden = false;
+  resize();
+  // Portrait screens need to stand further back to fit the grid when it's turned.
+  if (canvas.clientWidth < canvas.clientHeight) cam.distance = cam.targetDistance = 16;
+  active = 0;
+  cam.targetY = levelY(0);
+  hover = null;
+  setTool({ kind: "inspect" });
+  refresh();
+}
+
+export function closeBase(): void {
+  root.hidden = true;
+  host = null;
+}
 
 let last = performance.now();
 function frame(now: number) {
   const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
   last = now;
+  requestAnimationFrame(frame);
+  if (root.hidden) return;
   cam.update(dt);
   placeTags();
   renderer.render(scene, camera);
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
