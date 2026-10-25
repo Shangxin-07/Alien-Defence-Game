@@ -342,7 +342,7 @@ describe("hydroponic farm", () => {
     const layout = c.bases[0].layout;
     c.advanceDays(5);
     const gen = [...layout.items.values()].find((x) => x.type === "generator")!;
-    layout.remove(gen);
+    layout.demolish(gen.uid);
     expect(layout.status(it.uid)).not.toBe("online");
     c.advanceDays(20);
     expect(c.crops[`${c.bases[0].id}:${it.uid}`]).toBe(5);
