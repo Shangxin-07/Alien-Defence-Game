@@ -156,6 +156,23 @@ for (const { label, rate } of TIME_SPEEDS) {
   speedBox.appendChild(b);
 }
 
+const SPIN_KEY = "alien-defence.autoSpin";
+const spinBox = $("autoSpin") as HTMLInputElement;
+try {
+  spinBox.checked = localStorage.getItem(SPIN_KEY) !== "off";
+} catch {
+  // Storage blocked: keep the default.
+}
+view.autoSpin = spinBox.checked;
+spinBox.addEventListener("change", () => {
+  view.autoSpin = spinBox.checked;
+  try {
+    localStorage.setItem(SPIN_KEY, spinBox.checked ? "on" : "off");
+  } catch {
+    // Storage blocked: the setting lasts this visit only.
+  }
+});
+
 function setRate(rate: number) {
   clock.rate = rate;
   [...speedBox.children].forEach((x, i) => x.setAttribute("aria-pressed", String(TIME_SPEEDS[i].rate === rate)));
