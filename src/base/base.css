@@ -77,7 +77,7 @@
 .dim { color: var(--dim); }
 .st.online { color: var(--coast); }
 .st.building { color: var(--amber); }
-.st.isolated, .st.unpowered { color: var(--alert); }
+.st.isolated, .st.unpowered, .st.shaftOnly { color: var(--alert); }
 
 .labels .tag {
   font-family: var(--display);
@@ -88,7 +88,7 @@
   text-shadow: 0 0 3px var(--void), 0 0 2px var(--void);
 }
 .labels .tag.building { color: var(--amber); }
-.labels .tag.isolated, .labels .tag.unpowered { color: var(--alert); }
+.labels .tag.isolated, .labels .tag.unpowered, .labels .tag.shaftOnly { color: var(--alert); }
 
 #toast {
   position: fixed;

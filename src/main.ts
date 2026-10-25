@@ -2,7 +2,7 @@ import "./styles.css";
 import { Color, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
 import { closeBase, openBase } from "./base";
 import { ROOMS } from "./base/rooms";
-import { BaseRecord, Campaign, Completion, nmiToRadians } from "./campaign";
+import { BaseRecord, Campaign, Completion, GRANT, nmiToRadians } from "./campaign";
 import { closeCombat, openCombat } from "./combat";
 import type { Stats } from "./tactical/rules";
 import { BaseMarks } from "./geoscape/baseMarks";
@@ -15,7 +15,7 @@ import { Globe } from "./geoscape/globe";
 import { GlobeLabels } from "./geoscape/labels";
 import { buildMapTextures } from "./geoscape/mapTextures";
 import { OrbitView } from "./geoscape/orbitView";
-import { JOB_NAMES, Job, fitToWork, project } from "./staff";
+import { JOB_NAMES, Job, buildSkill, fitToWork, project, rollBuild } from "./staff";
 import { prologueCity, startPrologue } from "./tactical/prologue";
 
 const css = getComputedStyle(document.documentElement);
@@ -177,6 +177,7 @@ function baseSummary(b: BaseRecord): string {
 
 function refreshBases() {
   $("globeFunds").textContent = money(campaign.funds);
+  $("globeGrant").textContent = campaign.bases.length ? `$${GRANT / 1e6}M in ${campaign.nextGrant}d` : "once you have a base";
   const list = $("baseList");
   list.replaceChildren();
   for (const b of campaign.bases) {
@@ -206,7 +207,7 @@ function refreshBases() {
   const first = !campaign.bases.length;
   $("banner").hidden = !first || !!picked;
   const out = pro && pro.outcome !== "skipped" && pro.survivors ? `Your survivors got out of ${pro.city}. ` : "";
-  $("banner").textContent = `${out}Choose a city for your first base. It has to stay hidden. The clock starts once it's founded.`;
+  $("banner").textContent = `${out}Choose a city for your first base. It has to stay hidden, and there's no money yet: your own people will dig it out. The clock starts once it's founded.`;
 }
 
 function refreshSurvey() {
@@ -358,11 +359,25 @@ function refreshStaff() {
     const li = document.createElement("li");
     const where = campaign.bases.find((b) => b.id === p.base)?.name ?? "No base yet";
     const fit = fitToWork(p);
-    li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div></div><select aria-label="Job"></select>`;
+    li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div></div><div class="pick"><select aria-label="Base"></select><select aria-label="Job"></select></div>`;
     li.querySelector("b")!.textContent = p.name;
     li.querySelector(".dim")!.textContent = p.role;
-    li.querySelector(".meta")!.textContent = `${where} · HP ${p.health}/${p.stats.health}${fit ? "" : " · recovering"} · aptitude ${Math.round(p.aptitude * 100)}%`;
-    const sel = li.querySelector("select")!;
+    li.querySelector(".meta")!.textContent = `${where} · HP ${p.health}/${p.stats.health}${fit ? "" : " · recovering"} · build ${buildSkill(p).toFixed(2)} · research ${p.aptitude.toFixed(2)}`;
+    const [baseSel, sel] = li.querySelectorAll("select");
+    baseSel.hidden = campaign.bases.length < 2;
+    for (const b of campaign.bases) {
+      const o = document.createElement("option");
+      o.value = String(b.id);
+      o.textContent = b.name;
+      baseSel.appendChild(o);
+    }
+    if (p.base !== null) baseSel.value = String(p.base);
+    baseSel.addEventListener("change", () => {
+      campaign.transfer(p.id, Number(baseSel.value));
+      persist();
+      refreshStaff();
+      refreshBases();
+    });
     for (const job of Object.keys(JOB_NAMES) as Job[]) {
       const o = document.createElement("option");
       o.value = job;
@@ -413,9 +428,11 @@ function playPrologue() {
     refresh();
   };
   const prologue = startPrologue(city, seed);
-  // Aptitude is a coin toss, not their old job: anyone can learn anything.
+  // Research aptitude is a coin toss, not their old job: anyone can learn anything. Their old job does make some handier with a shovel.
   const enlist = (people: { name: string; role: string; stats: Stats; health: number }[]) =>
-    campaign.enlist(people.map((p) => ({ ...p, stats: { ...p.stats }, aptitude: Math.round((0.8 + Math.random() * 0.4) * 100) / 100 })));
+    campaign.enlist(
+      people.map((p) => ({ ...p, stats: { ...p.stats }, aptitude: Math.round((0.8 + Math.random() * 0.4) * 100) / 100, build: rollBuild(p.role, Math.random) })),
+    );
   openCombat({
     prologue,
     finish: (r) => {
