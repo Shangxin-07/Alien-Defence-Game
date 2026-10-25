@@ -20,6 +20,9 @@
 .combat .good { color: var(--coast); }
 
 .mission { width: 230px; }
+.setting { display: grid; grid-template-columns: auto 1fr 34px; align-items: center; gap: 8px; color: var(--dim); font-size: 10px; }
+.setting input { width: 100%; accent-color: var(--amber); }
+.setting span:last-child { color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
 .objectives { margin: 2px 0 0; padding-left: 16px; display: grid; gap: 4px; line-height: 1.4; }
 
 .squad { width: 220px; text-align: left; }
@@ -158,7 +161,7 @@
   .unitpanel { width: min(560px, calc(100% - 32px - 160px)); min-width: 0; }
 }
 @media (max-width: 720px) {
-  .mission h2, .objectives { display: none; }
+  .mission h2, .objectives, .setting { display: none; }
   .combat .mission { top: calc(12px + env(safe-area-inset-top, 0px)); width: 130px; padding: 6px 10px; gap: 2px; }
   .combat .mission h1 { display: block; }
   .combat .squad { left: auto; width: 46%; padding: 6px; }

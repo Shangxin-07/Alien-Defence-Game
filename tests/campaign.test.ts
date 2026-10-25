@@ -150,3 +150,88 @@ describe("the prologue", () => {
     expect(c.prologue?.city).toBe("Tokyo");
   });
 });
+
+describe("staff and research", () => {
+  const person = (name: string) => ({
+    name,
+    role: "Test",
+    stats: { tu: 50, health: 30, bravery: 50, reactions: 50, accuracy: 50, melee: 50, armour: 0 },
+    health: 30,
+    aptitude: 1,
+  });
+
+  it("sends a liaison when nobody survived, and moves everyone into the first base", () => {
+    const c = new Campaign();
+    c.enlist([]);
+    expect(c.staff.map((p) => p.name)).toEqual(["Council liaison"]);
+    expect(c.staff[0].base).toBeNull();
+    const b = c.found(LONDON, true);
+    expect(c.staff[0].base).toBe(b.id);
+    // Only once: a replay doesn't add more people.
+    c.enlist([person("A")]);
+    expect(c.staff).toHaveLength(1);
+  });
+
+  it("researches faster with more people, and a lone liaison still gets there", () => {
+    const run = (n: number) => {
+      const c = new Campaign();
+      c.recordPrologue({ city: "Lagos", outcome: n ? "killed" : "wiped", recovered: n ? ["Alien corpse", "Plasma pistol"] : [], survivors: n, turns: 5 });
+      c.enlist(Array.from({ length: n }, (_, i) => person(`P${i}`)));
+      c.found(LONDON, true);
+      c.setResearch("debrief");
+      let days = 0;
+      while (!c.research.done.includes("debrief") && days < 100) {
+        c.advanceDays(1);
+        days++;
+      }
+      return { c, days };
+    };
+    expect(run(4).days).toBeLessThan(run(1).days);
+    const alone = run(0);
+    expect(alone.c.research.done).toContain("debrief");
+    expect(alone.c.news.some((n) => n.includes("Debrief"))).toBe(true);
+    // With nothing recovered, the alien-tech projects stay hidden but the crash site opens up.
+    const ids = alone.c.projects().map((p) => p.project.id);
+    expect(ids).not.toContain("plasmaPistol");
+    expect(alone.c.projects().find((p) => p.project.id === "crashSite")?.blocker).toBeNull();
+  });
+
+  it("gates projects on what came home and on containment", () => {
+    const c = new Campaign();
+    c.recordPrologue({ city: "Lagos", outcome: "captured", recovered: ["Live alien", "Plasma pistol", "Tracking implant"], survivors: 1, turns: 5 });
+    c.enlist([person("A")]);
+    c.found(LONDON, true);
+    const p = (id: string) => c.projects().find((x) => x.project.id === id);
+    expect(p("interrogation")?.blocker).toMatch(/containment/);
+    expect(p("plasmaPistol")?.blocker).toBeNull();
+    expect(p("autopsy")).toBeUndefined();
+    expect(() => c.setResearch("interrogation")).toThrow();
+  });
+
+  it("lets builders bring construction forward, and the badly hurt rest", () => {
+    const c = new Campaign();
+    c.enlist([person("A"), person("B"), person("C"), person("D")]);
+    const b = c.found(LONDON, true);
+    b.layout.funds = 10_000_000;
+    const shaft = b.layout.place("accessPoint", 0, 3, 3, false);
+    expect(shaft.daysLeft).toBe(ROOMS.accessPoint.days);
+    for (const s of c.staff) s.job = "construction";
+    // One of them is too hurt to work: three builders bring it forward three quarters of a day a day.
+    c.staff[3].health = 5;
+    expect(c.researchRate()).toBe(0);
+    c.advanceDays(4);
+    expect(shaft.daysLeft).toBe(ROOMS.accessPoint.days - 4 - 3);
+    expect(c.staff[3].health).toBe(9);
+  });
+
+  it("gives saves from before staff existed their survivors", () => {
+    const c = new Campaign();
+    c.recordPrologue({ city: "Lagos", outcome: "killed", recovered: ["Alien corpse"], survivors: 3, turns: 5 });
+    c.found(LONDON, true);
+    const old = c.save();
+    delete old.staff;
+    const copy = Campaign.load(old);
+    expect(copy.staff).toHaveLength(3);
+    expect(copy.staff.every((p) => p.base === copy.bases[0].id)).toBe(true);
+  });
+});

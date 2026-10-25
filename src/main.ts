@@ -4,6 +4,7 @@ import { closeBase, openBase } from "./base";
 import { ROOMS } from "./base/rooms";
 import { BaseRecord, Campaign, Completion, nmiToRadians } from "./campaign";
 import { closeCombat, openCombat } from "./combat";
+import type { Stats } from "./tactical/rules";
 import { BaseMarks } from "./geoscape/baseMarks";
 import { BIOMES, BIOME_ORDER, biomeAt } from "./geoscape/biomes";
 import { blocAt } from "./geoscape/blocs";
@@ -14,6 +15,7 @@ import { Globe } from "./geoscape/globe";
 import { GlobeLabels } from "./geoscape/labels";
 import { buildMapTextures } from "./geoscape/mapTextures";
 import { OrbitView } from "./geoscape/orbitView";
+import { JOB_NAMES, Job, fitToWork, project } from "./staff";
 import { prologueCity, startPrologue } from "./tactical/prologue";
 
 const css = getComputedStyle(document.documentElement);
@@ -193,6 +195,8 @@ function refreshBases() {
   const pro = campaign.prologue;
   const spoils = $("spoils");
   spoils.hidden = !pro?.recovered.length;
+  $("openStaff").hidden = !campaign.staff.length;
+  $("staffSummary").textContent = staffSummary();
   if (pro?.recovered.length) spoils.innerHTML = `<b>Recovered in ${escape(pro.city)}</b><span class="dim">${pro.recovered.map(escape).join(", ")}</span>`;
   marks.set(
     campaign.bases.map((b) => ({ id: b.id, name: b.name, lat: b.lat, lon: b.lon, covert: b.site === "city" })),
@@ -259,6 +263,13 @@ function found(ll: LatLon) {
 }
 
 function completed(done: Completion[]) {
+  // Research and other news from the day's work.
+  if (campaign.news.length) {
+    toast(campaign.news.splice(0).join(" · "));
+    if (clock.rate > 300) setRate(5);
+    if (!$("staffModal").hidden) refreshStaff();
+    refreshBases();
+  }
   if (!done.length) return;
   const names = done.map(({ base, item }) => `${ROOMS[item.type].name} at ${base.name}`);
   toast(`Complete: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` and ${names.length - 3} more` : ""}`);
@@ -300,6 +311,86 @@ function enterBase(b: BaseRecord) {
   });
 }
 
+// ---------- Staff and research ----------
+function staffSummary(): string {
+  const id = campaign.research.active;
+  if (!campaign.staff.length) return "Nobody yet";
+  if (!campaign.bases.length) return `${campaign.staff.length} waiting for a base`;
+  if (!id) return "No research project";
+  const eta = campaign.researchEta();
+  return `${project(id).name}${eta ? `, ~${eta} day${eta === 1 ? "" : "s"}` : ", stalled"}`;
+}
+
+function refreshStaff() {
+  const r = campaign.research;
+  const id = r.active;
+  const rate = campaign.researchRate();
+  const eta = campaign.researchEta();
+  $("researchNow").innerHTML = id
+    ? `<div class="row"><span>Working on</span><span>${escape(project(id).name)}</span></div>
+       <div class="meter"><i style="width:${Math.min(100, ((r.progress[id] ?? 0) / project(id).points) * 100)}%"></i></div>
+       <div class="row"><span>${rate.toFixed(1)} points a day</span><span>${eta ? `~${eta} days left` : campaign.bases.length ? "Nobody on research" : "Waiting for a base"}</span></div>`
+    : `<p class="dim">Pick a project. Everyone on research works on it together.</p>`;
+  const list = $("projectList");
+  list.replaceChildren();
+  for (const { project: p, blocker, progress } of campaign.projects()) {
+    if (blocker === "Done") continue;
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.disabled = !!blocker;
+    b.setAttribute("aria-pressed", String(p.id === id));
+    b.innerHTML = `<span class="name"></span><span class="meta"></span>`;
+    b.querySelector(".name")!.textContent = p.name;
+    b.querySelector(".meta")!.textContent = blocker ?? `${p.blurb} ${Math.floor(progress)}/${p.points}`;
+    b.addEventListener("click", () => {
+      campaign.setResearch(p.id === id ? null : p.id);
+      persist();
+      refreshStaff();
+      refreshBases();
+    });
+    li.appendChild(b);
+    list.appendChild(li);
+  }
+  const people = $("staffList");
+  people.replaceChildren();
+  for (const p of campaign.staff) {
+    const li = document.createElement("li");
+    const where = campaign.bases.find((b) => b.id === p.base)?.name ?? "No base yet";
+    const fit = fitToWork(p);
+    li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div></div><select aria-label="Job"></select>`;
+    li.querySelector("b")!.textContent = p.name;
+    li.querySelector(".dim")!.textContent = p.role;
+    li.querySelector(".meta")!.textContent = `${where} · HP ${p.health}/${p.stats.health}${fit ? "" : " · recovering"} · aptitude ${Math.round(p.aptitude * 100)}%`;
+    const sel = li.querySelector("select")!;
+    for (const job of Object.keys(JOB_NAMES) as Job[]) {
+      const o = document.createElement("option");
+      o.value = job;
+      o.textContent = JOB_NAMES[job];
+      sel.appendChild(o);
+    }
+    sel.value = p.job;
+    sel.addEventListener("change", () => {
+      p.job = sel.value as Job;
+      persist();
+      refreshStaff();
+      refreshBases();
+    });
+    people.appendChild(li);
+  }
+  $("doneBox").hidden = !r.done.length;
+  $("doneList").innerHTML = r.done.map((d) => `<li><b>${escape(project(d).name)}</b> ${escape(project(d).result)}</li>`).join("");
+}
+
+$("openStaff").addEventListener("click", () => {
+  refreshStaff();
+  $("staffModal").hidden = false;
+});
+$("closeStaff").addEventListener("click", () => ($("staffModal").hidden = true));
+$("staffModal").addEventListener("click", (e) => {
+  if (e.target === $("staffModal")) $("staffModal").hidden = true;
+});
+
 // ---------- Prologue ----------
 /** The opening battle: one night in a city, hunted by a single alien. */
 function playPrologue() {
@@ -321,10 +412,15 @@ function playPrologue() {
     resize();
     refresh();
   };
+  const prologue = startPrologue(city, seed);
+  // Aptitude is a coin toss, not their old job: anyone can learn anything.
+  const enlist = (people: { name: string; role: string; stats: Stats; health: number }[]) =>
+    campaign.enlist(people.map((p) => ({ ...p, stats: { ...p.stats }, aptitude: Math.round((0.8 + Math.random() * 0.4) * 100) / 100 })));
   openCombat({
-    prologue: startPrologue(city, seed),
+    prologue,
     finish: (r) => {
       campaign.recordPrologue({ city: city.name, outcome: r.outcome, recovered: r.recovered, survivors: r.survivors, turns: r.turns });
+      enlist(r.people);
       if (r.recovered.length) toast(`Recovered: ${r.recovered.join(", ")}`);
       back();
     },
@@ -334,6 +430,7 @@ function playPrologue() {
     },
     skip: () => {
       if (!campaign.prologue) campaign.recordPrologue({ city: city.name, outcome: "skipped", recovered: [], survivors: 0, turns: 0 });
+      enlist(prologue.battle.humans);
       back();
     },
   });
@@ -393,6 +490,7 @@ function updateHud() {
     persist();
     refreshBases();
     refreshSurvey();
+    if (!$("staffModal").hidden) refreshStaff();
   }
 }
 window.addEventListener("pagehide", persist);
