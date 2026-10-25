@@ -115,8 +115,11 @@ const ROLES: Role[] = [
 
 /** It's called a Hunter because that's what it does. A Strider, the best of them. */
 const HUNTER: Stats = { tu: 64, health: 55, bravery: 100, reactions: 85, accuracy: 70, melee: 60, armour: 10 };
-/** The Hunter's own range: it hunts alone, patient and not reckless. */
-const HUNTER_NORMS: Record<keyof Personality, [number, number]> = { aggression: [45, 70], caution: [50, 72], cohesion: [50, 50], cunning: [40, 75] };
+/**
+ * The Hunter's own range: always a Strider, patient and not reckless, and nearly the same every time.
+ * The city it hunts you through is random enough; the first night should teach one enemy, not a dice roll.
+ */
+export const HUNTER_NORMS: Record<keyof Personality, [number, number]> = { aggression: [54, 60], caution: [58, 64], cohesion: [50, 50], cunning: [50, 56] };
 /** Aliens' ids on the battlefield, clear of anyone's person id. */
 const ALIEN_ID = 1_000_000;
 

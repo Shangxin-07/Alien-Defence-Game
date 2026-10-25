@@ -3,7 +3,7 @@ import { Campaign } from "../src/campaign";
 import { AXES, AlienMind, RACES, RaceId, Rank, alienStats, readSquad, rollSquad } from "../src/tactical/aliens";
 import { Battle, Unit } from "../src/tactical/battle";
 import { TacMap } from "../src/tactical/map";
-import { battleSpoils, rollForce } from "../src/tactical/prologue";
+import { HUNTER_NORMS, battleSpoils, prologueCity, rollForce, startPrologue } from "../src/tactical/prologue";
 import { mulberry32 } from "../src/tactical/random";
 import { WEAPONS } from "../src/tactical/rules";
 import { rollCall } from "../src/sightings";
@@ -69,6 +69,17 @@ describe("alien personalities", () => {
     for (let s = 1; s < 50; s++) expect(rollForce(s, false).squad.members).toHaveLength(1);
     const sizes = new Set(Array.from({ length: 200 }, (_, s) => rollForce(s, true).squad.members.length));
     expect([...sizes].sort()).toEqual([1, 2, 3]);
+  });
+
+  it("keeps the prologue Hunter a Strider with a tightly bounded personality", () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const m = startPrologue(prologueCity(seed), seed).battle.alien.mind!;
+      expect(m.race).toBe("strider");
+      for (const k of AXES) {
+        expect(m.nature[k]).toBeGreaterThanOrEqual(HUNTER_NORMS[k][0]);
+        expect(m.nature[k]).toBeLessThanOrEqual(HUNTER_NORMS[k][1]);
+      }
+    }
   });
 
   it("makes leaders tougher than the rank and file", () => {

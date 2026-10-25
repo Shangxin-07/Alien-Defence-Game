@@ -263,7 +263,7 @@ Three races, each with its own body, gun and personality norms (0 to 100 on each
 | **Brute** | Big, slow, armoured (70 HP, armour 12). Senses 6 tiles. | Plasma scattergun: hits hard, useless past about 6 tiles | 60–100 | 0–35 | 20–65 | 0–30 |
 | **Shade** | Small and quick (72 TU, reactions 95). Can't sense you at all. | Needle rifle: long and very accurate | 10–45 | 55–100 | 10–55 | 60–100 |
 
-The prologue Hunter is still a Strider with its own stats. It rolls inside a narrower Hunter range, so the first night plays about as before. Over 200 simulated seeds, a squad that only waits wins 20%, and one that only shoots wins 44% (it was 48%).
+The prologue Hunter is always a Strider with its own stats. Per Mike, the map is random enough, so its personality barely varies: aggression 54–60, caution 58–64 and cunning 50–56. That's too low for it to lie in wait. Over 200 simulated seeds, a squad that only waits wins 19%, and one that only shoots wins 46% (it was 48%).
 
 ### Rolling a squad
 
