@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { BaseLayout } from "../src/base/layout";
-import { Campaign, DAY_MS } from "../src/campaign";
+import { CROP_DAYS, Campaign, DAY_MS } from "../src/campaign";
+import { ROOMS, RoomId } from "../src/base/rooms";
 import { CAMPAIGN_START } from "../src/geoscape/clock";
-import { DESERT_AFTER, MAX_TEAM, SCRAP_VALUE, START_SUPPLIES, cleanChance, dayLoot, dayRisk } from "../src/scavenge";
+import { DESERT_AFTER, MARKET_PRICE, MAX_TEAM, SCRAP_VALUE, START_SUPPLIES, cleanChance, dayLoot, dayRisk, marketCost } from "../src/scavenge";
 import { startAmbush } from "../src/tactical/prologue";
 import { CITIES } from "../src/geoscape/cities";
 
@@ -237,5 +238,115 @@ describe("scrap", () => {
     layout.scrap -= 12;
     c.settle(c.bases[0]);
     expect(c.supplies.scrap).toBe(18);
+  });
+});
+
+describe("black market", () => {
+  it("does nothing for you with no money", () => {
+    const c = camp();
+    expect(c.funds).toBe(0);
+    expect(c.checkBuy("food", 10)).toMatch(/money/);
+    expect(() => c.buy("food", 10)).toThrow();
+  });
+
+  it("sells food for cash, and every lot pushes the price up", () => {
+    const c = camp();
+    c.funds = 1_000_000;
+    const first = c.buyCost("food", 10);
+    expect(first).toBeGreaterThanOrEqual(10 * MARKET_PRICE.food);
+    c.buy("food", 10);
+    expect(c.supplies.food).toBe(START_SUPPLIES.food + 10);
+    expect(c.funds).toBe(1_000_000 - first);
+    expect(c.buyCost("food", 10)).toBeGreaterThan(first);
+  });
+
+  it("makes a whole grant feed four for under three weeks", () => {
+    let bought = 0;
+    let heat = 1;
+    let money = 1_000_000;
+    while (marketCost("food", 10, heat) <= money) {
+      money -= marketCost("food", 10, heat);
+      heat *= 1.012 ** 10;
+      bought += 10;
+    }
+    expect(bought / 4).toBeLessThan(21);
+    expect(bought / 4).toBeGreaterThan(10);
+  });
+
+  it("eases back slowly", () => {
+    const c = camp();
+    c.funds = 1_000_000;
+    c.supplies.food = 1000;
+    const rate = c.buyCost("food", 10);
+    for (let i = 0; i < 5; i++) c.buy("food", 10);
+    const pushed = c.buyCost("food", 10);
+    c.advanceDays(10);
+    const later = c.buyCost("food", 10);
+    expect(later).toBeLessThan(pushed);
+    expect(later).toBeGreaterThan(rate);
+    c.advanceDays(150);
+    expect(c.buyCost("food", 10)).toBeLessThanOrEqual(rate + 1000);
+  });
+
+  it("is saved", () => {
+    const c = camp();
+    c.funds = 1_000_000;
+    c.buy("medicine", 2);
+    const back = Campaign.load(JSON.parse(JSON.stringify(c.save())));
+    expect(back.market.medicine).toBeCloseTo(c.market.medicine);
+    expect(back.supplies.medicine).toBe(START_SUPPLIES.medicine + 2);
+  });
+});
+
+describe("hydroponic farm", () => {
+  /** The London base swapped for a working one: lift, power and a farm on level -1. */
+  function farm(c: Campaign) {
+    const b = BaseLayout.starter("remote");
+    const put = (type: RoomId, level: number, x: number, y: number) => b.place(type, level, x, y, false, { free: true, instant: true });
+    put("tunnel", 0, 4, 3);
+    put("shaft", 1, 4, 4);
+    put("stairs", 1, 4, 4);
+    put("lift", 1, 4, 4);
+    for (const [x, y] of [[4, 3], [4, 5], [3, 4], [5, 4]]) put("tunnel", 1, x, y);
+    put("generator", 1, 5, 2);
+    const it = put("hydroponics", 1, 2, 5);
+    c.bases[0].layout = b;
+    return it;
+  }
+
+  it("needs a lift and power, and costs real money", () => {
+    const def = ROOMS.hydroponics;
+    expect(def.heavy).toBe(true);
+    expect(def.power).toBeGreaterThan(0);
+    expect(def.cost).toBeGreaterThanOrEqual(300_000);
+  });
+
+  it("brings in food once the first crop is grown, and not before", () => {
+    const c = camp();
+    c.supplies.food = 1000;
+    const it = farm(c);
+    expect(c.bases[0].layout.status(it.uid)).toBe("online");
+    c.advanceDays(CROP_DAYS - 1);
+    expect(c.supplies.food).toBe(1000 - 4 * (CROP_DAYS - 1));
+    c.advanceDays(1);
+    expect(c.supplies.food).toBe(1000 - 4 * CROP_DAYS + 5);
+    expect(c.news.some((n) => /First crop/.test(n))).toBe(true);
+    c.advanceDays(10);
+    expect(c.supplies.food).toBe(1000 - 4 * (CROP_DAYS + 10) + 5 * 11);
+  });
+
+  it("waits while it has no power, and keeps its progress", () => {
+    const c = camp();
+    c.supplies.food = 1000;
+    const it = farm(c);
+    const layout = c.bases[0].layout;
+    c.advanceDays(5);
+    const gen = [...layout.items.values()].find((x) => x.type === "generator")!;
+    layout.remove(gen);
+    expect(layout.status(it.uid)).not.toBe("online");
+    c.advanceDays(20);
+    expect(c.crops[`${c.bases[0].id}:${it.uid}`]).toBe(5);
+    const back = Campaign.load(JSON.parse(JSON.stringify(c.save())));
+    expect(back.crops).toEqual(c.crops);
   });
 });

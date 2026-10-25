@@ -5,7 +5,7 @@ import { ROOMS } from "./base/rooms";
 import { BaseRecord, Campaign, Completion, GRANT, nmiToRadians } from "./campaign";
 import { closeCombat, openCombat } from "./combat";
 import { WANT_TEXT } from "./recruit";
-import { MAX_RECRUITERS, MAX_RUN_DAYS, MAX_TEAM, SITES, SITE_ORDER, SiteId, cleanChance, describeSupplies } from "./scavenge";
+import { MARKET_LOT, MARKET_PRICE, MAX_RECRUITERS, MAX_RUN_DAYS, MAX_TEAM, SITES, SITE_ORDER, SiteId, Traded, cleanChance, describeSupplies } from "./scavenge";
 import type { Stats } from "./tactical/rules";
 import { BaseMarks } from "./geoscape/baseMarks";
 import { BIOMES, BIOME_ORDER, biomeAt } from "./geoscape/biomes";
@@ -464,6 +464,28 @@ function refreshScavenge() {
     <div class="row"><span>Food</span><span${days < 3 ? ' class="bad"' : ""}>${s.food}, ${days === Infinity ? "nobody to feed" : `${days} day${days === 1 ? "" : "s"} for ${campaign.staff.length}`}</span></div>
     <div class="row"><span>Medicine</span><span>${s.medicine}</span></div>
     <div class="row"><span>Scrap</span><span>${s.scrap} (worth ${money(s.scrap * 10_000)} in rooms)</span></div>`;
+  const market = $("marketRows");
+  market.replaceChildren();
+  for (const kind of ["food", "medicine"] as Traded[]) {
+    const n = MARKET_LOT[kind];
+    const cost = campaign.buyCost(kind, n);
+    const row = document.createElement("div");
+    row.className = "sendrow";
+    const heat = campaign.market[kind];
+    row.innerHTML = `<span class="dim"></span><button type="button"></button>`;
+    row.querySelector("span")!.textContent = `${n} ${kind} for ${money(cost)}${heat > 1.05 ? `, ${Math.round((heat - 1) * 100)}% over the going rate of ${money(MARKET_PRICE[kind])} a unit` : `, ${money(MARKET_PRICE[kind])} a unit`}`;
+    const b = row.querySelector("button")!;
+    b.textContent = "Buy";
+    const reason = campaign.checkBuy(kind, n);
+    b.disabled = !!reason;
+    if (reason) b.title = reason;
+    b.addEventListener("click", () => {
+      campaign.buy(kind, n);
+      persist();
+      refresh();
+    });
+    market.appendChild(row);
+  }
   const runs = $("runList");
   runs.replaceChildren();
   for (const r of campaign.runs.filter((x) => !x.recruit)) {

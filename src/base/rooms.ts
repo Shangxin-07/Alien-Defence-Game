@@ -19,6 +19,7 @@ export type RoomId =
   | "workshop"
   | "stores"
   | "medbay"
+  | "hydroponics"
   | "generator"
   | "containment"
   // City buildings already standing on the site. They can't be built, only cleared.
@@ -38,7 +39,7 @@ export type Role = "research" | "manufacturing" | "surveillance" | "military";
 export type Tier = "shaft" | "stairs" | "lift";
 export const TIER_RANK: Record<Tier, number> = { shaft: 0, stairs: 1, lift: 2 };
 
-export type Capacity = "crew" | "science" | "engineering" | "storage" | "beds" | "hangars" | "containment" | "defence";
+export type Capacity = "crew" | "science" | "engineering" | "storage" | "beds" | "hangars" | "containment" | "defence" | "food";
 
 export interface RoomDef {
   id: RoomId;
@@ -154,6 +155,11 @@ export const ROOMS: Record<RoomId, RoomDef> = {
     provides: { beds: 10 }, role: "military", color: "#e8e1d0", height: 0.5,
     blurb: "Ten beds. Wounded soldiers recover twice as fast.",
   },
+  hydroponics: {
+    id: "hydroponics", name: "Hydroponic farm", short: "FARM", w: 2, h: 1, cost: 300_000, work: 60, power: 3, siting: "underground",
+    provides: { food: 5 }, heavy: true, color: "#6fae5a", height: 0.5,
+    blurb: "Grow lights, tanks and pumps. Feeds five a day once the first crop comes in, 12 days after it starts running.",
+  },
   generator: {
     id: "generator", name: "Geothermal plant", short: "POWER", w: 2, h: 2, cost: 600_000, work: 80, power: 0, siting: "underground",
     provides: {}, heavy: true, color: "#e8a93b", height: 0.7,
@@ -208,7 +214,7 @@ export const ROLE_BONUS: Record<Role, string> = {
 
 /** Build menu order. */
 export const ROOM_ORDER: RoomId[] = [
-  "accessPoint", "shaft", "stairs", "lift", "tunnel", "quarters", "lab", "workshop", "stores", "medbay", "generator",
+  "accessPoint", "shaft", "stairs", "lift", "tunnel", "quarters", "lab", "workshop", "stores", "medbay", "hydroponics", "generator",
   "containment", "hangar", "radar", "largeRadar", "defence",
 ];
 

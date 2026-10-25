@@ -338,6 +338,7 @@ function updateStats() {
     ["Workshop space", `${c.engineering}`],
     ["Storage", `${c.storage}`],
     ["Medical beds", `${c.beds}`],
+    ["Farm food", c.food ? `${c.food}/day` : "none"],
     ["Hangars", `${c.hangars}`],
     ["Containment", `${c.containment}`],
     ["Radar range", s.radar ? `${s.radar} nmi` : "none", !s.radar],

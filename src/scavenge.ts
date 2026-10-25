@@ -123,3 +123,23 @@ export const describeSupplies = (s: Supplies) =>
     .filter((k) => s[k])
     .map((k) => `${s[k]} ${SUPPLY_NAMES[k].toLowerCase()}`)
     .join(", ") || "nothing";
+
+/**
+ * The black market: money buys what scavenging can't find, at a price. Every unit bought pushes
+ * the price up, and it only eases back slowly, so it's a way out of a famine, not a way to live.
+ */
+export type Traded = "food" | "medicine";
+export const MARKET_PRICE: Record<Traded, number> = { food: 8_000, medicine: 25_000 };
+/** How much each unit bought pushes the price up. */
+export const MARKET_RISE = 1.012;
+/** Share of the markup that's still there the next day. */
+export const MARKET_EASE = 0.97;
+/** What one purchase buys. */
+export const MARKET_LOT: Record<Traded, number> = { food: 10, medicine: 2 };
+
+/** What `n` units cost with the price pushed up by `heat` (1 is the going rate), to the nearest $1k. */
+export function marketCost(kind: Traded, n: number, heat: number): number {
+  let total = 0;
+  for (let i = 0; i < n; i++) total += MARKET_PRICE[kind] * heat * MARKET_RISE ** i;
+  return Math.round(total / 1000) * 1000;
+}

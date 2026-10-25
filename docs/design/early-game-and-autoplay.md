@@ -194,3 +194,10 @@ Recruitment with fulfillments, first cut. All numbers are placeholders. Per Mike
   - **A real bed:** living quarters working in a base within 30 days.
 - **Loyalty:** recruits start at 60 (drifters at 45). A kept promise gives +20; a broken one costs −40. Below 30 they walk out (with their family); below 10 they take food with them. The original survivors have no loyalty score and never leave this way. The last person never leaves.
 - **Drifters** ask for nothing and bring little: construction 0.6–0.8, research 0.7–0.85, a bit less health. They're the fallback when you can't afford promises.
+
+### Ways out of a famine
+
+Mike's playtest: food is brutal, and the $1M grant didn't help because money couldn't buy anything. Food stays brutal. These are paths out that cost something, not easier food.
+
+- **Black market** (Scavenging panel): food in lots of 10 at $8k a unit, medicine in lots of 2 at $25k a unit. Every unit bought pushes that price up 1.2%, and only 3% of the markup wears off each day, so a price you've pushed up takes weeks to settle. A whole $1M grant buys about 70 food, which feeds four for 17 days and leaves nothing to build with.
+- **Hydroponic farm** (2×1 room, underground): $300k, 60 person-days of work, 3 power. It's heavy, so it needs a lift route ($120k) before work starts, and a geothermal plant ($600k, 80 person-days) to run. Once running, it takes 12 days to bring in its first crop, then gives 5 food a day: enough for five mouths. If it loses power it stops growing and picks up where it left off. The full path costs about a grant and a half, or scrap in place of money.

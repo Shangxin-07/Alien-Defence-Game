@@ -8,8 +8,9 @@ import {
 } from "./recruit";
 import {
   MAX_RECRUITERS, DESERT_AFTER, DESERT_CHANCE, MAX_RUN_DAYS, MAX_TEAM, MEDICINE_HEAL, PICKED_PER_DAY, MIN_RICHNESS, RATION, RECOVER_PER_DAY, Run, SITES,
-  START_SUPPLIES, SiteId, Supplies, addSupplies, dayLoot, dayRisk, describeSupplies, emptySupplies,
+  MARKET_EASE, MARKET_RISE, START_SUPPLIES, SiteId, Supplies, Traded, addSupplies, marketCost, dayLoot, dayRisk, describeSupplies, emptySupplies,
 } from "./scavenge";
+import { ROOMS } from "./base/rooms";
 import { LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, workPace } from "./staff";
 import type { Outcome } from "./tactical/battle";
 
@@ -19,6 +20,8 @@ export const START_FUNDS = 0;
 /** Until governments take notice, the council sends what it can scrape together, once a month. */
 export const GRANT = 1_000_000;
 export const GRANT_DAYS = 30;
+/** Days a hydroponic farm has to run before its first crop comes in. */
+export const CROP_DAYS = 12;
 /** Command can't stretch further than this many bases. */
 export const MAX_BASES = 8;
 /** A site this close to a city centre is inside the city. */
@@ -95,6 +98,8 @@ interface SavedCampaign {
   pledges?: Pledge[];
   kills?: number;
   nextCandidate?: number;
+  market?: Record<Traded, number>;
+  crops?: Record<string, number>;
   /** Missing in saves from before the prologue existed. */
   prologue?: PrologueRecord | null;
   /** Missing in saves from before staff existed. */
@@ -160,6 +165,10 @@ export class Campaign {
   readonly pledges: Pledge[] = [];
   /** Aliens killed or caught since the prologue. */
   kills = 0;
+  /** How far each black-market price has been pushed up: 1 is the going rate. */
+  market: Record<Traded, number> = { food: 1, medicine: 1 };
+  /** Days each hydroponic farm has been running, by "base:uid". */
+  crops: Record<string, number> = {};
   private nextCandidate = 1;
   /** The day being worked through, while the clock runs over several. */
   private today = 0;
@@ -289,6 +298,37 @@ export class Campaign {
   }
 
   /** Who's free to go out: at a base, not already out, and not too hurt. */
+  /** What the next lot of `n` costs on the black market. */
+  buyCost(kind: Traded, n: number): number {
+    return marketCost(kind, n, this.market[kind]);
+  }
+
+  checkBuy(kind: Traded, n: number): string | null {
+    return this.buyCost(kind, n) > this.funds ? "Not enough money" : null;
+  }
+
+  buy(kind: Traded, n: number): void {
+    const reason = this.checkBuy(kind, n);
+    if (reason) throw new Error(reason);
+    this.funds -= this.buyCost(kind, n);
+    this.supplies[kind] += n;
+    this.market[kind] *= MARKET_RISE ** n;
+  }
+
+  /** Farms that have run long enough bring in food; ones that stop running just wait. */
+  private harvest() {
+    for (const base of this.bases) {
+      for (const it of base.layout.items.values()) {
+        const food = ROOMS[it.type].provides.food;
+        if (!food || base.layout.status(it.uid) !== "online") continue;
+        const key = `${base.id}:${it.uid}`;
+        const days = (this.crops[key] = (this.crops[key] ?? 0) + 1);
+        if (days === CROP_DAYS) this.news.push(`First crop in at ${base.name}`);
+        if (days >= CROP_DAYS) this.supplies.food += food;
+      }
+    }
+  }
+
   canScavenge(p: Person): boolean {
     return p.base !== null && !p.away && fitToWork(p);
   }
@@ -542,6 +582,8 @@ export class Campaign {
       base.layout.setCrew(this.builders(base.id));
       for (const item of base.layout.workDay()) done.push({ base, item });
     }
+    this.harvest();
+    for (const k of Object.keys(this.market) as Traded[]) this.market[k] = 1 + (this.market[k] - 1) * MARKET_EASE;
     if (day > 0 && day % GRANT_DAYS === 0) {
       this.funds += GRANT;
       this.news.push(`The council sends $${(GRANT / 1e6).toFixed(1)}M`);
@@ -659,6 +701,8 @@ export class Campaign {
       pledges: this.pledges,
       kills: this.kills,
       nextCandidate: this.nextCandidate,
+      market: this.market,
+      crops: this.crops,
       bases: this.bases.map((b) => ({ ...b, layout: b.layout.save() })),
     };
   }
@@ -680,6 +724,8 @@ export class Campaign {
     if (data.pledges) c.pledges.push(...data.pledges);
     c.kills = data.kills ?? 0;
     c.nextCandidate = data.nextCandidate ?? 1;
+    if (data.market) c.market = { ...data.market };
+    c.crops = { ...data.crops };
     if (data.research) c.research = data.research;
     if (data.staff) c.staff.push(...data.staff);
     else if (c.prologue) {

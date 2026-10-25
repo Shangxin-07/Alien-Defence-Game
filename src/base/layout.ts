@@ -404,7 +404,7 @@ export class BaseLayout {
   }
 
   stats(): BaseStats {
-    const capacity: Record<Capacity, number> = { crew: 0, science: 0, engineering: 0, storage: 0, beds: 0, hangars: 0, containment: 0, defence: 0 };
+    const capacity: Record<Capacity, number> = { crew: 0, science: 0, engineering: 0, storage: 0, beds: 0, hangars: 0, containment: 0, defence: 0, food: 0 };
     let supply = 0;
     let demand = 0;
     let radar = 0;
