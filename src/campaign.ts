@@ -2,6 +2,7 @@ import { BaseLayout, Item, SavedBase, Site } from "./base/layout";
 import { CITIES, City } from "./geoscape/cities";
 import { CAMPAIGN_START } from "./geoscape/clock";
 import { DEG, LatLon } from "./geoscape/geo";
+import type { Outcome } from "./tactical/battle";
 
 export const DAY_MS = 86_400_000;
 export const START_FUNDS = 4_000_000;
@@ -43,8 +44,21 @@ export interface Completion {
   item: Item;
 }
 
+/** How the opening night went, and what it brought home. */
+export interface PrologueRecord {
+  city: string;
+  outcome: Outcome | "skipped";
+  recovered: string[];
+  survivors: number;
+  turns: number;
+}
+
+export const prologueWon = (p: PrologueRecord | null) => p?.outcome === "captured" || p?.outcome === "killed";
+
 interface SavedCampaign {
   version: 1;
+  /** Missing in saves from before the prologue existed. */
+  prologue?: PrologueRecord | null;
   time: number;
   funds: number;
   nextId: number;
@@ -83,7 +97,16 @@ export class Campaign {
   time = CAMPAIGN_START;
   funds = START_FUNDS;
   readonly bases: BaseRecord[] = [];
+  /** Null until the prologue has been played or skipped. */
+  prologue: PrologueRecord | null = null;
   private nextId = 1;
+
+  /** Records the prologue. A replay never throws away a better result. */
+  recordPrologue(r: PrologueRecord): void {
+    if (prologueWon(this.prologue) && !prologueWon(r)) return;
+    if (this.prologue?.outcome === "captured" && r.outcome === "killed") return;
+    this.prologue = r;
+  }
 
   /** Whole days since the campaign began. Construction moves on at each day boundary. */
   get day(): number {
@@ -168,6 +191,7 @@ export class Campaign {
       time: this.time,
       funds: this.funds,
       nextId: this.nextId,
+      prologue: this.prologue,
       bases: this.bases.map((b) => ({ ...b, layout: b.layout.save() })),
     };
   }
@@ -178,6 +202,7 @@ export class Campaign {
     c.time = data.time;
     c.funds = data.funds;
     c.nextId = data.nextId;
+    c.prologue = data.prologue ?? null;
     for (const b of data.bases) c.bases.push({ ...b, layout: BaseLayout.load(b.layout) });
     return c;
   }

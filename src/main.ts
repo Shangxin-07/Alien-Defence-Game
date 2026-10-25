@@ -3,6 +3,7 @@ import { Color, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3, WebGLRend
 import { closeBase, openBase } from "./base";
 import { ROOMS } from "./base/rooms";
 import { BaseRecord, Campaign, Completion, nmiToRadians } from "./campaign";
+import { closeCombat, openCombat } from "./combat";
 import { BaseMarks } from "./geoscape/baseMarks";
 import { BIOMES, BIOME_ORDER, biomeAt } from "./geoscape/biomes";
 import { blocAt } from "./geoscape/blocs";
@@ -13,6 +14,7 @@ import { Globe } from "./geoscape/globe";
 import { GlobeLabels } from "./geoscape/labels";
 import { buildMapTextures } from "./geoscape/mapTextures";
 import { OrbitView } from "./geoscape/orbitView";
+import { prologueCity, startPrologue } from "./tactical/prologue";
 
 const css = getComputedStyle(document.documentElement);
 const token = (name: string) => css.getPropertyValue(name).trim();
@@ -188,6 +190,10 @@ function refreshBases() {
     list.appendChild(li);
   }
   list.hidden = !campaign.bases.length;
+  const pro = campaign.prologue;
+  const spoils = $("spoils");
+  spoils.hidden = !pro?.recovered.length;
+  if (pro?.recovered.length) spoils.innerHTML = `<b>Recovered in ${escape(pro.city)}</b><span class="dim">${pro.recovered.map(escape).join(", ")}</span>`;
   marks.set(
     campaign.bases.map((b) => ({ id: b.id, name: b.name, lat: b.lat, lon: b.lon, covert: b.site === "city" })),
     picked?.kind === "base" ? picked.id : null,
@@ -195,7 +201,8 @@ function refreshBases() {
   globe.setRadar(campaign.radar().map((r) => ({ lat: r.lat, lon: r.lon, radius: nmiToRadians(r.nmi) })));
   const first = !campaign.bases.length;
   $("banner").hidden = !first || !!picked;
-  $("banner").textContent = "Choose a city for your first base. It has to stay hidden. The clock starts once it's founded.";
+  const out = pro && pro.outcome !== "skipped" && pro.survivors ? `Your survivors got out of ${pro.city}. ` : "";
+  $("banner").textContent = `${out}Choose a city for your first base. It has to stay hidden. The clock starts once it's founded.`;
 }
 
 function refreshSurvey() {
@@ -293,6 +300,46 @@ function enterBase(b: BaseRecord) {
   });
 }
 
+// ---------- Prologue ----------
+/** The opening battle: one night in a city, hunted by a single alien. */
+function playPrologue() {
+  const seed = Math.floor(Math.random() * 2 ** 31);
+  const city = prologueCity(seed);
+  screen.hidden = true;
+  view.enabled = false;
+  const back = () => {
+    persist();
+    closeCombat();
+    screen.hidden = false;
+    view.enabled = true;
+    // Suggest the city they just escaped from for the first base.
+    if (!campaign.bases.length) {
+      picked = { kind: "site", ll: { lat: city.lat, lon: city.lon } };
+      globe.placeMarker(city);
+      view.flyTo(city.lat, city.lon);
+    }
+    resize();
+    refresh();
+  };
+  openCombat({
+    prologue: startPrologue(city, seed),
+    finish: (r) => {
+      campaign.recordPrologue({ city: city.name, outcome: r.outcome, recovered: r.recovered, survivors: r.survivors, turns: r.turns });
+      if (r.recovered.length) toast(`Recovered: ${r.recovered.join(", ")}`);
+      back();
+    },
+    retry: () => {
+      closeCombat();
+      playPrologue();
+    },
+    skip: () => {
+      if (!campaign.prologue) campaign.recordPrologue({ city: city.name, outcome: "skipped", recovered: [], survivors: 0, turns: 0 });
+      back();
+    },
+  });
+}
+$("replayPrologue").addEventListener("click", playPrologue);
+
 // Two presses to scrap the campaign, since there's no undo.
 {
   const b = $("newCampaign");
@@ -319,6 +366,7 @@ function enterBase(b: BaseRecord) {
     globe.hideMarker();
     persist();
     refresh();
+    playPrologue();
   });
 }
 
@@ -389,3 +437,6 @@ function frame(now: number) {
   renderer.render(scene, camera);
 }
 requestAnimationFrame(frame);
+
+// A new war opens with the prologue.
+if (!campaign.bases.length && !campaign.prologue) playPrologue();
