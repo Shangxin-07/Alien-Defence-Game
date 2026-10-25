@@ -68,6 +68,8 @@ body {
 }
 .speeds button:hover, .zoom button:hover { border-color: var(--coast); }
 .speeds button[aria-pressed="true"] { background: var(--amber); color: var(--void); border-color: var(--amber); }
+.spin { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 6px; font-size: 11px; color: var(--dim); letter-spacing: 0.06em; cursor: pointer; }
+.spin input { accent-color: var(--amber); width: 14px; height: 14px; margin: 0; }
 button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .row { display: flex; justify-content: space-between; gap: 14px; font-variant-numeric: tabular-nums; }
 .row span:first-child { color: var(--dim); }

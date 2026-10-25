@@ -17,6 +17,8 @@ export class OrbitView {
   onClick: (e: PointerEvent) => void = () => {};
   /** Off while another screen is showing, so its keys don't spin the globe. */
   enabled = true;
+  /** Slow drift after a few seconds without input. Dragging works either way. */
+  autoSpin = true;
 
   private focus: { lat: number; lon: number } | null = null;
   private vLat = 0;
@@ -68,8 +70,7 @@ export class OrbitView {
       const decay = Math.pow(0.04, dt);
       this.vLon *= decay;
       this.vLat *= decay;
-      // Slow drift after a few seconds without input.
-      if (!this.reduceMotion && now - this.idleSince > 6000) this.lon += dt * 2.5;
+      if (this.autoSpin && !this.reduceMotion && now - this.idleSince > 6000) this.lon += dt * 2.5;
     }
     this.distance += (this.targetDistance - this.distance) * Math.min(1, dt * 8);
     latLonToVector(this.lat, this.lon, this.distance, this.camera.position);
