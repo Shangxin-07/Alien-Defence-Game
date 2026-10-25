@@ -223,3 +223,28 @@ Mike's playtest: percentage depletion ignored team size. Two days with one perso
   - Each searcher has a 30% chance a day of finding a new place.
   - What kind of place it is: homes 35%, supermarket 20%, pharmacy 15%, hardware 15%, industrial 15%.
   - Its stock is 40% to 120% of the table above, because most places have already been picked at.
+
+## Step 4 as built
+
+Sighting calls with travel on foot or by car, first cut. All numbers are placeholders. Food is untouched.
+
+- **Calls:** each day there's a 30% chance someone calls in a sighting (a taxi driver, a night-shift nurse, someone who wouldn't give a name). Each call says where and how far from the base: 2 to 25 km. It shows up at the hour it was seen, and the news reports it. That news slows a fast clock like any other news. Nothing pauses.
+- **The trail:** an alien moves on within 8 hours of being seen. When a team arrives, the chance it's still there is the share of those 8 hours that's left. So a team that arrives 2 hours after the sighting has a 75% chance.
+- **Getting there:**
+  - On foot: 5 km/h.
+  - By car: 40 km/h. A car seats 4 and burns 1 fuel per 8 km, counting there and back. The fuel is taken when the team leaves.
+  - The panel shows travel time and the chance the alien is still there before you send anyone.
+- **Arriving:**
+  - If the alien is still there, the clock stops at the moment of arrival and you choose to fight or pull back. The fight uses the scavenging ambush, with its own briefing that says who called and how long you took.
+  - If the trail is cold, the team spends the same time going home.
+- **Winning** brings home:
+  - the body or a live alien (this counts for research and for revenge promises)
+  - 6 scrap stripped from its kit
+  - +5 loyalty for every recruit ("word gets round that you came when called")
+- **Cars:**
+  - Fixing up an abandoned car costs 15 scrap. It also takes 8 person-days of work at build skill. The panel picks your two handiest free people, and they're busy until the car runs.
+  - Cars are the first machine you own. For now their only use is answering calls.
+- **Fuel** is a new supply:
+  - Homes hold 10 (0–1 per person per day). The industrial estate holds 30 (0–3 per person per day).
+  - The black market sells fuel at $4k a unit, in lots of 10.
+- Not yet built: the "first government contact" exit from the early game, and sightings that move or call back.

@@ -8,9 +8,13 @@ import {
 } from "./recruit";
 import {
   MAX_RECRUITERS, MAX_SEARCHERS, DESERT_AFTER, DESERT_CHANCE, MAX_RUN_DAYS, MAX_TEAM, MEDICINE_HEAL, Place, RATION, Run, SEARCH_CHANCE,
-  MARKET_EASE, MARKET_RISE, START_SUPPLIES, SiteId, Supplies, Traded, addSupplies, isEmpty, marketCost, rollPlace, runWhere, startPlaces, dayLoot, dayRisk, describeSupplies, emptySupplies,
+  MARKET_EASE, MARKET_RISE, START_SUPPLIES, SiteId, Supplies, Traded, addSupplies, isEmpty, marketCost, placeless, rollPlace, runWhere, startPlaces, dayLoot, dayRisk, describeSupplies, emptySupplies,
 } from "./scavenge";
 import { ROOMS } from "./base/rooms";
+import {
+  CALL_CHANCE, CAR_SCRAP, CAR_SEATS, CAR_WORK, Call, HOUR_MS, MAX_MECHANICS, SIGHTING_LOYALTY, SIGHTING_SCRAP, TRAIL_HOURS, Travel, Vehicle,
+  carName, freshness, rollCall, travelHours, tripFuel,
+} from "./sightings";
 import { LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, workPace } from "./staff";
 import type { Outcome } from "./tactical/battle";
 
@@ -101,6 +105,10 @@ interface SavedCampaign {
   kills?: number;
   nextCandidate?: number;
   market?: Record<Traded, number>;
+  calls?: Call[];
+  vehicles?: Vehicle[];
+  nextCall?: number;
+  nextVehicle?: number;
   crops?: Record<string, number>;
   /** Missing in saves from before the prologue existed. */
   prologue?: PrologueRecord | null;
@@ -169,9 +177,14 @@ export class Campaign {
   /** Aliens killed or caught since the prologue. */
   kills = 0;
   /** How far each black-market price has been pushed up: 1 is the going rate. */
-  market: Record<Traded, number> = { food: 1, medicine: 1 };
+  market: Record<Traded, number> = { food: 1, medicine: 1, fuel: 1 };
   /** Days each hydroponic farm has been running, by "base:uid". */
   crops: Record<string, number> = {};
+  /** Sightings people have called in, including ones not seen yet (they show from their `at`). */
+  readonly calls: Call[] = [];
+  readonly vehicles: Vehicle[] = [];
+  private nextCall = 1;
+  private nextVehicle = 1;
   private nextCandidate = 1;
   /** The day being worked through, while the clock runs over several. */
   private today = 0;
@@ -318,6 +331,102 @@ export class Campaign {
     return run;
   }
 
+  /** Calls that have come in and haven't been answered or gone cold. */
+  get openCalls(): Call[] {
+    return this.calls.filter((c) => c.at <= this.time);
+  }
+
+  /** A car that's home and free. */
+  get freeCar(): Vehicle | undefined {
+    return this.vehicles.find((v) => !v.away);
+  }
+
+  /** Why this team can't answer the call this way, or null if it can. */
+  checkResponse(callId: number, team: number[], by: Travel): string | null {
+    const call = this.openCalls.find((c) => c.id === callId);
+    if (!call) return "That call has gone cold";
+    if (by === "car") {
+      if (!this.freeCar) return this.vehicles.length ? "Every car is out" : "You have no car";
+      if (team.length > CAR_SEATS) return `A car seats ${CAR_SEATS}`;
+      if (this.supplies.fuel < tripFuel(call.km)) return `Not enough fuel: ${tripFuel(call.km)} for there and back`;
+    }
+    return this.checkRun("sighting", team, 1);
+  }
+
+  /** Sends a team to a sighting. They get there in hours, and the trail goes cold in hours. */
+  respond(callId: number, team: number[], by: Travel): Run {
+    const reason = this.checkResponse(callId, team, by);
+    if (reason) throw new Error(reason);
+    const call = this.calls.find((c) => c.id === callId)!;
+    this.calls.splice(this.calls.indexOf(call), 1);
+    const run = this.startRun("sighting", team, 1);
+    run.call = call;
+    run.where = call.place;
+    run.by = by;
+    run.arrive = this.time + travelHours(call.km, by) * HOUR_MS;
+    if (by === "car") {
+      const car = this.freeCar!;
+      car.away = run.id;
+      run.vehicle = car.id;
+      this.supplies.fuel -= tripFuel(call.km);
+    }
+    return run;
+  }
+
+  /** Days for this team to get a car running. */
+  repairDays(team: number[]): number {
+    const skill = team.reduce((n, id) => n + (this.person(id) ? buildSkill(this.person(id)!) : 0), 0);
+    return skill > 0 ? Math.ceil(CAR_WORK / skill) : Infinity;
+  }
+
+  checkRepair(team: number[]): string | null {
+    if (this.supplies.scrap < CAR_SCRAP) return `Needs ${CAR_SCRAP} scrap for parts`;
+    if (team.length > MAX_MECHANICS) return `No more than ${MAX_MECHANICS} on one car`;
+    return this.checkRun("garage", team, 1);
+  }
+
+  /** Puts one or two people on fixing up an abandoned car. They're busy until it runs. */
+  startRepair(team: number[]): Run {
+    const reason = this.checkRepair(team);
+    if (reason) throw new Error(reason);
+    this.supplies.scrap -= CAR_SCRAP;
+    const run = this.startRun("garage", team, 1);
+    run.repair = true;
+    run.daysLeft = this.repairDays(team);
+    return run;
+  }
+
+  /**
+   * Moves sighting responses on to `until`: arrivals, trails gone cold, teams home. Returns true,
+   * with the clock set to the moment, when a team finds the alien still there.
+   */
+  private travel(until: number): boolean {
+    for (let i = this.calls.length - 1; i >= 0; i--) {
+      const call = this.calls[i];
+      if (until - call.at > TRAIL_HOURS * HOUR_MS) this.calls.splice(i, 1);
+      else if (!call.heard && call.at <= until) {
+        call.heard = true;
+        this.news.push(`${call.caller} has seen something ${call.place}, ${call.km} km away`);
+      }
+    }
+    const out = this.runs.filter((r) => r.call && !r.ambush).sort((a, b) => (a.arrived ? a.back! : a.arrive!) - (b.arrived ? b.back! : b.arrive!));
+    for (const run of out) {
+      if (!run.arrived && run.arrive! <= until) {
+        run.arrived = true;
+        if (this.rand() < freshness(run.call!, run.arrive!)) {
+          run.ambush = true;
+          this.time = Math.max(this.time, run.arrive!);
+          this.news.push(`It's still there, ${run.call!.place}`);
+          return true;
+        }
+        run.back = run.arrive! + travelHours(run.call!.km, run.by!) * HOUR_MS;
+        this.news.push(`Nothing ${run.call!.place} by the time they got there`);
+      }
+      if (run.arrived && run.back! <= until) this.endRun(run);
+    }
+    return false;
+  }
+
   /** Who's free to go out: at a base, not already out, and not too hurt. */
   /** What the next lot of `n` costs on the black market. */
   buyCost(kind: Traded, n: number): number {
@@ -361,11 +470,11 @@ export class Campaign {
 
   /**
    * Why this run can't go, or null if it can. `where` is a known place by id (or the first of a
-   * kind), or the streets for recruiting, or "search" for finding new places.
+   * kind), or a placeless kind of run: recruiting, searching, a call or the garage.
    */
   checkRun(where: number | SiteId, team: number[], days: number): string | null {
     if (!this.bases.length) return "You need a base to go out from";
-    if (where !== "streets" && where !== "search" && !this.findPlace(where)) return "Nobody knows a place like that any more";
+    if (!placeless(where) && !this.findPlace(where)) return "Nobody knows a place like that any more";
     if (!team.length) return "Pick who goes";
     if (team.length > MAX_TEAM) return `No more than ${MAX_TEAM} on a run`;
     if (!Number.isInteger(days) || days < 1 || days > MAX_RUN_DAYS) return `Runs last 1 to ${MAX_RUN_DAYS} days`;
@@ -380,7 +489,7 @@ export class Campaign {
   startRun(where: number | SiteId, team: number[], days: number): Run {
     const reason = this.checkRun(where, team, days);
     if (reason) throw new Error(reason);
-    const place = where === "streets" || where === "search" ? undefined : this.findPlace(where)!;
+    const place = placeless(where) ? undefined : this.findPlace(where)!;
     const site = place?.kind ?? (where as SiteId);
     const run: Run = { id: this.nextRun++, site, team: [...new Set(team)], daysLeft: days, loot: emptySupplies() };
     if (place) {
@@ -408,6 +517,11 @@ export class Campaign {
     const spoils = AMBUSH_SPOILS[result.outcome];
     if (spoils.item && !this.trophies.includes(spoils.item)) this.trophies.push(spoils.item);
     if (spoils.item) this.kills++;
+    if (spoils.item && run.call) {
+      run.loot.scrap += SIGHTING_SCRAP;
+      for (const p of this.staff) if (p.loyalty !== undefined) p.loyalty = Math.min(100, p.loyalty + SIGHTING_LOYALTY);
+      this.news.push("Word gets round that you came when called");
+    }
     if (dead.length) this.news.push(`Lost on the run: ${dead.map((p) => p.name).join(", ")}`);
     this.endRun(run, spoils.share);
     this.backfill();
@@ -437,8 +551,20 @@ export class Campaign {
       const p = this.person(id);
       if (p) delete p.away;
     }
+    const car = this.vehicles.find((v) => v.id === run.vehicle);
+    if (car) delete car.away;
     this.runs.splice(this.runs.indexOf(run), 1);
     if (!run.team.length) return;
+    if (run.repair) {
+      const name = carName(this.nextVehicle - 1);
+      this.vehicles.push({ id: this.nextVehicle++, name });
+      this.news.push(`${name[0].toUpperCase()}${name.slice(1)} is running`);
+      return;
+    }
+    if (run.call) {
+      this.news.push(`Back from ${run.call.place}${kept.scrap ? `, with ${kept.scrap} scrap off its kit` : ""}`);
+      return;
+    }
     if (run.recruit) {
       const met = this.candidates.length;
       this.news.push(`Back from the streets${met ? `: ${met} ${met === 1 ? "person wants" : "people want"} to talk` : ", with nobody"}`);
@@ -457,6 +583,8 @@ export class Campaign {
 
   /** One day of a run: finds, or trouble. */
   private runDay(run: Run) {
+    // Answering a call runs by the hour, not the day; see `travel`.
+    if (run.call) return;
     const size = run.team.length;
     if (this.rand() < dayRisk(run.site, size)) {
       if (this.rand() < 0.5) {
@@ -473,6 +601,10 @@ export class Campaign {
     }
     if (run.recruit) {
       this.recruitDay(run);
+      if (--run.daysLeft <= 0) this.endRun(run);
+      return;
+    }
+    if (run.repair) {
       if (--run.daysLeft <= 0) this.endRun(run);
       return;
     }
@@ -631,6 +763,10 @@ export class Campaign {
       for (const item of base.layout.workDay()) done.push({ base, item });
     }
     this.harvest();
+    if (this.bases.length && this.rand() < CALL_CHANCE) {
+      const base = this.bases[Math.floor(this.rand() * this.bases.length)];
+      this.calls.push(rollCall(this.nextCall++, base.id, this.time + this.rand() * DAY_MS, this.rand));
+    }
     for (const k of Object.keys(this.market) as Traded[]) this.market[k] = 1 + (this.market[k] - 1) * MARKET_EASE;
     if (day > 0 && day % GRANT_DAYS === 0) {
       this.funds += GRANT;
@@ -701,19 +837,14 @@ export class Campaign {
 
   /** Runs the clock to a new time; construction in every base moves on a day at a time. */
   advanceTo(time: number): Completion[] {
-    if (this.ambush) return [];
-    const before = this.day;
-    this.time = Math.max(this.time, time);
-    const days = this.day - before;
-    if (days <= 0) return [];
     const done: Completion[] = [];
-    for (let d = 1; d <= days; d++) {
-      done.push(...this.workDay(before + d));
-      // Everything waits while a run is in a fight.
-      if (this.ambush) {
-        this.time = CAMPAIGN_START + (before + d) * DAY_MS;
-        break;
-      }
+    // Everything waits while a run is in a fight.
+    while (this.time < time && !this.ambush) {
+      const boundary = CAMPAIGN_START + (this.day + 1) * DAY_MS;
+      const step = Math.min(time, boundary);
+      if (this.travel(step)) break;
+      this.time = step;
+      if (step === boundary) done.push(...this.workDay(this.day));
     }
     for (const base of this.bases) base.layout.setCrew(this.builders(base.id));
     return done;
@@ -751,6 +882,10 @@ export class Campaign {
       kills: this.kills,
       nextCandidate: this.nextCandidate,
       market: this.market,
+      calls: this.calls,
+      vehicles: this.vehicles,
+      nextCall: this.nextCall,
+      nextVehicle: this.nextVehicle,
       crops: this.crops,
       bases: this.bases.map((b) => ({ ...b, layout: b.layout.save() })),
     };
@@ -764,11 +899,11 @@ export class Campaign {
     c.nextId = data.nextId;
     c.prologue = data.prologue ?? null;
     c.nextPerson = data.nextPerson ?? 1;
-    if (data.supplies) c.supplies = { ...data.supplies };
+    if (data.supplies) c.supplies = { ...START_SUPPLIES, ...data.supplies };
     if (data.runs) c.runs.push(...data.runs);
     c.nextRun = data.nextRun ?? 1;
     if (data.places) {
-      c.places = data.places.map((p) => ({ ...p, stock: { ...p.stock } }));
+      c.places = data.places.map((p) => ({ ...p, stock: { ...emptySupplies(), ...p.stock } }));
       c.nextPlace = data.nextPlace ?? c.places.reduce((n, p) => Math.max(n, p.id + 1), 1);
     }
     if (data.trophies) c.trophies.push(...data.trophies);
@@ -776,7 +911,11 @@ export class Campaign {
     if (data.pledges) c.pledges.push(...data.pledges);
     c.kills = data.kills ?? 0;
     c.nextCandidate = data.nextCandidate ?? 1;
-    if (data.market) c.market = { ...data.market };
+    if (data.calls) c.calls.push(...data.calls);
+    if (data.vehicles) c.vehicles.push(...data.vehicles);
+    c.nextCall = data.nextCall ?? 1;
+    c.nextVehicle = data.nextVehicle ?? 1;
+    if (data.market) c.market = { ...c.market, ...data.market };
     c.crops = { ...data.crops };
     if (data.research) c.research = data.research;
     if (data.staff) c.staff.push(...data.staff);
