@@ -3,10 +3,11 @@ import "./base/base.css";
 import { Color, PerspectiveCamera, Plane, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
 import { BaseCamera } from "./base/baseCamera";
 import { BaseView, levelY } from "./base/baseView";
-import { BaseLayout, GRID, Item, ItemStatus, LEVELS, LEVEL_NAMES } from "./base/layout";
-import { ROOMS, ROOM_ORDER, RoomId, powerSupply } from "./base/rooms";
+import { BaseLayout, GRID, Item, ItemStatus, LEVELS, LEVEL_NAMES, Site, surfaceExposure } from "./base/layout";
+import { ROLE_BONUS, ROLE_NAMES, ROOMS, ROOM_ORDER, RoomId, powerSupply } from "./base/rooms";
 
-const SAVE_KEY = "alien-defence.base.v1";
+// Bumped when city sites arrived so everyone starts on the new city base. Older saves load as remote bases.
+const SAVE_KEY = "alien-defence.base.v2";
 document.body.classList.add("base");
 
 const css = getComputedStyle(document.documentElement);
@@ -50,6 +51,7 @@ const scene = new Scene();
 const camera = new PerspectiveCamera(40, 1, 0.1, 200);
 const view = new BaseView(scene, {
   surface: "#2c3a2c",
+  street: "#2a2e33",
   rock: "#2a231c",
   grid: token("--grid"),
   build: token("--amber"),
@@ -92,10 +94,23 @@ const STATUS_TEXT: Record<ItemStatus, string> = {
 };
 function describeItem(it: Item): string {
   const def = ROOMS[it.type];
+  if (def.detritus) return `<b>${def.name}</b> <span class="dim">City building</span><br>${def.blurb} ${clearingCost(it.type)}`;
   const st = layout.status(it.uid);
   const state = st === "building" ? `${STATUS_TEXT[st]}, ${it.daysLeft} days left` : STATUS_TEXT[st];
   const power = it.type === "generator" ? `supplies ${powerSupply(it.level)} power` : def.power ? `draws ${def.power} power` : "";
   return `<b>${def.name}</b> <span class="st ${st}">${state}</span><br>${def.blurb}${power ? ` <span class="dim">(${power})</span>` : ""}`;
+}
+
+function clearingCost(type: RoomId): string {
+  const def = ROOMS[type];
+  return `<span class="dim">Clearing it costs ${shortMoney(def.cost)} and ${def.exposure} cover.</span>`;
+}
+
+function coverLabel(cover: number): { text: string; bad: boolean } {
+  if (cover >= 70) return { text: "Covert", bad: false };
+  if (cover >= 40) return { text: "Watched", bad: false };
+  if (cover > 0) return { text: "Exposed", bad: true };
+  return { text: "Blown", bad: true };
 }
 
 // ---------- Interaction ----------
@@ -119,7 +134,8 @@ function updatePreview() {
     const def = ROOMS[tool.type];
     const reason = layout.check(tool.type, active, a.x, a.y, rotated);
     view.showGhost(active, a.x, a.y, a.w, a.h, def.height, !reason);
-    const costs = `${shortMoney(layout.cost(tool.type, active))}, ${def.days} days`;
+    const exposure = layout.site === "city" && active === 0 ? surfaceExposure(def) : 0;
+    const costs = `${shortMoney(layout.cost(tool.type, active))}, ${def.days} days${exposure ? `, −${exposure} cover` : ""}`;
     setInfo(`<b>${def.name}</b> <span class="dim">${costs}</span><br>${reason ? `<span class="st isolated">${reason}</span>` : `<span class="st online">${tapToAct("build")}</span>`}`);
     return;
   }
@@ -130,8 +146,11 @@ function updatePreview() {
   }
   if (tool.kind === "demolish") {
     const reason = layout.checkDemolish(it.uid);
-    view.showGhost(active, it.x, it.y, it.w, it.h, ROOMS[it.type].height, false);
-    setInfo(`<b>Demolish ${ROOMS[it.type].name.toLowerCase()}</b><br>${reason ? `<span class="st isolated">${reason}</span>` : `<span class="dim">No refund. ${tapToAct("demolish")}</span>`}`);
+    const def = ROOMS[it.type];
+    view.showGhost(active, it.x, it.y, it.w, it.h, def.height, false);
+    const verb = def.detritus ? "Clear" : "Demolish";
+    const terms = def.detritus ? `${shortMoney(def.cost)}, −${def.exposure} cover.` : "No refund.";
+    setInfo(`<b>${verb} ${def.name.toLowerCase()}</b><br>${reason ? `<span class="st isolated">${reason}</span>` : `<span class="dim">${terms} ${tapToAct(verb.toLowerCase())}</span>`}`);
     return;
   }
   view.showGhost(active, it.x, it.y, it.w, it.h, ROOMS[it.type].height, true);
@@ -142,7 +161,9 @@ let lastPointer: "mouse" | "touch" = "mouse";
 const tapToAct = (verb: string) => (lastPointer === "mouse" ? `Click to ${verb}.` : `Tap again to ${verb}.`);
 function defaultHint() {
   if (tool.kind === "build") return `<span class="dim">Pick a spot for the ${ROOMS[tool.type].name.toLowerCase()}. Rooms must open onto a tunnel or lift.</span>`;
-  if (tool.kind === "demolish") return `<span class="dim">Pick something to tear down.</span>`;
+  if (tool.kind === "demolish") {
+    return `<span class="dim">Pick something to tear down.${layout.site === "city" ? " City buildings cost money and cover to clear." : ""}</span>`;
+  }
   return `<span class="dim">Drag to turn, scroll or pinch to zoom. Pick a facility to build. Lifts stacked on top of each other link the levels.</span>`;
 }
 
@@ -193,7 +214,7 @@ cam.onClick = (e) => {
     const reason = layout.checkDemolish(it.uid);
     if (reason) return toast(reason, true);
     layout.demolish(it.uid);
-    toast(`${ROOMS[it.type].name} demolished`);
+    toast(`${ROOMS[it.type].name} ${ROOMS[it.type].detritus ? "cleared" : "demolished"}`);
     if (lastPointer === "touch") hover = null;
   }
   changed();
@@ -294,7 +315,31 @@ function updateStats() {
 }
 
 function updateHead() {
+  $("site").textContent = layout.site === "city" ? "City, covert" : "Remote";
+  const cover = layout.cover();
+  $("coverRow").hidden = cover === null;
+  if (cover !== null) {
+    const { text, bad } = coverLabel(cover);
+    $("cover").textContent = `${text} ${cover}%`;
+    $("cover").className = bad ? "bad" : "";
+    ($("coverBar").firstElementChild as HTMLElement).style.width = `${cover}%`;
+    $("coverBar").classList.toggle("bad", bad);
+  }
+  const sp = layout.specialism();
+  const total = Object.values(sp.cells).reduce((a, b) => a + b, 0);
+  if (sp.role) {
+    $("baseType").textContent = `${ROLE_NAMES[sp.role]} base`;
+    $("bonus").textContent = `+${sp.bonus}% ${ROLE_BONUS[sp.role]}`;
+  } else {
+    $("baseType").textContent = total < 4 ? "Outpost" : "General base";
+    $("bonus").textContent = total < 4 ? "Too small to specialise yet" : "Mixed rooms, no bonus";
+  }
+  $("baseTypeRow").title = (Object.keys(sp.cells) as (keyof typeof sp.cells)[])
+    .map((r) => `${ROLE_NAMES[r]}: ${total ? Math.round((sp.cells[r] / total) * 100) : 0}%`)
+    .join("\n");
   $("funds").textContent = money(layout.funds);
+  // The phone layout stacks the level and status panels under the header, whatever its height.
+  document.documentElement.style.setProperty("--head-h", `${$("head").offsetHeight}px`);
   $("day").textContent = String(layout.day);
   const next = layout.nextCompletion();
   ($("waitNext") as HTMLButtonElement).disabled = !next;
@@ -366,27 +411,30 @@ $("rotate").addEventListener("click", () => {
   updatePreview();
 });
 // Two presses to scrap the base, since there's no undo.
-let resetTimer = 0;
-$("reset").addEventListener("click", () => {
-  const b = $("reset");
-  if (!resetTimer) {
-    b.textContent = "Press again to scrap base";
-    b.classList.add("bad");
-    resetTimer = window.setTimeout(() => {
-      resetTimer = 0;
-      b.textContent = "New base";
-      b.classList.remove("bad");
-    }, 3000);
-    return;
-  }
-  clearTimeout(resetTimer);
-  resetTimer = 0;
-  b.textContent = "New base";
-  b.classList.remove("bad");
-  layout = BaseLayout.starter();
-  setLevel(0);
-  changed();
-});
+for (const site of ["city", "remote"] as Site[]) {
+  const b = $(site === "city" ? "newCity" : "newRemote");
+  const label = b.textContent!;
+  let timer = 0;
+  b.addEventListener("click", () => {
+    if (!timer) {
+      b.textContent = "Press again";
+      b.classList.add("bad");
+      timer = window.setTimeout(() => {
+        timer = 0;
+        b.textContent = label;
+        b.classList.remove("bad");
+      }, 3000);
+      return;
+    }
+    clearTimeout(timer);
+    timer = 0;
+    b.textContent = label;
+    b.classList.remove("bad");
+    layout = BaseLayout.starter(site, Math.floor(Math.random() * 1e9));
+    setLevel(0);
+    changed();
+  });
+}
 
 window.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;

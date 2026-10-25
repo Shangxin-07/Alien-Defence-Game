@@ -12,10 +12,17 @@
     <div id="labels" aria-hidden="true"></div>
 
     <aside class="side">
-      <section class="hud head">
+      <section class="hud head" id="head">
         <div class="title">
           <h1>Base Alpha</h1>
           <a class="nav" id="nav" href="./index.html">Geoscape</a>
+        </div>
+        <div class="row"><span>Site</span><span id="site">—</span></div>
+        <div class="row" id="coverRow"><span>Cover</span><span id="cover">—</span></div>
+        <div class="meter" id="coverBar" aria-hidden="true"><i></i></div>
+        <div class="type" id="baseTypeRow">
+          <span id="baseType">—</span>
+          <span id="bonus" class="dim">—</span>
         </div>
         <div class="row"><span>Funds</span><span id="funds">—</span></div>
         <div class="row"><span>Day</span><span id="day">—</span></div>
@@ -42,7 +49,10 @@
       <details id="statsBox" open>
         <summary>Base status</summary>
         <div id="stats"></div>
-        <button id="reset" type="button" class="reset">New base</button>
+        <div class="newbase">
+          <button id="newCity" type="button">New city base</button>
+          <button id="newRemote" type="button">New remote base</button>
+        </div>
       </details>
     </section>
 
