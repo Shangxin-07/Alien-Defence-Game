@@ -25,6 +25,8 @@ export const levelY = (level: number) => -level * LEVEL_GAP;
 
 export interface ViewColors {
   surface: string;
+  /** Street level of a city base. */
+  street: string;
   rock: string;
   grid: string;
   build: string;
@@ -94,9 +96,13 @@ export class BaseView {
       const opacity = depth === 0 ? 1 : 0.2 / depth;
       const g = new Group();
       g.position.y = levelY(level);
-      g.add(this.floor(level, opacity, depth === 0));
+      g.add(this.floor(level, opacity, depth === 0, layout.site === "city"));
       for (const it of layout.items.values()) {
         if (it.level !== level) continue;
+        if (ROOMS[it.type].detritus) {
+          g.add(this.building(it.x + it.w / 2 - GRID / 2, it.y + it.h / 2 - GRID / 2, it.w - 0.1, it.h - 0.1, ROOMS[it.type].height, new Color(ROOMS[it.type].color)));
+          continue;
+        }
         const st = statuses.get(it.uid)!;
         this.drawItem(g, layout, it, st, opacity);
         if (depth === 0 && ROOMS[it.type].short && it.type !== "lift") {
@@ -132,22 +138,64 @@ export class BaseView {
     this.ghost.visible = false;
   }
 
-  private floor(level: number, opacity: number, active: boolean): Group {
+  /** A city building: a block with floor lines so it reads as a building rather than a base module. */
+  private building(cx: number, cz: number, w: number, d: number, height: number, color: Color): Group {
+    const g = new Group();
+    const m = new Mesh(box, new MeshStandardMaterial({ color, roughness: 0.95 }));
+    m.scale.set(w, height, d);
+    m.position.set(cx, height / 2, cz);
+    g.add(m);
+    const lines = new LineBasicMaterial({ color: color.clone().multiplyScalar(0.55) });
+    for (let y = 0.4; y < height - 0.1; y += 0.4) {
+      const e = new LineSegments(boxEdges, lines);
+      e.scale.set(w + 0.01, 0.001, d + 0.01);
+      e.position.set(cx, y, cz);
+      g.add(e);
+    }
+    const roof = new LineSegments(boxEdges, new LineBasicMaterial({ color: color.clone().multiplyScalar(1.4) }));
+    roof.scale.set(w, height, d);
+    roof.position.copy(m.position);
+    g.add(roof);
+    return g;
+  }
+
+  /** The rest of the city around the base, for scale. Same skyline every time. */
+  private skyline(): Group {
+    const g = new Group();
+    let seed = 1;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+    const palette = ["#4a5761", "#6b625a", "#57534a", "#5e5560"].map((c) => new Color(c).multiplyScalar(0.7));
+    const half = GRID / 2;
+    for (let z = -half - 7; z < half + 7; z += 2) {
+      for (let x = -half - 7; x < half + 7; x += 2) {
+        // Leave a street ring around the base grid.
+        if (x >= -half - 2 && x < half + 1 && z >= -half - 2 && z < half + 1) continue;
+        if (rand() < 0.2) continue;
+        const h = 0.5 + rand() * rand() * 3;
+        g.add(this.building(x + 1, z + 1, 1.6, 1.6, h, palette[Math.floor(rand() * palette.length)]));
+      }
+    }
+    return g;
+  }
+
+  private floor(level: number, opacity: number, active: boolean, city: boolean): Group {
     const g = new Group();
     // Underground floors are slightly see-through so the ghosted levels below show.
     const alpha = active ? (level === 0 ? 1 : 0.86) : opacity * 0.6;
     const slab = new Mesh(
       new PlaneGeometry(GRID, GRID),
-      new MeshStandardMaterial({ color: level === 0 ? this.colors.surface : this.colors.rock, transparent: alpha < 1, opacity: alpha, depthWrite: active }),
+      new MeshStandardMaterial({ color: level === 0 ? (city ? this.colors.street : this.colors.surface) : this.colors.rock, transparent: alpha < 1, opacity: alpha, depthWrite: active }),
     );
     slab.rotation.x = -Math.PI / 2;
     g.add(slab);
     if (active && level === 0) {
       // Open ground around the perimeter so the surface doesn't float in the void.
-      const apron = new Mesh(new PlaneGeometry(GRID * 4, GRID * 4), new MeshStandardMaterial({ color: this.colors.surface.clone().multiplyScalar(0.55) }));
+      const ground = city ? this.colors.street : this.colors.surface;
+      const apron = new Mesh(new PlaneGeometry(GRID * 4, GRID * 4), new MeshStandardMaterial({ color: ground.clone().multiplyScalar(0.55) }));
       apron.rotation.x = -Math.PI / 2;
       apron.position.y = -0.01;
       g.add(apron);
+      if (city) g.add(this.skyline());
     }
     const pts: number[] = [];
     const half = GRID / 2;
