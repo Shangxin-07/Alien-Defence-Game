@@ -72,6 +72,8 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .row { display: flex; justify-content: space-between; gap: 14px; font-variant-numeric: tabular-nums; }
 .row span:first-child { color: var(--dim); }
 .site { color: var(--amber); }
+.nav { color: var(--coast); font-size: 11px; text-decoration: none; letter-spacing: 0.08em; text-transform: uppercase; }
+.nav:hover, .nav:focus-visible { text-decoration: underline; }
 .hint { color: var(--dim); font-size: 11px; line-height: 1.5; }
 .br { justify-items: end; }
 .zoom { display: flex; gap: 4px; }
