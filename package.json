@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build:land": "node scripts/build-land.mjs"
+    "build:geo": "node scripts/build-geo.mjs",
+    "build:single": "vite build --mode single"
   },
   "dependencies": {
     "three": "0.170.0"
@@ -18,8 +19,10 @@
   "devDependencies": {
     "@types/three": "0.170.0",
     "topojson-client": "3.1.0",
+    "topojson-simplify": "^3.0.3",
     "typescript": "5.6.3",
     "vite": "5.4.21",
+    "vite-plugin-singlefile": "^2.3.4",
     "vitest": "2.1.9",
     "world-atlas": "2.0.2"
   }

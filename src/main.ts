@@ -1,9 +1,12 @@
 import "./styles.css";
 import { Color, PerspectiveCamera, Raycaster, Scene, Vector2, WebGLRenderer } from "three";
+import { BIOMES, BIOME_ORDER, biomeAt } from "./geoscape/biomes";
+import { blocAt } from "./geoscape/blocs";
 import { CAMPAIGN_START, GameClock, TIME_SPEEDS, formatClock } from "./geoscape/clock";
 import { DEG, LatLon, formatLatLon, lightingAt, subsolarPoint, sunElevation, vectorToLatLon } from "./geoscape/geo";
 import { Globe } from "./geoscape/globe";
-import { buildLandTexture } from "./geoscape/landTexture";
+import { GlobeLabels } from "./geoscape/labels";
+import { buildMapTextures } from "./geoscape/mapTextures";
 import { OrbitView } from "./geoscape/orbitView";
 
 const css = getComputedStyle(document.documentElement);
@@ -17,13 +20,9 @@ renderer.setClearColor(new Color(token("--void")));
 
 const scene = new Scene();
 const camera = new PerspectiveCamera(40, 1, 0.05, 100);
-const map = buildLandTexture(renderer, {
-  ocean: token("--ocean"),
-  land: token("--land"),
-  coast: token("--coast"),
-  grid: token("--grid"),
-});
-const globe = new Globe(scene, map, new Color(token("--amber")));
+const maps = buildMapTextures(renderer, { ocean: token("--ocean"), coast: token("--coast"), grid: token("--grid") });
+const globe = new Globe(scene, maps.day, maps.overlay, new Color(token("--amber")), new Color(token("--border")));
+const labels = new GlobeLabels($("labels"));
 const view = new OrbitView(camera, canvas);
 const clock = new GameClock(CAMPAIGN_START, 60);
 
@@ -38,6 +37,14 @@ function pick(e: PointerEvent): LatLon | null {
   return hit ? vectorToLatLon(hit.point) : null;
 }
 
+function describe(ll: LatLon): { terrain: string; territory: string } {
+  if (!maps.isLand(ll.lat, ll.lon)) {
+    const waters = blocAt(ll.lat, ll.lon);
+    return { terrain: "Ocean", territory: waters ? `${waters.name} waters` : "International waters" };
+  }
+  return { terrain: BIOMES[biomeAt(ll.lat, ll.lon)].name, territory: blocAt(ll.lat, ll.lon)?.name ?? "Unclaimed" };
+}
+
 let site: LatLon | null = null;
 view.onClick = (e) => {
   const ll = pick(e);
@@ -45,18 +52,34 @@ view.onClick = (e) => {
   site = ll;
   globe.placeMarker(ll);
   $("site").textContent = formatLatLon(ll);
+  lastClock = "";
 };
 canvas.addEventListener("pointermove", (e) => {
   const ll = pick(e);
   $("cursor").textContent = ll ? formatLatLon(ll) : "—";
+  const info = ll ? describe(ll) : null;
+  $("terrain").textContent = info?.terrain ?? "—";
+  $("territory").textContent = info?.territory ?? "—";
 });
 canvas.addEventListener("pointerleave", () => {
-  if (!view.isDragging) $("cursor").textContent = "—";
+  if (view.isDragging) return;
+  for (const id of ["cursor", "terrain", "territory"]) $(id).textContent = "—";
 });
 
 // ---------- HUD ----------
 $("zoomIn").addEventListener("click", () => view.zoomBy(1 / 1.35));
 $("zoomOut").addEventListener("click", () => view.zoomBy(1.35));
+
+const key = $("terrainKey");
+for (const id of BIOME_ORDER) {
+  const b = BIOMES[id];
+  const li = document.createElement("li");
+  li.innerHTML = `<i></i><span></span>`;
+  (li.firstElementChild as HTMLElement).style.background = b.color;
+  li.querySelector("span")!.textContent = b.name;
+  li.title = b.tactical;
+  key.appendChild(li);
+}
 
 const speedBox = $("speeds");
 for (const { label, rate } of TIME_SPEEDS) {
@@ -100,12 +123,14 @@ resize();
 
 let last = performance.now();
 function frame(now: number) {
-  const dt = Math.min(0.1, (now - last) / 1000);
+  const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
   last = now;
   clock.tick(dt);
   view.update(dt, now);
   globe.setSun(subsolarPoint(clock.time));
+  globe.setBorderOpacity(0.85 * Math.min(1, Math.max(0, (3.3 - view.distance) / 0.8)));
   globe.update(now, view.distance);
+  labels.update(camera, view.distance, canvas.clientWidth, canvas.clientHeight);
   updateHud();
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
