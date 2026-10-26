@@ -3,7 +3,7 @@
  * it take? A simple bot plays the real Campaign rules (eating, hunger, runs, ambushes, the black
  * market, building) towards hydroponic farms that feed everyone.
  *
- *   npx vite-node scripts/sim-food.ts [seeds] [max headcount]
+ *   npx vite-node scripts/sim-food.ts [seeds] [max headcount] [min headcount]
  *   NO_MARKET=1 npx vite-node scripts/sim-food.ts   (black market shut)
  *
  * For each headcount it tries every play style in POLICIES on a few seeds, keeps the one that loses
@@ -246,7 +246,8 @@ function summarise(n: number, seeds: number, policy: Policy) {
 const seeds = Number(process.argv[2] ?? 100);
 const maxN = Number(process.argv[3] ?? 8);
 console.log(`seeds ${seeds}, horizon ${HORIZON} days, ${POLICIES.length} policies tried per headcount`);
-for (let n = 1; n <= maxN; n++) {
+const minN = Number(process.argv[4] ?? 1);
+for (let n = minN; n <= maxN; n++) {
   // Pick the policy that keeps the most people, then the fastest.
   let best: ReturnType<typeof summarise> | null = null;
   let bestP: Policy | null = null;

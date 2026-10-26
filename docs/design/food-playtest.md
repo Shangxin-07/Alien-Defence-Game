@@ -73,6 +73,21 @@ Real games will lose people that the bot doesn't lose.
 - **A lone survivor can't lose, only crawl.** The last person never leaves, so the liaison-only game always gets there eventually. With the market it takes about 7 months. Without it, a quarter of games take more than a year.
 - **The bot is rarely hungry with the market open.** It plays with patience a person won't have, and it never fights. Mike's "very hard" feel and these numbers fit together: the margin exists, but you have to find it.
 
+## Ten people and two farms
+
+Mike's follow-up: if farms feed five, are multiples of five the sweet spots? Same settings, with 9 to 11 people.
+
+| People | Good play: median day | Good play: kept everyone | Good play: hungry person-days | Plain play: median day | Plain play: lost someone | No market: kept everyone |
+|---|---|---|---|---|---|---|
+| 5 | 75 | 98% | 7 | 85 | 0% | 100% |
+| 9 | 69 | 96% | 79 | 73 | 20% | 84% |
+| **10** | **67** | **94%** | **75** | **70** | **34%** | **86%** |
+| 11 | 72 | 94% | 81 | 74 | 52% | 80% |
+
+- **Ten is a local sweet spot, but only for speed.** It's the fastest headcount tested, and 11 is slower again because an eleventh mouth needs a third farm.
+- **It isn't substantially easier.** Ten people get there only 8 days sooner than five. On the way they go hungry ten times as much. With plain play, a third of 10-person games lose someone, against none at five.
+- **So five is the real sweet spot.** Past five, extra hands buy a little speed, and the price is paid in hunger and desertion. That's the trade-off Mike asked for.
+
 ## Possible follow-ups (not done)
 
 - Nothing needs easing for any headcount. If anything is worth changing, it's the six-person cliff, for example farms that feed 6 or a smaller first farm. Only if Mike wants it.
