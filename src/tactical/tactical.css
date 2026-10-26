@@ -153,6 +153,65 @@
 .modal .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .modal .buttons button { padding: 8px 14px; font-size: 12px; }
 
+/* Autoplay: doctrine and switch in the mission panel, a bar while it runs, and the timeline */
+.autobox { display: grid; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
+.autorow { display: flex; gap: 4px; }
+.autorow select { flex: 1; min-width: 0; font: inherit; font-size: 11px; color: var(--ink); background: #071420; border: 1px solid var(--line); padding: 4px; }
+.autobox p { margin: 0; font-size: 10px; line-height: 1.4; }
+.autobox p:empty { display: none; }
+.check { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--dim); cursor: pointer; }
+.check input { accent-color: var(--amber); margin: 0; }
+.autobar {
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(100% - 32px);
+}
+#autoState { font-family: var(--display); color: var(--amber); letter-spacing: 0.08em; font-size: 12px; }
+.autobtns { display: flex; gap: 4px; }
+.timeline {
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  width: min(360px, calc(100% - 32px));
+  overflow-y: auto;
+  z-index: 4;
+  background: rgba(6, 16, 26, 0.94);
+  align-content: start;
+}
+.tlhead { display: flex; justify-content: space-between; align-items: center; }
+.timeline p { margin: 0; font-size: 11px; line-height: 1.45; }
+.tllegend { font-size: 10px !important; }
+#tlRounds { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+#tlRounds li { display: grid; grid-template-columns: 34px 1fr auto; gap: 2px 8px; align-items: center; padding: 5px 6px; border: 1px solid var(--line); font-size: 11px; }
+#tlRounds li:hover, #tlRounds li:focus-within, #tlRounds li.on { border-color: var(--amber); }
+#tlRounds li.out { opacity: 0.45; }
+#tlRounds li.hand .rn::after { content: " ✋"; font-size: 9px; }
+#tlRounds .rn { font-family: var(--display); font-weight: 700; color: var(--ink); grid-row: span 2; }
+#tlRounds .marks { letter-spacing: 0.08em; min-height: 1em; }
+#tlRounds .price { grid-column: 2; color: var(--dim); font-size: 10px; }
+#tlRounds li.free .price { color: var(--coast); }
+#tlRounds button { grid-column: 3; grid-row: 1 / span 2; padding: 4px 6px; font-size: 10px; }
+.mk.contact { color: var(--amber); }
+.mk.wound { color: #e8d35a; }
+.mk.dead { color: var(--alert); }
+.mk.down { color: var(--coast); }
+.mk.boss { color: #ffd34d; }
+.mk.panic { color: #e9877a; }
+.tldetail { font-size: 11px; line-height: 1.45; border-top: 1px solid var(--line); padding-top: 6px; }
+.tldetail b { color: var(--ink); font-family: var(--display); letter-spacing: 0.06em; }
+.tldetail ul { margin: 2px 0 6px; padding-left: 16px; }
+.risk { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; }
+.risk dt { color: var(--dim); }
+.risk dd { margin: 0; font-variant-numeric: tabular-nums; }
+.risk dd.good { color: var(--coast); }
+.risk dd.bad { color: var(--alert); }
+
 /* Geoscape panel: what the prologue brought home */
 .spoils { display: grid; gap: 2px; padding-top: 4px; border-top: 1px solid var(--line); font-size: 11px; }
 .spoils b { font-family: var(--display); color: var(--coast); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px; }
@@ -163,7 +222,8 @@
   .unitpanel { width: min(560px, calc(100% - 32px - 160px)); min-width: 0; }
 }
 @media (max-width: 720px) {
-  .mission h2, .objectives, .setting { display: none; }
+  .mission h2, .objectives, .setting, .check, #autoNote { display: none; }
+  .autobar { top: auto; bottom: calc(var(--panel-h, 190px) + 20px + env(safe-area-inset-bottom, 0px)); }
   .combat .mission { top: calc(12px + env(safe-area-inset-top, 0px)); width: 130px; padding: 6px 10px; gap: 2px; }
   .combat .mission h1 { display: block; }
   .combat .squad { left: auto; width: 46%; padding: 6px; }

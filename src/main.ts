@@ -20,6 +20,7 @@ import { GlobeLabels } from "./geoscape/labels";
 import { buildMapTextures } from "./geoscape/mapTextures";
 import { OrbitView } from "./geoscape/orbitView";
 import { JOB_NAMES, Job, buildSkill, fitToWork, project, rollBuild } from "./staff";
+import { adaptReads, adaptSquad } from "./tactical/adapt";
 import { readSquad } from "./tactical/aliens";
 import { prologueCity, rollForce, startAmbush, startPrologue } from "./tactical/prologue";
 
@@ -866,8 +867,10 @@ function checkAmbush() {
     persist();
   }
   const force = rollForce(run.fightSeed, !!run.call);
+  const learned = campaign.learned[force.race];
+  adaptSquad(force.squad, learned);
   const many = force.squad.members.length > 1;
-  const reads = readSquad(force.squad, campaign.knowledge(force.race));
+  const reads = [...readSquad(force.squad, campaign.knowledge(force.race)), ...adaptReads(learned)];
   const intro = run.call
     ? `The team answering the call got there, ${escape(run.call.place)}, and ${many ? "they're" : "it's"} still there.`
     : `The run to ${escape(runWhere(run))} has run into an alien, alone and close.`;
@@ -900,7 +903,8 @@ $("ambushFight").addEventListener("click", () => {
   const sighting = run.call ? { caller: run.call.caller, place: run.call.place, hours: (run.arrive! - run.call.at) / HOUR_MS } : undefined;
   const seed = run.fightSeed ?? Math.floor(Math.random() * 2 ** 31);
   const race = rollForce(seed, !!run.call).race;
-  const fight = startAmbush(city, seed, team, SITES[run.site].name, sighting, campaign.knowledge(race));
+  const knowledge = campaign.knowledge(race);
+  const fight = startAmbush(city, seed, team, SITES[run.site].name, sighting, knowledge, campaign.learned[race]);
   const back = () => {
     closeCombat();
     screen.hidden = false;
@@ -912,8 +916,16 @@ $("ambushFight").addEventListener("click", () => {
   };
   openCombat({
     prologue: fight,
+    knowledge,
     finish: (r) => {
-      campaign.resolveAmbush({ outcome: r.outcome, recovered: r.recovered, race, people: r.people.map((p) => ({ id: p.id, health: p.health })) });
+      campaign.resolveAmbush({
+        outcome: r.outcome,
+        recovered: r.recovered,
+        race,
+        people: r.people.map((p) => ({ id: p.id, health: p.health })),
+        tally: r.tally,
+        commanderDown: r.commanderDown,
+      });
       back();
     },
     retry: () => {},

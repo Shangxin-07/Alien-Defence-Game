@@ -1,5 +1,6 @@
+import { batonGrudge } from "./adapt";
 import { AlienMind, Personality, RACES, firstLook } from "./aliens";
-import { DIRS, Point, TacMap, dist, facingTo, turnSteps } from "./map";
+import { DIRS, Point, TacMap, Thing, dist, facingTo, turnSteps } from "./map";
 import { mulberry32 } from "./random";
 import {
   ALIEN_FOV,
@@ -68,6 +69,60 @@ export type BattleEvent =
   | { kind: "turn"; side: Side; number: number }
   | { kind: "end"; outcome: Outcome };
 
+/**
+ * How your people fought, counted as it happens. The aliens learn from it between fights, and the
+ * rewind timeline reads its marks from it.
+ */
+export interface Tally {
+  /** Human turns counted, and the share of each person's time units left unspent at the end, summed. */
+  humanTurns: number;
+  idleTu: number;
+  /** Shots you chose to take; the close ones; shots fired on reflex. */
+  shots: number;
+  closeShots: number;
+  reflexShots: number;
+  stunTries: number;
+  panics: number;
+  /** The turn your people first saw one of them, or 0. */
+  contact: number;
+}
+
+/** Shots at this range or closer count as pushing in. */
+export const CLOSE_RANGE = 5;
+
+const emptyTally = (): Tally => ({ humanTurns: 0, idleTu: 0, shots: 0, closeShots: 0, reflexShots: 0, stunTries: 0, panics: 0, contact: 0 });
+
+/** Everything needed to put a battle back exactly as it was at one moment. */
+export interface BattleSnapshot {
+  turn: number;
+  side: Side;
+  outcome: Outcome | null;
+  units: Unit[];
+  seen: Uint8Array;
+  visible: Uint8Array;
+  lastSeen: [number, Point][];
+  inView: number[];
+  scent: [number, Point | null][];
+  inCharge: number | null;
+  nextUp: number | null;
+  stepUpTurn: number;
+  alienShakenUntil: number;
+  humanShakenUntil: number;
+  steady: boolean;
+  fallen: number[];
+  remarked: number[];
+  focus: number[];
+  things: Thing[];
+  tally: Tally;
+}
+
+/** A unit with nothing shared with the original but its weapon, which never changes. */
+export function cloneUnit(u: Unit): Unit {
+  const c: Unit = { ...u, stats: { ...u.stats }, tools: u.tools.map((t) => ({ ...t })) };
+  if (u.mind) c.mind = { ...u.mind, nature: { ...u.mind.nature }, mind: { ...u.mind.mind } };
+  return c;
+}
+
 export interface ShotPreview {
   /** Chance to hit the target, cover between you included. */
   chance: number;
@@ -87,6 +142,18 @@ const LEADERLESS_ACCURACY = 0.75;
 const LEADERLESS_REACTIONS = 0.65;
 /** Your people's aim while shaken by losing whoever led them. */
 const SHAKEN_ACCURACY = 0.85;
+/** A race this sure you sit on reflex fire keeps its distance and shoots from the dark. */
+const SNIPE_AT = 0.45;
+/** A race this sure you rush it holds its ground in cover and lets you come. */
+const BRACE_AT = 0.45;
+/** Aim against someone who charged in, once drilled against rushing. */
+const CLOSE_DRILL = 1.3;
+/** Reactions once drilled against rushing. */
+const BRACED_REACTIONS = 2;
+/** Spent more than this share of their time units and they've overreached. */
+const OVERREACH = 0.3;
+/** Just past how far your people see at night. */
+const SNIPE_RANGE = SIGHT_NIGHT + 1;
 /** Health the alien grows back each turn. */
 export const ALIEN_REGEN = 2;
 /** Reaction fire and plain misses fly this far before they're spent. */
@@ -130,7 +197,9 @@ export class Battle {
   private readonly remarked = new Set<number>();
   /** Humans the aliens have hit this turn: a coordinated squad piles onto them. */
   private readonly focus = new Set<number>();
-  private readonly rand: () => number;
+  /** How your people have fought so far. */
+  tally: Tally = emptyTally();
+  private rand: () => number;
   private events: BattleEvent[] = [];
 
   constructor(readonly map: TacMap, readonly units: Unit[], seed = 1, scent: Point | null = null) {
@@ -167,6 +236,78 @@ export class Battle {
     return this.units.find((u) => alive(u) && u.x === x && u.y === y);
   }
 
+  // ---------- Rewinding ----------
+
+  /** The whole state of the fight, to come back to later. */
+  snapshot(): BattleSnapshot {
+    return {
+      turn: this.turn,
+      side: this.side,
+      outcome: this.outcome,
+      units: this.units.map(cloneUnit),
+      seen: this.seen.slice(),
+      visible: this.visible.slice(),
+      lastSeen: [...this.lastSeen].map(([id, p]) => [id, { ...p }]),
+      inView: [...this.inView],
+      scent: [...this.scent].map(([id, p]) => [id, p && { ...p }]),
+      inCharge: this.inCharge,
+      nextUp: this.nextUp,
+      stepUpTurn: this.stepUpTurn,
+      alienShakenUntil: this.alienShakenUntil,
+      humanShakenUntil: this.humanShakenUntil,
+      steady: this.steady,
+      fallen: [...this.fallen],
+      remarked: [...this.remarked],
+      focus: [...this.focus],
+      things: [...this.map.thing],
+      tally: { ...this.tally },
+    };
+  }
+
+  /**
+   * Puts the fight back as it was, with fresh dice: what happens next won't be what happened before.
+   * Units keep their identity, so anything holding one still holds the same person.
+   */
+  restore(s: BattleSnapshot, seed: number): void {
+    this.rand = mulberry32(seed);
+    this.turn = s.turn;
+    this.side = s.side;
+    this.outcome = s.outcome;
+    for (const saved of s.units) Object.assign(this.unit(saved.id), cloneUnit(saved));
+    this.seen.set(s.seen);
+    this.visible.set(s.visible);
+    const refill = <K, V>(m: Map<K, V>, entries: [K, V][]) => {
+      m.clear();
+      for (const [k, v] of entries) m.set(k, v);
+    };
+    const reset = <T,>(set: Set<T>, items: T[]) => {
+      set.clear();
+      for (const i of items) set.add(i);
+    };
+    refill(this.lastSeen, s.lastSeen.map(([id, p]) => [id, { ...p }]));
+    reset(this.inView, s.inView);
+    refill(this.scent, s.scent.map(([id, p]) => [id, p && { ...p }]));
+    this.inCharge = s.inCharge;
+    this.nextUp = s.nextUp;
+    this.stepUpTurn = s.stepUpTurn;
+    this.alienShakenUntil = s.alienShakenUntil;
+    this.humanShakenUntil = s.humanShakenUntil;
+    this.steady = s.steady;
+    reset(this.fallen, s.fallen);
+    reset(this.remarked, s.remarked);
+    reset(this.focus, s.focus);
+    s.things.forEach((t, i) => (this.map.thing[i] = t));
+    this.tally = { ...s.tally };
+    this.events = [];
+  }
+
+  /** A separate copy of the fight from here, with its own dice, to play out without touching this one. */
+  fork(seed: number): Battle {
+    const b = new Battle(this.map.clone(), this.units.map(cloneUnit), seed);
+    b.restore(this.snapshot(), seed);
+    return b;
+  }
+
   /** Whether your people can see this alien right now. */
   isSeen(u: Unit): boolean {
     return this.inView.has(u.id);
@@ -194,6 +335,28 @@ export class Battle {
   reactionsOf(u: Unit): number {
     if (u.side === "alien" && this.turn <= this.alienShakenUntil) return u.stats.reactions * LEADERLESS_REACTIONS;
     return u.stats.reactions;
+  }
+
+  /**
+   * An alien whose race has learned that you rush is waiting for exactly that: it's quicker on the
+   * trigger, and steadier, against anyone who has spent their turn charging rather than holding ground.
+   */
+  private braced(u: Unit): boolean {
+    return (u.mind?.counters?.pushing ?? 0) >= BRACE_AT;
+  }
+
+  private overreached(t: Unit | undefined): boolean {
+    return !!t && t.side === "human" && t.tu < t.stats.tu * OVERREACH;
+  }
+
+  /** Aim against whoever walked into it. */
+  drill(u: Unit, target: Point): number {
+    return this.braced(u) && this.overreached(this.unitAt(target.x, target.y)) ? CLOSE_DRILL : 1;
+  }
+
+  /** Reflexes against whoever walked into it. */
+  reflex(u: Unit, mover: Unit): number {
+    return this.braced(u) && this.overreached(mover) ? BRACED_REACTIONS : 1;
   }
 
   /** Whether the aliens are still reeling from losing whoever gave the orders. */
@@ -256,6 +419,7 @@ export class Battle {
   private announce(fresh: Unit[]) {
     for (const a of fresh) {
       this.events.push({ kind: "spot", unit: a.id });
+      if (!this.tally.contact) this.tally.contact = this.turn;
       if (!a.mind || this.remarked.has(a.id) || !conscious(a)) continue;
       this.remarked.add(a.id);
       // You can only tell who's in charge while they're still following orders.
@@ -326,7 +490,7 @@ export class Battle {
     if (u.ammo <= 0) return no("Out of ammo");
     if (tu > u.tu) return no("Not enough time units");
     if (!this.map.clearLine(u, target)) return no("No line of fire");
-    const base = baseHitChance(this.accuracyOf(u), m, w, dist(u, target), u.kneeling, u.wounds * 4);
+    const base = baseHitChance(this.accuracyOf(u) * this.drill(u, target), m, w, dist(u, target), u.kneeling, u.wounds * 4);
     let through = 1;
     let cover = false;
     const target_ = this.unitAt(target.x, target.y);
@@ -346,6 +510,10 @@ export class Battle {
     if (!this.mayAct(u)) return this.flush();
     const p = this.previewShot(id, target, mode);
     if (p.reason) return this.flush();
+    if (u.side === "human") {
+      this.tally.shots++;
+      if (dist(u, target) <= CLOSE_RANGE) this.tally.closeShots++;
+    }
     this.fire(u, target, mode);
     if (u.side === "human") {
       // They hear every shot.
@@ -376,6 +544,7 @@ export class Battle {
     const p = this.previewStun(id, t);
     if (p.reason) return this.flush();
     const tool = u.tools.find((x) => x.tool.kind === "stun")!;
+    if (u.side === "human") this.tally.stunTries++;
     this.turnToward(u, t);
     u.tu -= tuCost(u.stats.tu, tool.tool.tuPct);
     if (this.rand() < p.chance) {
@@ -428,6 +597,11 @@ export class Battle {
     this.events = [];
     if (this.outcome || this.side !== "human") return this.flush();
     this.side = "alien";
+    const up = this.humans.filter(conscious);
+    if (up.length) {
+      this.tally.humanTurns++;
+      this.tally.idleTu += up.reduce((n, u) => n + u.tu / u.stats.tu, 0) / up.length;
+    }
     for (const u of this.humans) u.revealed = false;
     this.events.push({ kind: "turn", side: "alien", number: this.turn });
     this.startTurn("alien");
@@ -521,8 +695,9 @@ export class Battle {
       if (!snap) continue;
       const cost = tuCost(e.stats.tu, snap.tuPct) + turnSteps(e.facing, facingTo(e, mover)) * TURN_TU;
       if (cost > e.tu || !this.canSee(e, mover, mover.revealed)) continue;
-      if (this.reactionsOf(e) * (e.tu / e.stats.tu) <= moverScore) continue;
+      if (this.reactionsOf(e) * this.reflex(e, mover) * (e.tu / e.stats.tu) <= moverScore) continue;
       this.events.push({ kind: "say", text: e.side === "alien" ? "It fires as you move!" : `${e.name} fires on reflex!`, tone: e.side === "alien" ? "bad" : "good" });
+      if (e.side === "human") this.tally.reflexShots++;
       this.fire(e, { x: mover.x, y: mover.y }, "snap");
       if (e.side === "human") this.smell(mover, e);
       this.check();
@@ -548,7 +723,7 @@ export class Battle {
     const aimedAt = this.unitAt(target.x, target.y);
     for (let s = 0; s < m.shots && u.ammo > 0; s++) {
       u.ammo--;
-      const chance = baseHitChance(this.accuracyOf(u), m, w, dist(u, target), u.kneeling, u.wounds * 4);
+      const chance = baseHitChance(this.accuracyOf(u) * this.drill(u, target), m, w, dist(u, target), u.kneeling, u.wounds * 4);
       const onTarget = this.rand() < chance;
       let end = target;
       if (!onTarget) {
@@ -646,6 +821,7 @@ export class Battle {
         u.morale = Math.min(100, u.morale + 10);
         if (this.rand() < panicChance(u.morale) * (this.steady ? 0.5 : 1)) {
           u.tu = 0;
+          this.tally.panics++;
           this.events.push({ kind: "say", text: `${u.name} panics and freezes.`, tone: "bad" });
         }
         continue;
@@ -766,8 +942,16 @@ export class Battle {
     if (state === "frozen") return;
     const berserk = state === "berserk";
     const snapCost = tuCost(a.stats.tu, a.weapon!.modes.snap!.tuPct);
+    const learned = berserk ? undefined : a.mind?.counters;
+    // Learned that you sit tight on reflex fire: it shoots from the dark rather than walk into it.
+    const sniper = (learned?.holding ?? 0) >= SNIPE_AT;
+    // Learned that you rush: it keeps two shots back for when you overreach.
+    const braced = (learned?.pushing ?? 0) >= BRACE_AT;
     // The reckless keep nothing back for reflexes.
-    const reserve = berserk || (p.aggression >= 75 && p.caution < 40) ? 0 : snapCost;
+    // A sniper is all in on the long shot and keeps nothing back, which is what a rush catches.
+    // A braced one always keeps a shot back.
+    const reserve = berserk || sniper || (p.aggression >= 75 && p.caution < 40 && !braced) ? 0 : snapCost;
+    const keepOff = sniper ? SNIPE_RANGE : 0;
     // How good a shot has to be before it takes it.
     const minShot = berserk ? 0.05 : Math.max(0.12, Math.min(0.4, 0.35 - p.aggression * 0.002));
     // Under this share of its health, it breaks off and looks for somewhere to hide.
@@ -787,6 +971,11 @@ export class Battle {
         if (this.tryShoot(a, targets, minShot)) continue;
         // Poor odds: close in on the nearest once, keeping enough to fire on reflex.
         const t = targets.sort((x, y) => dist(a, x) - dist(a, y))[0];
+        // A sniper takes the long shot from out in the dark instead.
+        if (sniper && dist(a, t) >= SNIPE_RANGE) {
+          if (this.tryShoot(a, targets, 0.08)) continue;
+          break;
+        }
         if (!closedIn && this.advance(a, t, reserve, closeSteps, berserk ? 1 : 3, true)) {
           closedIn = true;
           continue;
@@ -803,7 +992,7 @@ export class Battle {
       if (!goal) break;
       if (this.lieInWait(a, goal, p)) return;
       const plan = this.approach(a, goal, p);
-      if (!this.advance(a, plan.goal, reserve, 99, plan.within, false, plan.alone)) break;
+      if (!this.advance(a, plan.goal, reserve, 99, sniper && !plan.alone ? SIGHT_DAY - 4 : plan.within, false, plan.alone, keepOff)) break;
     }
     // Ends its turn looking where it expects you to come from.
     const goal = this.hunt(a);
@@ -876,7 +1065,12 @@ export class Battle {
         const p = this.previewShot(a.id, t, mode);
         if (p.reason || p.chance < minChance) continue;
         // Prefer sure shots on the weak.
-        const score = p.chance * (1.5 - t.health / t.stats.health) + (mode === "aimed" ? 0.05 : 0) + (together && this.focus.has(t.id) ? 0.25 : 0);
+        const score =
+          p.chance * (1.5 - t.health / t.stats.health) +
+          (mode === "aimed" ? 0.05 : 0) +
+          (together && this.focus.has(t.id) ? 0.25 : 0) +
+          // A squad that's learned about the baton goes for whoever carries one.
+          (t.tools.some((x) => x.tool.kind === "stun") ? batonGrudge(a.mind) : 0);
         if (!best || score > best.score) best = { t, mode, score };
       }
     }
@@ -916,8 +1110,9 @@ export class Battle {
    * Moves toward a spot within `within` tiles of a point with a clear line to it, up to `maxSteps`,
    * keeping `reserve` TUs. Returns false if it couldn't move. `strict` only goes for a spot with a view that it can reach this turn.
    * `alone` heads for the point itself rather than anyone near it, for flanking and regrouping.
+   * `keepOff` stays at least that far from all of you if it can.
    */
-  private advance(a: Unit, goal: Point, reserve: number, maxSteps: number, within: number, strict = false, alone = false): boolean {
+  private advance(a: Unit, goal: Point, reserve: number, maxSteps: number, within: number, strict = false, alone = false, keepOff = 0): boolean {
     const { cost, prev } = this.map.reach(a, Infinity, this.occupied(a));
     // Head for the cheapest spot with a clear line to the goal or anyone near it; failing that, the nearest it can get.
     const prey = alone ? [goal] : [goal, ...this.humans.filter((h) => conscious(h) && dist(h, goal) <= TRACKER_RANGE)];
@@ -933,6 +1128,8 @@ export class Battle {
       const view = prey.find((h) => dist(p, h) <= within && this.map.clearLine(p, h));
       let score = view ? cost[i] + dist(p, view) * 2 : 10_000 + d * 100 + cost[i] * 0.01;
       if (view && coverPull && this.nearCover(p)) score -= coverPull;
+      // Somewhere your people can't see it in the dark.
+      if (view && keepOff && this.humans.some((h) => conscious(h) && dist(h, p) < keepOff)) score += 40;
       if (score < bestD) [best, bestD, sight] = [i, score, view ?? null];
     }
     // Closing in only makes sense toward a spot with a view of its prey.
