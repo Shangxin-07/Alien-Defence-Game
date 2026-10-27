@@ -5,7 +5,7 @@ import { Battle, BattleEvent, Outcome, Tally, Unit, alive, conscious } from "./t
 import { TacticalCamera } from "./tactical/camera";
 import { Point } from "./tactical/map";
 import { mulberry32 } from "./tactical/random";
-import { OUTCOME_TEXT, Prologue, SPOILS, battleSpoils, briefing, unitLook, unitShape } from "./tactical/prologue";
+import { OUTCOME_TEXT, Prologue, SPOILS, battleSpoils, briefing, lightRead, unitLook, unitShape } from "./tactical/prologue";
 import { FireMode, KNEEL_TU, STAND_TU, Stats, tuCost } from "./tactical/rules";
 import { TacticalView } from "./tactical/view";
 
@@ -532,6 +532,7 @@ function brief(p: Prologue) {
     modal(
       m.title,
       `${m.intro.map((t) => `<p>${escape(t)}</p>`).join("")}
+       <p class="dim">${escape(lightRead(p.light))}</p>
        ${m.reads?.length ? `<h2>What we can tell</h2><ul class="reads">${m.reads.map((r) => `<li>${escape(r)}</li>`).join("")}</ul>` : ""}
        <ul class="squadlist">${team.join("")}</ul>
        <p class="dim">Fleeing from the battlefield keeps half of what you found. Anyone who falls here is gone for good.${p.battle.humanLeader !== null ? " Lose whoever leads (★) and the rest are shaken for a while." : ""}</p>`,
@@ -551,7 +552,7 @@ function brief(p: Prologue) {
        <ul>
          <li>Everything costs <b>time units</b> (TU): 4 a step, 6 diagonally, more through doors and rubble. Shots cost a share of your full TU.</li>
          <li>TU you don't spend stay with you through the alien's turn. Anyone who sees it move and is quicker on the draw (reactions × TU left) fires on reflex. So does it.</li>
-         <li>It's night. You see 9 tiles in the dark, further under street lights. It sees 20. Firing gives away where you are.</li>
+         <li>${escape(lightRead(p.light))}</li>
          <li>Kneeling steadies your aim. Cover between you and a target soaks up shots; so does cover between it and you.</li>
          <li>Big hits leave you bleeding until a medikit stops it. Seeing friends die drains morale; frightened people freeze.</li>
          <li>It heals slowly, and it can sense anyone within ${12} tiles, walls or not.</li>
@@ -770,12 +771,18 @@ function skipToEnd() {
   results(b.outcome!);
 }
 
+/** Builds the battlefield in the light the fight is fought in. */
+function buildScene() {
+  const p = host!.prologue;
+  const clear = view.build(battle!.map, p.style, p.lights, p.light);
+  renderer.setClearColor(new Color(clear || token("--void")));
+}
+
 /** Throws the scene away and builds it again from the battle, for after a jump in time. */
 function rebuildView() {
   const b = battle!;
-  const p = host!.prologue;
   view.clearUnits();
-  view.build(b.map, p.style, p.lights);
+  buildScene();
   for (const u of b.units) view.addUnit(u, unitLook(u), unitShape(u));
   view.sync(b);
   $("turnNo").textContent = String(b.turn);
@@ -1040,14 +1047,14 @@ export function openCombat(h: CombatHost): void {
   $("autoBox").hidden = !h.prologue.mission;
   refreshAuto();
   $("combatLog").replaceChildren();
-  $("missionPlace").textContent = `${h.prologue.city.name} · ${h.prologue.mission ? "ambush" : "night"}`;
+  $("missionPlace").textContent = `${h.prologue.city.name} · ${h.prologue.light}, ${h.prologue.clock}`;
   const several = battle.aliens.length > 1;
   $("missionName").textContent = h.prologue.mission?.title.split(":")[0] ?? "Prologue";
   $("objectiveMain").textContent = several ? "Kill them, or stun them to take them alive." : "Kill the alien, or stun it with the baton to take it alive.";
   $("objectiveNote").textContent = several ? "Bring down the one giving orders and the rest come apart for a while." : "Taken alive, it's worth far more.";
   $("turnNo").textContent = String(battle.turn);
   view.clearUnits();
-  view.build(battle.map, h.prologue.style, h.prologue.lights);
+  buildScene();
   for (const u of battle.units) view.addUnit(u, unitLook(u), unitShape(u));
   view.sync(battle);
   cam.bounds = battle.map.w / 2;

@@ -42,8 +42,11 @@ prologue from there.
 - **Reaction fire, like the original.** TU you don't spend carry through the enemy's turn. When
   someone moves or shoots in view of an enemy, the one with more reactions × share of TU left
   gets to fire first.
-- **Night.** People see 9 tiles in the dark, further under the street lights; the alien sees 20
-  in any light. Firing gives your position away. You only see what's in front of you (a 90° cone).
+- **Light follows the globe.** A fight is fought in whatever light the geoscape shows at that
+  city when it starts: day, dusk, dawn or night, from the sun's height there. People see 9 tiles
+  at night and 14 at dusk or dawn, further under the street lights, and 20 by day; the aliens see
+  20 in any light. In the dark, firing gives your position away. The prologue is always night.
+  You only see what's in front of you (a 90° cone).
 - **Brutal**: big hits leave you bleeding a point a turn until a medikit stops it, friends dying
   drains morale and frightened people freeze. The alien has a plasma pistol that often kills in one
   hit, heals slowly, senses anyone within 12 tiles through walls, hunts the last noise it heard and

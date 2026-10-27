@@ -27,9 +27,20 @@ import {
 import { Battle, Unit, alive, conscious } from "./battle";
 import { CityStyle } from "./cityMap";
 import { CoverLook, Point, TacMap } from "./map";
+import { Daylight } from "./rules";
+
+/** Sky and sun for each light: hemisphere sky and ground colours, the main light, and where it shines from. */
+const SKY: Record<Daylight, { sky: number; ground: number; ambient: number; sun: number; strength: number; from: [number, number, number]; clear: string }> = {
+  night: { sky: 0x8fa6c8, ground: 0x1a1712, ambient: 1.1, sun: 0xb8c8ff, strength: 1.1, from: [-6, 12, 4], clear: "" },
+  dusk: { sky: 0xb88a86, ground: 0x2a1c16, ambient: 1.35, sun: 0xff9a5c, strength: 1.9, from: [-14, 5, 3], clear: "#2a1c24" },
+  dawn: { sky: 0xa6b2d6, ground: 0x2a2420, ambient: 1.4, sun: 0xffc49a, strength: 1.8, from: [14, 5, -3], clear: "#28283a" },
+  day: { sky: 0xe4edf7, ground: 0x6a5a44, ambient: 2.1, sun: 0xfff3de, strength: 2.6, from: [7, 14, 5], clear: "#6f8595" },
+};
 
 /** Fog: never seen, seen before, in view now. */
 const FOG = [0.07, 0.38, 1];
+/** By day what you can't see is still plainly there, just not up to date. */
+const DAY_FOG = [0.3, 0.6, 1];
 const WALL_H = 1.15;
 
 const COVER: Record<CoverLook, { h: number; s: number; color: string }> = {
@@ -60,13 +71,16 @@ export class TacticalView {
   private readonly tmp = new Matrix4();
   private readonly col = new Color();
   private readonly lights: Group = new Group();
+  private readonly sky = new HemisphereLight(0x8fa6c8, 0x1a1712, 1.1);
+  /** The moon at night, the sun by day. */
+  private readonly sun = new DirectionalLight(0xb8c8ff, 1.1);
+  private fogLevels = FOG;
 
   constructor(scene: Scene) {
     scene.add(this.root);
-    scene.add(new HemisphereLight(0x8fa6c8, 0x1a1712, 1.1));
-    const moon = new DirectionalLight(0xb8c8ff, 1.1);
-    moon.position.set(-6, 12, 4);
-    scene.add(moon);
+    scene.add(this.sky);
+    this.sun.position.set(-6, 12, 4);
+    scene.add(this.sun);
 
     this.selRing = new Mesh(new RingGeometry(0.36, 0.46, 24), new MeshBasicMaterial({ color: 0xe8a93b }));
     this.selRing.rotation.x = -Math.PI / 2;
@@ -100,9 +114,22 @@ export class TacticalView {
     return this.map.inside(p.x, p.y) ? p : null;
   }
 
-  /** Builds the static scenery. Call once per battle. */
-  build(map: TacMap, style: CityStyle, lamps: Point[]): void {
+  /**
+   * Builds the static scenery in the fight's light. Call once per battle.
+   * Returns the colour to clear the screen to, or "" for the usual night void.
+   */
+  build(map: TacMap, style: CityStyle, lamps: Point[], light: Daylight = "night"): string {
     this.map = map;
+    const sky = SKY[light];
+    this.sky.color.set(sky.sky);
+    this.sky.groundColor.set(sky.ground);
+    this.sky.intensity = sky.ambient;
+    this.sun.color.set(sky.sun);
+    this.sun.intensity = sky.strength;
+    this.sun.position.set(...sky.from);
+    // By day the street lights are off and nobody has a lamp on.
+    const dark = light !== "day";
+    this.fogLevels = dark ? FOG : DAY_FOG;
     for (const t of this.things) {
       this.root.remove(t.mesh);
       t.mesh.dispose();
@@ -135,7 +162,7 @@ export class TacticalView {
       const c = ground[map.ground[i]].clone();
       // A little noise so the ground isn't flat colour; road markings down the middle.
       c.offsetHSL(0, 0, ((p.x * 7 + p.y * 13) % 5) * 0.004);
-      if (map.lit[i]) c.lerp(new Color("#d8b070"), 0.12);
+      if (dark && map.lit[i]) c.lerp(new Color("#d8b070"), 0.12);
       this.floorBase.push(c);
     }
     this.root.add(this.floor);
@@ -157,7 +184,7 @@ export class TacticalView {
       if (t === "wall") add("wall", () => new BoxGeometry(1, WALL_H, 1), WALL_H / 2, i, wall.clone().offsetHSL(0, 0, ((i * 31) % 3) * 0.01));
       else if (t === "window") {
         add("sill", () => new BoxGeometry(1, 0.55, 1), 0.275, i, wall.clone());
-        add("glass", () => new BoxGeometry(0.9, WALL_H - 0.55, 0.25), 0.55 + (WALL_H - 0.55) / 2, i, map.lit[i] ? new Color("#d8c08a") : glass.clone());
+        add("glass", () => new BoxGeometry(0.9, WALL_H - 0.55, 0.25), 0.55 + (WALL_H - 0.55) / 2, i, dark && map.lit[i] ? new Color("#d8c08a") : glass.clone());
         add("lintel", () => new BoxGeometry(1, 0.12, 1), WALL_H - 0.06, i, wall.clone());
       } else if (t === "door") add("door", () => new BoxGeometry(0.9, WALL_H * 0.9, 0.9), (WALL_H * 0.9) / 2, i, door.clone());
       else if (t === "open") add("open", () => new BoxGeometry(1, 0.06, 1), 0.03, i, door.clone().multiplyScalar(0.7));
@@ -204,18 +231,22 @@ export class TacticalView {
       this.world(l, 0, g.position);
       const p = new Mesh(post, postMat);
       p.position.y = 1.1;
-      const h = new Mesh(head, headMat);
+      const h = new Mesh(head, dark ? headMat : postMat);
       h.position.y = 2.25;
-      const pl = new Mesh(pool, poolMat);
-      pl.position.y = 0.06;
-      g.add(p, h, pl);
+      g.add(p, h);
+      if (dark) {
+        const pl = new Mesh(pool, poolMat);
+        pl.position.y = 0.06;
+        g.add(pl);
+      }
       this.lights.add(g);
     }
+    return sky.clear;
   }
 
   /** Recolours everything for what your people can see now. */
   fog(b: Battle): void {
-    const level = (i: number) => FOG[b.visible[i] ? 2 : b.seen[i] ? 1 : 0];
+    const level = (i: number) => this.fogLevels[b.visible[i] ? 2 : b.seen[i] ? 1 : 0];
     for (let i = 0; i < this.floorBase.length; i++) this.floor.setColorAt(i, this.col.copy(this.floorBase[i]).multiplyScalar(level(i)));
     this.floor.instanceColor!.needsUpdate = true;
     for (const t of this.things) {

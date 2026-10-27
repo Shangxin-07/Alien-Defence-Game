@@ -54,3 +54,21 @@ export function lightingAt(site: LatLon, utcMs: number): Lighting {
   if (e > 0) return "day";
   return e > -12 ? "twilight" : "night";
 }
+
+/** The light a fight is fought in, from the sun at the place and time it starts. */
+export type Daylight = "day" | "dusk" | "dawn" | "night";
+
+/** Day, night, or the grey hour either side: dusk while the sun is going down, dawn while it's coming up. */
+export function daylightAt(site: LatLon, utcMs: number): Daylight {
+  const light = lightingAt(site, utcMs);
+  if (light !== "twilight") return light;
+  return sunElevation(site, utcMs + 600_000) > sunElevation(site, utcMs) ? "dawn" : "dusk";
+}
+
+/** Local solar time at a longitude, as "HH:MM": noon is when the sun is highest. */
+export function solarTime(lon: number, utcMs: number): string {
+  const d = new Date(utcMs);
+  const hours = d.getUTCHours() + d.getUTCMinutes() / 60 + lon / 15;
+  const m = Math.floor((((hours % 24) + 24) % 24) * 60);
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}

@@ -6,7 +6,7 @@ import { Battle, Outcome, Unit, alive, conscious } from "./battle";
 import { CITY_STYLES, CityStyle, buildCity } from "./cityMap";
 import { Point, facingTo } from "./map";
 import { hashText, mulberry32 } from "./random";
-import { Stats, TOOLS, Tool, WEAPONS, Weapon } from "./rules";
+import { Daylight, Stats, TOOLS, Tool, WEAPONS, Weapon } from "./rules";
 
 /**
  * The opening of the game: one night, one city, one alien hunting a handful of people
@@ -21,6 +21,10 @@ export interface Prologue {
   battle: Battle;
   lights: Point[];
   seed: number;
+  /** The light it's fought in: the sun where and when it started. The prologue is always the small hours. */
+  light: Daylight;
+  /** Local solar time it started, as "HH:MM". */
+  clock: string;
 }
 
 /** A smaller fight later on: the words around it and what it pays. */
@@ -245,13 +249,31 @@ export function startPrologue(city: City, seed: number): Prologue {
   units.push(alienUnit(99, "Hunter", HUNTER, a, facingTo(a, field.humanStart[0]), WEAPONS.plasmaPistol, mind));
   // It knows roughly where you went to ground.
   const battle = new Battle(field.map, units, s, field.humanStart[0]);
-  return { city, biome, style, battle, lights: field.lights, seed };
+  return { city, biome, style, battle, lights: field.lights, seed, light: "night", clock: "02:10" };
 }
 
 /**
  * A scavenging run gone wrong: the team on the run, cornered by a lone alien in a city block.
  * Everyone carries what their old job gave them; anyone else has a pistol.
  */
+/** When it happens, for the briefing. */
+const WHEN: Record<Daylight, string> = { day: "broad daylight", dusk: "dusk", dawn: "first light", night: "after dark" };
+/** What gave it away. */
+const TELL: Record<Daylight, string> = {
+  day: "the street went quiet: no traffic, no birds, nobody at the windows",
+  dusk: "the street lights flickered on, and then went out down the street",
+  dawn: "the street lights went off for the morning, and something moved where the dark had been",
+  night: "the lights went out down the street",
+};
+const ARRIVED: Record<Daylight, string> = { day: "in full daylight", dusk: "as the light was going", dawn: "as the sky was greying", night: "in the dark" };
+
+/** What the light means for the fight, one line for the briefing. */
+export function lightRead(light: Daylight): string {
+  if (light === "day") return "Daylight: you see as far as they do, 20 tiles. So do they, and there's no dark to hide in.";
+  if (light === "night") return "Night: you see 9 tiles in the dark, further under street lights. They see 20. Firing gives you away.";
+  return `${light === "dusk" ? "Dusk" : "Dawn"}: you see 14 tiles in the grey, further under street lights. They see 20. Firing gives you away.`;
+}
+
 /** A sighting being answered, for the briefing: who called, where, and how long the team took. */
 export interface SightingBrief {
   caller: string;
@@ -263,7 +285,17 @@ export interface SightingBrief {
  * A small fight against one alien: a scavenging run that met it by accident, or, with `sighting`,
  * a team that answered a call and found it still there.
  */
-export function startAmbush(city: City, seed: number, team: Scavenger[], place: string, sighting?: SightingBrief, knowledge = 0, learned?: Habits): Prologue {
+export function startAmbush(
+  city: City,
+  seed: number,
+  team: Scavenger[],
+  place: string,
+  sighting?: SightingBrief,
+  knowledge = 0,
+  learned?: Habits,
+  light: Daylight = "night",
+  clock = "",
+): Prologue {
   const biome = biomeAt(city.lat, city.lon);
   const style = CITY_STYLES[biome];
   const s = (seed ^ hashText(city.name + place)) >>> 0;
@@ -307,13 +339,13 @@ export function startAmbush(city: City, seed: number, team: Scavenger[], place: 
     units.push(alienUnit(ALIEN_ID + i, name, stats, at, facingTo(at, field.humanStart[0]), race.weapon, m));
   });
   const many = force.squad.members.length > 1;
-  const battle = new Battle(field.map, units, s, field.humanStart[0]);
+  const battle = new Battle(field.map, units, s, field.humanStart[0], light);
   const names = units.filter((u) => u.side === "human").map((u) => u.name);
   const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
   const mission: Mission = {
     title: `Ambush: ${city.name}`,
     intro: [
-      `${city.name}, after dark. ${who} ${names.length === 1 ? "was" : "were"} working the ${place.toLowerCase()} when the lights went out down the street.`,
+      `${city.name}, ${WHEN[light]}${clock ? ` (${clock} local)` : ""}. ${who} ${names.length === 1 ? "was" : "were"} working the ${place.toLowerCase()} when ${TELL[light]}.`,
       `Something is out there, alone, and it has heard you. You can fight it, knock it out and bring it home, or slip away with whatever you can carry.`,
     ],
     reads: [...readSquad(force.squad, knowledge), ...adaptReads(learned)],
@@ -331,11 +363,11 @@ export function startAmbush(city: City, seed: number, team: Scavenger[], place: 
     mission.title = `Sighting: ${city.name}`;
     mission.intro = many
       ? [
-          `${sighting.caller} called it in: something ${sighting.place}. ${who} got there ${took} after it was seen, and they're still here. It wasn't alone.`,
+          `${sighting.caller} called it in: something ${sighting.place}. ${who} got there ${took} after it was seen, ${ARRIVED[light]}${clock ? ` (${clock} local)` : ""}, and they're still here. It wasn't alone.`,
           `They don't know you've come. Kill them, knock them out and bring them home, or pull back before they see you.`,
         ]
       : [
-          `${sighting.caller} called it in: something ${sighting.place}. ${who} got there ${took} after it was seen, and it's still here.`,
+          `${sighting.caller} called it in: something ${sighting.place}. ${who} got there ${took} after it was seen, ${ARRIVED[light]}${clock ? ` (${clock} local)` : ""}, and it's still here.`,
           `It's alone and it doesn't know you've come. Kill it, knock it out and bring it home, or pull back before it sees you.`,
         ];
     mission.outcomes.captured.text = many
@@ -346,7 +378,7 @@ export function startAmbush(city: City, seed: number, team: Scavenger[], place: 
       : { title: "It's dead", text: "It's dead. You strip what you can off its kit and take the body home." };
     mission.outcomes.fled = { title: "You pulled back", text: `You got clear. ${many ? "They're" : "It's"} gone again, and so is the chance.` };
   }
-  return { mission, city, biome, style, battle, lights: field.lights, seed };
+  return { mission, city, biome, style, battle, lights: field.lights, seed, light, clock };
 }
 
 /** Name colour for a unit on the map. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { latLonToVector, lightingAt, subsolarPoint, sunElevation, vectorToLatLon, formatLatLon } from "../src/geoscape/geo";
+import { daylightAt, latLonToVector, lightingAt, solarTime, subsolarPoint, sunElevation, vectorToLatLon, formatLatLon } from "../src/geoscape/geo";
 import { GameClock, formatClock } from "../src/geoscape/clock";
 
 describe("lat/lon conversion", () => {
@@ -53,5 +53,27 @@ describe("game clock", () => {
     const c = new GameClock(0, 0);
     c.tick(10);
     expect(c.time).toBe(0);
+  });
+});
+
+describe("battle light", () => {
+  const equator = { lat: 0, lon: 0 };
+  const at = (h: number, m = 0) => Date.UTC(2031, 2, 20, h, m);
+
+  it("is day at noon and night at midnight", () => {
+    expect(daylightAt(equator, at(12))).toBe("day");
+    expect(daylightAt(equator, at(0))).toBe("night");
+  });
+
+  it("tells dusk from dawn by which way the sun is going", () => {
+    expect(daylightAt(equator, at(18, 20))).toBe("dusk");
+    expect(daylightAt(equator, at(5, 40))).toBe("dawn");
+  });
+
+  it("follows the place, not the clock in Greenwich", () => {
+    // Noon UTC is midnight on the other side of the world.
+    expect(daylightAt({ lat: 0, lon: 180 }, at(12))).toBe("night");
+    expect(solarTime(180, at(12))).toBe("00:00");
+    expect(solarTime(-90, at(12, 30))).toBe("06:30");
   });
 });
