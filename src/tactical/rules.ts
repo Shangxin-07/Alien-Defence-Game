@@ -1,3 +1,5 @@
+import type { Daylight } from "../geoscape/geo";
+
 /**
  * Soldiers, weapons and the numbers behind every action, in the spirit of the original:
  * everything costs time units, and how well a unit does something comes from its stats.
@@ -137,6 +139,15 @@ export const KNEEL_BONUS = 1.15;
 /** How far eyes reach, in tiles. People at night see little beyond the street lights. */
 export const SIGHT_DAY = 20;
 export const SIGHT_NIGHT = 9;
+/** Dusk and dawn: grey light, long shadows. */
+export const SIGHT_TWILIGHT = 14;
+
+export type { Daylight };
+
+/** How far your people see in the open, away from street lights. Aliens see SIGHT_DAY whatever the hour. */
+export function humanSight(light: Daylight): number {
+  return light === "day" ? SIGHT_DAY : light === "night" ? SIGHT_NIGHT : SIGHT_TWILIGHT;
+}
 /** Half-width of the field of view, in degrees. */
 export const HUMAN_FOV = 45;
 export const ALIEN_FOV = 60;

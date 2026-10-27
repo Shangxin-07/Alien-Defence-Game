@@ -2,6 +2,7 @@
  * Plays autoplay doctrines out with nobody watching, to see how they do and how much the aliens'
  * learning hurts a squad that always fights the same way.
  * Run: npx vite-node scripts/sim-autoplay.ts [seeds]
+ * LIGHT=day|dusk|dawn|night sets the light the fights are fought in (night by default).
  */
 import { CITIES } from "../src/geoscape/cities";
 import { Habit, Habits, noHabits, observe } from "../src/tactical/adapt";
@@ -9,6 +10,7 @@ import { Doctrine, playOut } from "../src/tactical/autoplay";
 import { alive } from "../src/tactical/battle";
 import { Scavenger, prologueCity, startAmbush, startPrologue } from "../src/tactical/prologue";
 import { mulberry32 } from "../src/tactical/random";
+import { Daylight } from "../src/tactical/rules";
 
 const seeds = Number(process.argv[2] ?? 100);
 const doctrines: Doctrine[] = ["cautious", "aggressive", "capture"];
@@ -40,10 +42,11 @@ for (const d of doctrines) scenarios.push({ label: `they know you ${d}`, sightin
 scenarios.push({ label: "know holding, go aggressive", sighting: true, d: "aggressive", learned: { ...noHabits(), holding: LEVEL } });
 scenarios.push({ label: "know pushing, go cautious", sighting: true, d: "cautious", learned: { ...noHabits(), pushing: LEVEL } });
 const only = process.env.ONLY;
+const light = (process.env.LIGHT ?? "night") as Daylight;
 for (const sc of scenarios.filter((x) => !only || new RegExp(only).test(x.label))) {
   const r = row();
   for (let s = 1; s <= seeds; s++) {
-    const b = startAmbush(CITIES[s % CITIES.length], s, team(s), "Supermarket", sc.sighting ? { caller: "x", place: "here", hours: 1 } : undefined, 0, sc.learned).battle;
+    const b = startAmbush(CITIES[s % CITIES.length], s, team(s), "Supermarket", sc.sighting ? { caller: "x", place: "here", hours: 1 } : undefined, 0, sc.learned, light).battle;
     const start = b.humans.filter(alive).length;
     playOut(b, sc.d, mulberry32(s * 31));
     const lost = start - b.humans.filter(alive).length;

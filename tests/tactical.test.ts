@@ -120,6 +120,26 @@ describe("battle", () => {
     expect(b.canSee(h, { x: 20, y: 5 })).toBe(true);
   });
 
+  it("sees further as the light comes up", () => {
+    const range = (light: "day" | "dusk" | "dawn" | "night") => {
+      const m = new TacMap(30, 30);
+      const h = unit(1, "human", 2, 5, 2);
+      const b = new Battle(m, [h, unit(2, "alien", 25, 25)], 1, null, light);
+      let far = 0;
+      for (let x = 3; x < 30; x++) if (b.canSee(h, { x, y: 5 })) far = x - 2;
+      return far;
+    };
+    expect(range("night")).toBe(9);
+    expect(range("dusk")).toBe(14);
+    expect(range("dawn")).toBe(14);
+    expect(range("day")).toBe(20);
+  });
+
+  it("keeps the light when a fight is forked", () => {
+    const b = new Battle(new TacMap(30, 30), [unit(1, "human", 2, 5), unit(2, "alien", 25, 25)], 1, null, "day");
+    expect(b.fork(7).light).toBe("day");
+  });
+
   it("fires on reflex at an enemy that walks into view", () => {
     const m = openMap();
     const h = unit(1, "human", 2, 10, 2);
