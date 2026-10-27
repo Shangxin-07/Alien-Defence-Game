@@ -229,7 +229,44 @@
           <input id="routeDelay" type="range" min="1" max="7" step="1" />
           <span id="routeDelayValue">2 s</span>
         </label>
+        <div id="autoBox" class="autobox">
+          <div class="autorow">
+            <select id="doctrine" aria-label="Autoplay doctrine" title="How autoplay fights">
+              <option value="cautious">Cautious</option>
+              <option value="aggressive">Aggressive</option>
+              <option value="capture">Capture</option>
+            </select>
+            <button id="autoplay" type="button" title="Let your people fight in this style, a bit worse than you would">Autoplay</button>
+          </div>
+          <p id="autoNote" class="dim"></p>
+          <label class="check" title="Rewinding is off: you can only take over from where the fight is now. Can't be changed once autoplay has run in a fight.">
+            <input id="brutal" type="checkbox" /> No rewinds (brutal)
+          </label>
+          <button id="showTimeline" class="quiet" type="button">Timeline</button>
+        </div>
         <button id="abandon" class="quiet" type="button">Run for it</button>
+      </section>
+
+      <section class="hud autobar" id="autoBar" aria-label="Autoplay" hidden>
+        <span id="autoState">Autoplay</span>
+        <div class="autobtns">
+          <button id="autoSpeed" type="button" title="Playback speed. The fight runs a round ahead of what you see.">×1</button>
+          <button id="autoTimeline" type="button">Timeline</button>
+          <button id="autoSkip" type="button" title="Play the rest out without watching">Skip</button>
+          <button id="takeOver" class="go" type="button">Take over</button>
+        </div>
+      </section>
+
+      <section class="hud timeline" id="timelinePanel" aria-label="Timeline" hidden>
+        <div class="tlhead">
+          <h1>Timeline</h1>
+          <button id="closeTimeline" type="button">Close</button>
+        </div>
+        <p id="tlNote" class="dim"></p>
+        <p class="tllegend dim"><span class="mk contact">◉</span> contact <span class="mk wound">●</span> hurt <span class="mk dead">✕</span> killed <span class="mk down">▲</span> alien down <span class="mk boss">★</span> commander <span class="mk panic">!</span> panic</p>
+        <ol id="tlRounds"></ol>
+        <div id="tlDetail" class="tldetail dim">Point at a round to see your people at its start.</div>
+        <button id="tlResults" class="go" type="button" hidden>Back to the results</button>
       </section>
 
       <section class="hud tr squad" aria-label="Squad">

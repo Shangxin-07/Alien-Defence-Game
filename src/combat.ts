@@ -1,8 +1,10 @@
 import "./tactical/tactical.css";
 import { Color, PerspectiveCamera, Plane, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
-import { Battle, BattleEvent, Outcome, Unit, alive, conscious } from "./tactical/battle";
+import { DOCTRINES, Doctrine, MAX_ROUNDS, REWIND_WINDOW, RISK_SPREAD, RoundRecord, Timeline, oddsText, playRound, simulate } from "./tactical/autoplay";
+import { Battle, BattleEvent, Outcome, Tally, Unit, alive, conscious } from "./tactical/battle";
 import { TacticalCamera } from "./tactical/camera";
 import { Point } from "./tactical/map";
+import { mulberry32 } from "./tactical/random";
 import { OUTCOME_TEXT, Prologue, SPOILS, battleSpoils, briefing, unitLook, unitShape } from "./tactical/prologue";
 import { FireMode, KNEEL_TU, STAND_TU, Stats, tuCost } from "./tactical/rules";
 import { TacticalView } from "./tactical/view";
@@ -14,6 +16,10 @@ export interface CombatResult {
   /** Who walked out, as they are now. */
   people: { id: number; name: string; role: string; stats: Stats; health: number }[];
   turns: number;
+  /** How your people fought, for the aliens to learn from. */
+  tally: Tally;
+  /** Whether the alien giving the orders went down. */
+  commanderDown: boolean;
 }
 
 /** What the combat screen needs from the game around it. */
@@ -25,6 +31,8 @@ export interface CombatHost {
   retry(): void;
   /** Straight to the geoscape from the briefing. */
   skip(): void;
+  /** How well your people know this enemy: the risk estimate is only as good as that. */
+  knowledge?: number;
 }
 
 type Mode = "move" | FireMode | "stun" | "heal" | "face";
@@ -55,6 +63,15 @@ let lastPointer: "mouse" | "touch" = "mouse";
 const queue: BattleEvent[] = [];
 let wait = 0;
 let playing = false;
+/** Every round so far, for taking command back. */
+let timeline = new Timeline();
+/** Autoplay, while it's running. */
+let auto: { doctrine: Doctrine } | null = null;
+/** Playback speed while watching autoplay. */
+let speed = 1;
+let autoRand = mulberry32(1);
+/** Bumped to cancel a risk estimate that's still being worked out. */
+let estimating = 0;
 
 const ray = new Raycaster();
 const ndc = new Vector2();
@@ -69,7 +86,7 @@ function pickTile(e: PointerEvent): Point | null {
 }
 
 const same = (a: Point | null, b: Point | null) => !!a && !!b && a.x === b.x && a.y === b.y;
-const busy = () => playing || !battle || !!battle.outcome || battle.side !== "human" || !$("combatModal").hidden;
+const busy = () => playing || !!auto || !battle || !!battle.outcome || battle.side !== "human" || !$("combatModal").hidden;
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const escape = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const visibleAlienAt = (p: Point) => {
@@ -161,6 +178,7 @@ function preview() {
 
 function defaultHint(): string {
   if (!battle) return "";
+  if (auto) return `<span class="dim">Autoplay is fighting ${DOCTRINES[auto.doctrine].name.toLowerCase()}ly. Take over, or open the timeline to take command from an earlier round.</span>`;
   if (battle.side !== "human") return `<span class="dim">Alien activity…</span>`;
   if (!selected) return `<span class="dim">Pick one of your people.</span>`;
   if (mode !== "move") return `<span class="dim">Pick a target. Esc or the same button cancels.</span>`;
@@ -340,7 +358,7 @@ function apply(e: BattleEvent): number {
 
 function pump(dt: number) {
   if (wait > 0) {
-    wait -= dt;
+    wait -= dt * (auto ? speed : 1);
     return;
   }
   while (queue.length) {
@@ -357,6 +375,7 @@ function settle() {
   const b = battle!;
   view.sync(b);
   if (b.outcome) return results(b.outcome);
+  if (auto) return autoRound();
   if (!selected || !conscious(selected)) {
     selected = null;
     nextUnit();
@@ -547,21 +566,35 @@ function brief(p: Prologue) {
 
 function results(o: Outcome) {
   const b = battle!;
+  auto = null;
+  timeline.played(b, b.turn, false);
+  refreshAuto();
   const m = host?.prologue.mission;
   const t = (m?.outcomes ?? OUTCOME_TEXT)[o];
   const survivors = b.humans.filter(alive);
-  const recovered = m?.countSpoils ? battleSpoils(b, o) : (m?.spoils ?? SPOILS)[o];
+  if (!settled) {
+    const all = m?.countSpoils ? battleSpoils(b, o) : (m?.spoils ?? SPOILS)[o];
+    // Autoplay doesn't search the dead as carefully as you would.
+    const share = timeline.autoRounds / Math.max(1, timeline.rounds.length);
+    const left = all.map((r) => r.includes("orpse") && Math.random() < LEFT_BEHIND * share);
+    settled = { recovered: all.filter((_, i) => !left[i]), lost: all.filter((_, i) => left[i]) };
+  }
+  const { recovered, lost } = settled;
   const people = survivors.map((u) => ({ id: u.id, name: u.name, role: u.role, stats: { ...u.stats }, health: Math.max(1, u.health) }));
-  const result: CombatResult = { outcome: o, recovered, survivors: survivors.length, turns: b.turn, people };
+  const commanderDown = b.aliens.some((a) => a.mind?.rank === "leader" && !conscious(a));
+  const result: CombatResult = { outcome: o, recovered, survivors: survivors.length, turns: b.turn, people, tally: { ...b.tally }, commanderDown };
   const won = o === "captured" || o === "killed";
+  const lookBack = rewindable() ? [{ label: "Look back", run: () => openTimeline() }] : [];
   const roll = b.humans.map((u) => `<li>${escape(u.name)} <span class="${alive(u) ? "dim" : "bad"}">${alive(u) ? `${u.health}/${u.stats.health} HP` : "killed"}</span></li>`).join("");
   if (m) {
     modal(
       t.title,
       `<p>${t.text}</p>
        ${recovered.length ? `<h2>Recovered</h2><ul class="spoillist">${tally(recovered).map((r) => `<li>${r}</li>`).join("")}</ul>` : ""}
-       <h2>The team</h2><ul class="squadlist">${roll}</ul>`,
-      [{ label: "Back to the geoscape", go: true, run: () => host?.finish(result) }],
+       ${lost.length ? `<p class="dim">Left behind in the confusion: ${tally(lost).join(", ").toLowerCase()}. Autoplay doesn't search the dead the way you would.</p>` : ""}
+       <h2>The team</h2><ul class="squadlist">${roll}</ul>
+       ${lookBack.length ? `<p class="dim">You can still look back over the timeline and take command from an earlier round. It costs more the further back you go.</p>` : ""}`,
+      [...lookBack, { label: "Back to the geoscape", go: true, run: () => host?.finish(result) }],
     );
     return;
   }
@@ -587,6 +620,314 @@ function tally(items: string[]): string[] {
   return [...n].map(([i, k]) => (k > 1 ? `${i} ×${k}` : i));
 }
 
+// ---------- Autoplay and the timeline ----------
+/** At most this share of the bodies is left behind in a fight autoplay played all of. */
+const LEFT_BEHIND = 0.3;
+/** Simulated fights behind the risk estimate. */
+const RISK_RUNS = 20;
+const BRUTAL_KEY = "alien-defence.brutal";
+const DOCTRINE_KEY = "alien-defence.doctrine";
+let brutal = false;
+try {
+  brutal = localStorage.getItem(BRUTAL_KEY) === "1";
+  const d = localStorage.getItem(DOCTRINE_KEY);
+  if (d && d in DOCTRINES) ($("doctrine") as HTMLSelectElement).value = d;
+} catch {
+  // Settings are a convenience only.
+}
+($("brutal") as HTMLInputElement).checked = brutal;
+/** What the end of the fight brought home, worked out once so looking back and returning can't re-roll it. */
+let settled: { recovered: string[]; lost: string[] } | null = null;
+
+const doctrine = () => ($("doctrine") as HTMLSelectElement).value as Doctrine;
+
+/** Whether any round can still be taken back. */
+function rewindable(): boolean {
+  const b = battle;
+  return !!b && timeline.rounds.some((r) => {
+    const p = timeline.price(b, r.round);
+    return !p.reason && p.undone > 0;
+  });
+}
+
+function refreshAuto() {
+  const b = battle;
+  if (!b) return;
+  $("autoBar").hidden = !auto;
+  if (auto) $("autoState").textContent = `Autoplay · ${DOCTRINES[auto.doctrine].name}`;
+  ($("autoSpeed") as HTMLButtonElement).textContent = `×${speed}`;
+  ($("takeOver") as HTMLButtonElement).disabled = !auto || !!b.outcome;
+  ($("autoSkip") as HTMLButtonElement).disabled = !auto || !!b.outcome;
+  const locked = timeline.locked(b);
+  ($("autoplay") as HTMLButtonElement).disabled = !!auto || playing || !!b.outcome || locked || b.side !== "human";
+  const left = timeline.lockedUntil - b.turn;
+  $("autoNote").textContent = locked
+    ? `You took command: play ${left === 1 ? "this round" : `${left} more rounds`} by hand before autoplay can take over again.`
+    : brutal
+      ? "Brutal: no rewinds. You can only take over from where the fight is now."
+      : "";
+  ($("brutal") as HTMLInputElement).disabled = timeline.autoRounds > 0;
+  renderTimeline();
+}
+
+/** Works out the odds from simulated fights, a few at a time so the screen stays alive, then offers the choice. */
+function startAutoplay() {
+  const b = battle;
+  if (!b || busy() || timeline.locked(b)) return;
+  const d = doctrine();
+  const token = ++estimating;
+  const n = { clean: 0, losses: 0, disaster: 0 };
+  const base = Math.floor(Math.random() * 2 ** 31);
+  let done = 0;
+  const title = `Autoplay: ${DOCTRINES[d].name}`;
+  modal(title, `<p>${DOCTRINES[d].blurb}</p><p class="dim" id="riskProgress">Your people are weighing it up…</p>`, [{ label: "Not now", run: () => estimating++ }]);
+  const step = () => {
+    if (token !== estimating || $("combatModal").hidden) return;
+    n[simulate(b, d, base + done * 7919)]++;
+    done++;
+    if (done < RISK_RUNS) {
+      const bar = document.getElementById("riskProgress");
+      if (bar) bar.textContent = `Your people are weighing it up… ${Math.round((done / RISK_RUNS) * 100)}%`;
+      window.setTimeout(step, 0);
+      return;
+    }
+    offer(d, { clean: n.clean / RISK_RUNS, losses: n.losses / RISK_RUNS, disaster: n.disaster / RISK_RUNS });
+  };
+  window.setTimeout(step, 30);
+}
+
+function offer(d: Doctrine, odds: { clean: number; losses: number; disaster: number }) {
+  const k = host?.knowledge ?? 0;
+  const spread = RISK_SPREAD[Math.min(3, Math.max(0, k))];
+  const sure =
+    k <= 0
+      ? "Nobody has fought these before. Treat it as a guess."
+      : k < 3
+        ? "They've met these before, but not often. Take it with a pinch of salt."
+        : "They know this enemy well.";
+  modal(
+    `Autoplay: ${DOCTRINES[d].name}`,
+    `<p>${DOCTRINES[d].blurb}</p>
+     <h2>What your people reckon</h2>
+     <dl class="risk">
+       <dt>Clean win</dt><dd class="good">${oddsText(odds.clean, spread)}</dd>
+       <dt>Someone lost, or no result</dt><dd>${oddsText(odds.losses, spread)}</dd>
+       <dt>Disaster</dt><dd class="bad">${oddsText(odds.disaster, spread)}</dd>
+     </dl>
+     <p class="dim">${sure} Autoplay fights a little worse than you would, and doesn't search the dead as carefully.</p>
+     <p class="dim">${
+       brutal
+         ? "Brutal mode: you can take over at any time, but only from where the fight is now."
+         : `You can take over at any time, or open the timeline and take command from any of the last ${REWIND_WINDOW} rounds it played. The dice are re-rolled, and you then play by hand for a while: longer the further back you go. Watching doesn't hold the fight back. It runs a round ahead of what you see.`
+     }</p>`,
+    [
+      { label: "Not now", run: () => {} },
+      { label: "Skip to the result", run: () => beginAuto(d, true) },
+      { label: "Watch", go: true, run: () => beginAuto(d, false) },
+    ],
+  );
+}
+
+function beginAuto(d: Doctrine, skip: boolean) {
+  if (!battle || battle.outcome || timeline.locked(battle)) return;
+  auto = { doctrine: d };
+  selected = null;
+  view.select(null);
+  view.showReach([]);
+  view.showPath([], true);
+  log(`Autoplay takes over: ${DOCTRINES[d].name.toLowerCase()}.`);
+  if (skip) return skipToEnd();
+  refreshHud();
+  autoRound();
+}
+
+/** Autoplay fights one round, and the screen plays it back. The fight is already a round ahead of what you see. */
+function autoRound() {
+  const b = battle!;
+  if (!auto) return;
+  if (b.outcome) return results(b.outcome);
+  const round = b.turn;
+  const events = round > MAX_ROUNDS ? b.abandon() : playRound(b, auto.doctrine, autoRand);
+  timeline.played(b, round, true);
+  refreshAuto();
+  hint(defaultHint());
+  act(events);
+}
+
+/** Plays the rest out without showing it. */
+function skipToEnd() {
+  const b = battle!;
+  queue.length = 0;
+  wait = 0;
+  playing = false;
+  while (auto && !b.outcome) {
+    const round = b.turn;
+    const events = round > MAX_ROUNDS ? b.abandon() : playRound(b, auto.doctrine, autoRand);
+    timeline.played(b, round, true);
+    for (const e of events) if (e.kind === "say") log(e.text, e.tone);
+  }
+  rebuildView();
+  results(b.outcome!);
+}
+
+/** Throws the scene away and builds it again from the battle, for after a jump in time. */
+function rebuildView() {
+  const b = battle!;
+  const p = host!.prologue;
+  view.clearUnits();
+  view.build(b.map, p.style, p.lights);
+  for (const u of b.units) view.addUnit(u, unitLook(u), unitShape(u));
+  view.sync(b);
+  $("turnNo").textContent = String(b.turn);
+}
+
+/** Stops autoplay where the fight is now. You play this round by hand. */
+function takeOver() {
+  const b = battle;
+  if (!b || !auto || b.outcome) return;
+  timeline.rewind(b, b.turn, 0);
+  auto = null;
+  log(`You take over from round ${b.turn}.`);
+  refreshAuto();
+  if (!playing) settle();
+}
+
+/** Takes command from the start of an earlier round: new dice, and a stretch of playing by hand. */
+function rewindTo(round: number) {
+  const b = battle;
+  if (!b) return;
+  const p = timeline.price(b, round);
+  if (p.reason) return toast(p.reason, true);
+  if (p.undone === 0) return takeOver();
+  auto = null;
+  queue.length = 0;
+  playing = false;
+  wait = 0;
+  estimating++;
+  settled = null;
+  $("combatModal").hidden = true;
+  timeline.rewind(b, round, Math.floor(Math.random() * 2 ** 31));
+  $("timelinePanel").hidden = true;
+  rebuildView();
+  $("combatLog").replaceChildren();
+  log(`You take command from round ${round}. Play ${p.lockout === 1 ? "this round" : `${p.lockout} rounds`} by hand.`, "bad");
+  if (p.morale) log(`"Make your mind up." Everyone loses ${p.morale} morale.`, "bad");
+  banner(`Turn ${b.turn}`);
+  selected = null;
+  nextUnit();
+  refreshAuto();
+  preview();
+}
+
+function openTimeline() {
+  if (!battle) return;
+  if (battle.outcome) $("combatModal").hidden = true;
+  $("timelinePanel").hidden = false;
+  $("tlResults").hidden = !battle.outcome;
+  renderTimeline(true);
+}
+
+function closeTimeline() {
+  $("timelinePanel").hidden = true;
+  if (battle?.outcome && !playing) results(battle.outcome);
+}
+
+const marksHtml = (m: RoundRecord["marks"]) => {
+  if (!m) return "";
+  const out: string[] = [];
+  const mk = (cls: string, sym: string, title: string, n = 1) => out.push(`<span class="mk ${cls}" title="${escape(title)}">${sym.repeat(Math.min(n, 4))}</span>`);
+  if (m.contact) mk("contact", "◉", "First contact");
+  if (m.wounded.length) mk("wound", "●", `Hurt: ${m.wounded.join(", ")}`, m.wounded.length);
+  if (m.killed.length) mk("dead", "✕", `Killed: ${m.killed.join(", ")}`, m.killed.length);
+  if (m.aliensDown) mk("down", "▲", `${m.aliensDown} alien${m.aliensDown > 1 ? "s" : ""} down`, m.aliensDown);
+  if (m.commanderDown) mk("boss", "★", "Their commander went down");
+  if (m.panics) mk("panic", "!", `${m.panics} panicked`, m.panics);
+  return out.join(" ") || `<span class="dim">quiet</span>`;
+};
+
+function renderTimeline(scroll = false) {
+  const b = battle;
+  if (!b || $("timelinePanel").hidden) return;
+  $("tlNote").textContent = brutal
+    ? "Brutal mode: no rewinds. You can only take over from where the fight is now."
+    : `Take command from the start of any of the last ${REWIND_WINDOW} rounds autoplay played. The dice are re-rolled, and the price grows with how far back that is from where the fight has got to, which is a round ahead of what you're watching. Rounds you played by hand (✋) can't be taken back.`;
+  const ol = $("tlRounds");
+  const atEnd = ol.parentElement!.scrollTop + ol.parentElement!.clientHeight >= ol.parentElement!.scrollHeight - 8;
+  ol.replaceChildren();
+  for (const r of timeline.rounds) {
+    const p = timeline.price(b, r.round);
+    const now = p.undone === 0;
+    const li = document.createElement("li");
+    li.tabIndex = 0;
+    li.className = [r.marks && !r.auto ? "hand" : "", p.reason ? "out" : "", now ? "free" : ""].filter(Boolean).join(" ");
+    const price = now
+      ? auto
+        ? "Take over now: play this round by hand"
+        : "Being played now"
+      : p.reason ?? `Play ${p.lockout} rounds by hand${p.morale ? ` · −${p.morale} morale` : ""}`;
+    li.innerHTML = `<span class="rn">R${r.round}</span><span class="marks">${now && !r.marks ? `<span class="dim">…</span>` : marksHtml(r.marks)}</span><span class="price">${escape(price)}</span>`;
+    const can = now ? !!auto && !b.outcome : !p.reason;
+    if (can) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = now ? "Take over" : "Take command";
+      if (now) btn.className = "go";
+      btn.addEventListener("click", () => rewindTo(r.round));
+      li.appendChild(btn);
+    }
+    const show = () => {
+      for (const o of ol.children) o.classList.toggle("on", o === li);
+      detail(r);
+    };
+    li.addEventListener("pointerenter", show);
+    li.addEventListener("focus", show);
+    ol.appendChild(li);
+  }
+  if (scroll || atEnd) ol.parentElement!.scrollTop = ol.parentElement!.scrollHeight;
+}
+
+/** Your people at the start of a round, next to how they are now. */
+function detail(r: RoundRecord) {
+  const b = battle!;
+  const line = (u: Unit) => `<li>${escape(u.name)} <span class="${alive(u) ? "dim" : "bad"}">${alive(u) ? `${u.health}/${u.stats.health}${u.wounds ? ", bleeding" : ""}` : "killed"}</span></li>`;
+  const down = (units: Unit[]) => units.filter((u) => u.side === "alien" && !conscious(u)).length;
+  $("tlDetail").innerHTML = `<b>Start of round ${r.round}</b> <span class="dim">${down(r.start.units)} alien${down(r.start.units) === 1 ? "" : "s"} down</span>
+    <ul>${r.start.units.filter((u) => u.side === "human").map(line).join("")}</ul>
+    <b>${b.outcome ? "How it ended" : "Now"}</b> <span class="dim">${down(b.units)} alien${down(b.units) === 1 ? "" : "s"} down</span>
+    <ul>${b.humans.map(line).join("")}</ul>`;
+}
+
+$("autoplay").addEventListener("click", startAutoplay);
+$("doctrine").addEventListener("change", () => {
+  if (auto) auto.doctrine = doctrine();
+  try {
+    localStorage.setItem(DOCTRINE_KEY, doctrine());
+  } catch {
+    // Not saved; fine.
+  }
+  refreshAuto();
+});
+$("brutal").addEventListener("change", () => {
+  brutal = ($("brutal") as HTMLInputElement).checked;
+  if (!timeline.autoRounds) timeline.brutal = brutal;
+  try {
+    localStorage.setItem(BRUTAL_KEY, brutal ? "1" : "0");
+  } catch {
+    // Not saved; fine.
+  }
+  refreshAuto();
+});
+$("autoSpeed").addEventListener("click", () => {
+  speed = speed >= 4 ? 1 : speed * 2;
+  refreshAuto();
+});
+$("takeOver").addEventListener("click", takeOver);
+$("autoSkip").addEventListener("click", () => auto && skipToEnd());
+$("showTimeline").addEventListener("click", openTimeline);
+$("autoTimeline").addEventListener("click", openTimeline);
+$("closeTimeline").addEventListener("click", closeTimeline);
+$("tlResults").addEventListener("click", closeTimeline);
+
 // ---------- Buttons and keys ----------
 for (const btn of $("actions").querySelectorAll<HTMLButtonElement>("button[data-mode]")) {
   btn.addEventListener("click", () => !busy() && setMode(btn.dataset.mode as Mode));
@@ -596,7 +937,10 @@ $("nextUnit").addEventListener("click", () => !busy() && nextUnit());
 $("endTurn").addEventListener("click", () => {
   if (busy()) return;
   mode = "move";
+  const round = battle!.turn;
   act(battle!.endTurn());
+  timeline.played(battle!, round, false);
+  refreshAuto();
 });
 $("camLeft").addEventListener("click", () => cam.turn(-45));
 $("camRight").addEventListener("click", () => cam.turn(45));
@@ -685,6 +1029,16 @@ export function openCombat(h: CombatHost): void {
   queue.length = 0;
   playing = false;
   wait = 0;
+  auto = null;
+  estimating++;
+  settled = null;
+  timeline = new Timeline(brutal);
+  timeline.begin(battle);
+  autoRand = mulberry32(h.prologue.seed ^ 0xa070);
+  $("timelinePanel").hidden = true;
+  // The first night is played by hand.
+  $("autoBox").hidden = !h.prologue.mission;
+  refreshAuto();
   $("combatLog").replaceChildren();
   $("missionPlace").textContent = `${h.prologue.city.name} · ${h.prologue.mission ? "ambush" : "night"}`;
   const several = battle.aliens.length > 1;
@@ -712,6 +1066,8 @@ export function openCombat(h: CombatHost): void {
 
 export function closeCombat(): void {
   root.hidden = true;
+  auto = null;
+  estimating++;
   host = null;
   battle = null;
 }

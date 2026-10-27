@@ -58,6 +58,17 @@ export class TacMap {
     this.building = new Int16Array(n).fill(-1);
   }
 
+  /** A copy with its own doors to open. */
+  clone(): TacMap {
+    const m = new TacMap(this.w, this.h);
+    this.ground.forEach((g, i) => (m.ground[i] = g));
+    this.thing.forEach((t, i) => (m.thing[i] = t));
+    this.look.forEach((l, i) => (m.look[i] = l));
+    m.lit.set(this.lit);
+    m.building.set(this.building);
+    return m;
+  }
+
   idx(x: number, y: number): number {
     return y * this.w + x;
   }

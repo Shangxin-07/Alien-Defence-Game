@@ -16,8 +16,9 @@ import {
   carName, freshness, rollCall, travelHours, tripFuel,
 } from "./sightings";
 import { LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, workPace } from "./staff";
+import { Habits, adaptNews, learn, noHabits, observe } from "./tactical/adapt";
 import type { RaceId } from "./tactical/aliens";
-import type { Outcome } from "./tactical/battle";
+import type { Outcome, Tally } from "./tactical/battle";
 
 export const DAY_MS = 86_400_000;
 /** Nobody is paying you yet: the opening is built by hand. */
@@ -85,6 +86,10 @@ export interface AmbushResult {
   race?: RaceId;
   /** Survivors by person id, with what health they have left. */
   people: { id: number; health: number }[];
+  /** How your people fought, for the aliens to learn from. */
+  tally?: Tally;
+  /** Whether the one giving the orders went down: a race learns less from a fight it lost its commander in. */
+  commanderDown?: boolean;
 }
 
 /** What a run brings home from a fight that went each way, beyond its finds. */
@@ -109,6 +114,7 @@ interface SavedCampaign {
   pledges?: Pledge[];
   kills?: number;
   encounters?: Partial<Record<RaceId, number>>;
+  learned?: Partial<Record<RaceId, Habits>>;
   nextCandidate?: number;
   market?: Record<Traded, number>;
   calls?: Call[];
@@ -184,6 +190,8 @@ export class Campaign {
   kills = 0;
   /** Fights fought against each race. Experience is how your people learn to read them. */
   encounters: Partial<Record<RaceId, number>> = {};
+  /** What each race has learned about how you fight. */
+  learned: Partial<Record<RaceId, Habits>> = {};
   /** How far each black-market price has been pushed up: 1 is the going rate. */
   market: Record<Traded, number> = { food: 1, medicine: 1, fuel: 1 };
   /** Days each hydroponic farm has been running, by "base:uid". */
@@ -527,6 +535,7 @@ export class Campaign {
     for (const item of items) if (!this.trophies.includes(item)) this.trophies.push(item);
     this.kills += items.length;
     if (result.race) this.encounters[result.race] = (this.encounters[result.race] ?? 0) + 1;
+    if (result.race && result.tally) this.learnFrom(result.race, result.tally, result.outcome, !!result.commanderDown);
     if (items.some((i) => i.includes("ommander"))) this.news.push("You brought down one of their leaders");
     if (items.length && run.call) {
       run.loot.scrap += SIGHTING_SCRAP;
@@ -545,6 +554,18 @@ export class Campaign {
   knowledge(race: RaceId): number {
     const leaders = ["commanderAutopsy", "commanderInterrogation"].some((id) => this.research.done.includes(id));
     return (this.encounters[race] ?? 0) + (race === "strider" && this.prologue && prologueWon(this.prologue) ? 1 : 0) + (leaders ? 2 : 0);
+  }
+
+  /**
+   * The aliens learn from a fight how you fought it. Any that got away spread it faster; losing
+   * their commander, or your having worked out how their leaders think, slows it down.
+   */
+  learnFrom(race: RaceId, tally: Tally, outcome: Outcome, commanderDown: boolean): void {
+    const before = this.learned[race] ?? noHabits();
+    const researched = ["commanderAutopsy", "commanderInterrogation"].some((id) => this.research.done.includes(id));
+    const after = learn(before, observe(tally), { escaped: outcome === "fled" || outcome === "wiped", commanderDown, researched });
+    this.learned[race] = after;
+    this.news.push(...adaptNews(race, before, after));
   }
 
   /** Run for it instead of fighting: drop everything, and maybe get hurt getting away. */
@@ -901,6 +922,7 @@ export class Campaign {
       pledges: this.pledges,
       kills: this.kills,
       encounters: this.encounters,
+      learned: this.learned,
       nextCandidate: this.nextCandidate,
       market: this.market,
       calls: this.calls,
@@ -932,6 +954,7 @@ export class Campaign {
     if (data.pledges) c.pledges.push(...data.pledges);
     c.kills = data.kills ?? 0;
     c.encounters = { ...data.encounters };
+    c.learned = { ...data.learned };
     c.nextCandidate = data.nextCandidate ?? 1;
     if (data.calls) c.calls.push(...data.calls);
     if (data.vehicles) c.vehicles.push(...data.vehicles);

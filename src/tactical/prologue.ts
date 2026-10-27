@@ -1,5 +1,6 @@
 import { BIOMES, BiomeId, biomeAt } from "../geoscape/biomes";
 import { CITIES, City } from "../geoscape/cities";
+import { Habits, adaptReads, adaptSquad } from "./adapt";
 import { AlienMind, Personality, RACES, RaceId, Squad, alienName, alienStats, readSquad, rollSquad } from "./aliens";
 import { Battle, Outcome, Unit, alive, conscious } from "./battle";
 import { CITY_STYLES, CityStyle, buildCity } from "./cityMap";
@@ -262,7 +263,7 @@ export interface SightingBrief {
  * A small fight against one alien: a scavenging run that met it by accident, or, with `sighting`,
  * a team that answered a call and found it still there.
  */
-export function startAmbush(city: City, seed: number, team: Scavenger[], place: string, sighting?: SightingBrief, knowledge = 0): Prologue {
+export function startAmbush(city: City, seed: number, team: Scavenger[], place: string, sighting?: SightingBrief, knowledge = 0, learned?: Habits): Prologue {
   const biome = biomeAt(city.lat, city.lon);
   const style = CITY_STYLES[biome];
   const s = (seed ^ hashText(city.name + place)) >>> 0;
@@ -295,6 +296,8 @@ export function startAmbush(city: City, seed: number, team: Scavenger[], place: 
     };
   });
   const force = rollForce(seed, !!sighting);
+  // What their race has learned about you shapes the squad before it's placed.
+  adaptSquad(force.squad, learned);
   const race = RACES[force.race];
   const spots = squadSpots(field.map, field.alienStart, force.squad.members.length);
   force.squad.members.forEach((m, i) => {
@@ -313,7 +316,7 @@ export function startAmbush(city: City, seed: number, team: Scavenger[], place: 
       `${city.name}, after dark. ${who} ${names.length === 1 ? "was" : "were"} working the ${place.toLowerCase()} when the lights went out down the street.`,
       `Something is out there, alone, and it has heard you. You can fight it, knock it out and bring it home, or slip away with whatever you can carry.`,
     ],
-    reads: readSquad(force.squad, knowledge),
+    reads: [...readSquad(force.squad, knowledge), ...adaptReads(learned)],
     countSpoils: true,
     outcomes: {
       captured: { title: "Taken alive", text: "It's down and breathing. You drag it home with the supplies. Keep it somewhere it can't get out of." },

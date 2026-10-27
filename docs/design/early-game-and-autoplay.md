@@ -335,3 +335,83 @@ The squads are tuned to be brutal. These are from simulation, with a team of fou
 You can always pull back from a sighting before the fight. The briefing tells you as much as your people know.
 
 Not built yet: commander kills slowing how fast a race learns your tactics (that waits for step 6), and mixed-race squads.
+
+## Step 6 as built
+
+Autoplay with doctrines, the rewind timeline and adaptive aliens, first cut. All numbers are placeholders. Food is untouched. Autoplay is offered in every fight after the prologue; the first night is still played by hand.
+
+### Doctrines
+
+Pick one in the mission panel, then **Autoplay**. Your people fight in that style:
+
+| Doctrine | How it plays |
+|---|---|
+| **Cautious** | Holds where it is once it knows where they are, keeps to cover, kneels to aim, keeps a snap shot back for reflex fire, and only takes shots of 25% or better. Moves up half a turn at a time, together, and nobody strays more than 4 tiles from the group. |
+| **Aggressive** | Pushes toward the nearest known alien, spends everything, and takes shots of 15% or better. |
+| **Capture** | Holds fire on anything already under 45% health while someone with a baton is still standing, closes with the baton once a target is under 75%, and otherwise plays like Cautious. |
+
+A medic patches up anyone bleeding before anything else, and will cross the street to do it. Nobody fires through one of your own.
+
+**It fights a little worse than you.** Each person's turn has a **15%** chance of a fumble: a worse spot to move to, a hurried snap shot instead of an aimed one, going in with the baton too early, or forgetting to kneel. Autoplay also doesn't search the dead carefully: up to **30%** of the bodies are left behind, in proportion to how much of the fight it played. Manual play is still worth it for the fights that matter.
+
+Simulated over 150 seeds, against sighting squads (one to three aliens):
+
+| Doctrine | Win | Clean win | Wiped out | Dead per fight |
+|---|---|---|---|---|
+| Cautious | ~59% | ~14% | ~41% | 2.5 |
+| Aggressive | ~54% | ~17% | ~46% | 2.5 |
+| Capture | ~51% | ~10% (plus 6% taken alive) | ~49% | 2.7 |
+
+Against a lone straggler on a scavenging run it's 73–85%. These are bot numbers: a person does better.
+
+### Risk preview
+
+Before it starts, your people give you odds: **clean win**, **someone lost or no result**, **disaster** (wiped out, or half the squad gone). They come from **20 simulated fights** against the squad that's actually out there, played with the doctrine you picked, so gear, stats, personalities and what the aliens have learned all count.
+
+The odds are shown as a **range**, and the range is as wide as your people's ignorance: **±25** points with no knowledge of the race, ±15 with a little, ±8, then ±4 once they know them well (the same knowledge that sharpens the briefing). Strong squads against familiar enemies read as safe; anything new stays dangerous whatever the sim says.
+
+Then: **Watch** (the fight plays at ×1 to ×4), or **Skip to the result**.
+
+### The rewind timeline
+
+Open it any time with **Timeline**. One row per round, oldest at the top:
+
+- **Marks:** ◉ first contact, ● hurt, ✕ killed, ▲ alien down, ★ their commander down, ! panicked. Pointing at a round shows your people at the start of it next to how they are now.
+- **The price**, on every row: "Play 5 rounds by hand · −6 morale". Rounds that are too far back, or that you played by hand (✋), are greyed out with the reason.
+- **Take command** goes back to the start of that round. **Full rounds only.**
+
+The rules, as agreed:
+
+- **Rewinding re-rolls.** Everything after the point you go back to is gone, and the dice are new. The aliens keep the personalities they rolled, so you can't replay a future you've seen.
+- **The price is measured from where the fight is now**, not from where you're watching. Playback runs one round behind the fight, and pausing it doesn't freeze the fight. Watching closely costs attention; coming back later costs more.
+- **Lockout:** 1 + 2 × rounds undone, played by hand before autoplay can take over again. One round back costs 3 rounds of manual play; six rounds back costs 13.
+- **Morale:** 3 per round undone, up to 15. "Make your mind up."
+- **Window:** the last **6** rounds autoplay played.
+- **Taking over now is free** and always allowed: you play the current round by hand, and autoplay can resume the round after.
+- **No auto-pause on disasters**, by design. Watching closely is the price of a cheap rewind.
+- **Brutal mode** (a tick box, remembered between fights): no rewinds at all, only taking over from the present. It can't be changed once autoplay has run in a fight.
+
+### Adaptive aliens
+
+Each race keeps a picture of how you fight, between **0 and 1** on three habits, and carries it from fight to fight:
+
+| Habit | What it watches | What the race does about it |
+|---|---|---|
+| **Holding** | Time units left unspent at the end of your turns | Stops walking into your sights. It keeps outside the 9 tiles you see at night and takes the long shot, and goes round the side rather than down the street. |
+| **Pushing** | Time units spent, and how many of your shots were at 5 tiles or less | Waits for you to overreach. Against anyone who has spent 70% of their time units charging, it's twice as quick on the draw and aims 30% better. |
+| **Takedowns** | Swings of the stun baton | Shoots whoever carries a baton first. |
+
+- **Slowly.** After each fight the race moves **25%** of the way from what it knew to what it just saw, so it takes about four fights fought the same way for a counter to bite.
+- **Faster if any got away.** A fight you fled or were wiped out in teaches them **1.5×** as fast: a brutal reason not to let anything escape.
+- **Commander kills slow it.** Bring down the one giving the orders and that fight teaches them **half** as much. Research on their leaders (autopsy or interrogation) slows it to **0.75×** as well: you know how they pass things on.
+- **It wears off.** Drop a habit and the same 25% pulls it back down. No tactic is banned; variety is the answer.
+- **Hints, not numbers.** Past 0.35 your people say so, on the fight-or-pull-back card and in the briefing ("They've stopped walking into our sights"), and the news reports a race picking a habit up or letting it go.
+
+**Each counter leaves its own opening, so changing how you fight is always the way out.** Simulated over 150 seeds against sighting squads:
+
+| | They know nothing | They've learned that habit | After you switch |
+|---|---|---|---|
+| Cautious (holding) | 59% | 37% | aggressive: 55% |
+| Aggressive (pushing) | 54% | 45% | cautious: 55% |
+
+Not built yet: mixed-race squads, aliens learning from what they see of your gear, and autoplay for anything but these small fights.

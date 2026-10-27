@@ -1,3 +1,4 @@
+import type { Habits } from "./adapt";
 import { Stats, WEAPONS, Weapon } from "./rules";
 
 /**
@@ -105,6 +106,8 @@ export interface AlienMind {
   maverick: boolean;
   /** Turns spent lying in wait in a row; it gives up and moves after a couple. */
   waited: number;
+  /** What its race has learned about how you fight. */
+  counters?: Habits;
 }
 
 /** The squad's shared doctrine, rolled by its leader, and each member's mind. */
