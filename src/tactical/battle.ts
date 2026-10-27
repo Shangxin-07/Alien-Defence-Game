@@ -7,8 +7,8 @@ import {
   FireMode,
   HUMAN_FOV,
   KNEEL_TU,
+  Daylight,
   SIGHT_DAY,
-  SIGHT_NIGHT,
   STAND_TU,
   Side,
   Stats,
@@ -16,6 +16,7 @@ import {
   Tool,
   Weapon,
   baseHitChance,
+  humanSight,
   moraleLoss,
   panicChance,
   rollDamage,
@@ -152,8 +153,8 @@ const CLOSE_DRILL = 1.3;
 const BRACED_REACTIONS = 2;
 /** Spent more than this share of their time units and they've overreached. */
 const OVERREACH = 0.3;
-/** Just past how far your people see at night. */
-const SNIPE_RANGE = SIGHT_NIGHT + 1;
+/** In daylight there's no dark to shoot from: a sniper stands off past where pistols and shotguns still hit. */
+const DAY_STANDOFF = 14;
 /** Health the alien grows back each turn. */
 export const ALIEN_REGEN = 2;
 /** Reaction fire and plain misses fly this far before they're spent. */
@@ -202,7 +203,7 @@ export class Battle {
   private rand: () => number;
   private events: BattleEvent[] = [];
 
-  constructor(readonly map: TacMap, readonly units: Unit[], seed = 1, scent: Point | null = null) {
+  constructor(readonly map: TacMap, readonly units: Unit[], seed = 1, scent: Point | null = null, readonly light: Daylight = "night") {
     this.rand = mulberry32(seed);
     this.seen = new Uint8Array(map.w * map.h);
     this.visible = new Uint8Array(map.w * map.h);
@@ -303,7 +304,7 @@ export class Battle {
 
   /** A separate copy of the fight from here, with its own dice, to play out without touching this one. */
   fork(seed: number): Battle {
-    const b = new Battle(this.map.clone(), this.units.map(cloneUnit), seed);
+    const b = new Battle(this.map.clone(), this.units.map(cloneUnit), seed, null, this.light);
     b.restore(this.snapshot(), seed);
     return b;
   }
@@ -370,13 +371,23 @@ export class Battle {
 
   // ---------- Sight ----------
 
+  /** How far your people see away from street lights, in this fight's light. */
+  get sight(): number {
+    return humanSight(this.light);
+  }
+
+  /** Just past how far your people see: where a sniper shoots from. */
+  get snipeRange(): number {
+    return this.light === "day" ? DAY_STANDOFF : this.sight + 1;
+  }
+
   /** Whether a unit can see a tile. Revealed targets (muzzle flash) can be seen in the dark. */
   canSee(u: Unit, p: Point, revealed = false): boolean {
     const d = dist(u, p);
     if (d < 1.5) return true;
     if (d > SIGHT_DAY) return false;
     const lit = revealed || u.side === "alien" || this.map.lit[this.map.idx(p.x, p.y)] === 1;
-    if (!lit && d > SIGHT_NIGHT) return false;
+    if (!lit && d > this.sight) return false;
     const fx = DIRS[u.facing].x;
     const fy = DIRS[u.facing].y;
     const cos = ((p.x - u.x) * fx + (p.y - u.y) * fy) / (d * Math.hypot(fx, fy));
@@ -951,7 +962,7 @@ export class Battle {
     // A sniper is all in on the long shot and keeps nothing back, which is what a rush catches.
     // A braced one always keeps a shot back.
     const reserve = berserk || sniper || (p.aggression >= 75 && p.caution < 40 && !braced) ? 0 : snapCost;
-    const keepOff = sniper ? SNIPE_RANGE : 0;
+    const keepOff = sniper ? this.snipeRange : 0;
     // How good a shot has to be before it takes it.
     const minShot = berserk ? 0.05 : Math.max(0.12, Math.min(0.4, 0.35 - p.aggression * 0.002));
     // Under this share of its health, it breaks off and looks for somewhere to hide.
@@ -972,7 +983,7 @@ export class Battle {
         // Poor odds: close in on the nearest once, keeping enough to fire on reflex.
         const t = targets.sort((x, y) => dist(a, x) - dist(a, y))[0];
         // A sniper takes the long shot from out in the dark instead.
-        if (sniper && dist(a, t) >= SNIPE_RANGE) {
+        if (sniper && dist(a, t) >= this.snipeRange) {
           if (this.tryShoot(a, targets, 0.08)) continue;
           break;
         }
