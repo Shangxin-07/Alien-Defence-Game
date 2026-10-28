@@ -1,3 +1,4 @@
+import { Duty, Hold, allowedJob, dutyClash, dutyOf, jobDuty } from "./allocation";
 import {
   GEAR, GUNS, GearId, Kit, MEDIKIT_COST, MEDIKIT_RESTOCK, Quarters, Request, Stores, defaultRequest, arrivalKit, emptyStores, kitWarnings,
   legacyKit, noKit, outfit, rollArms, usable,
@@ -19,7 +20,7 @@ import {
   CALL_CHANCE, CAR_SCRAP, CAR_SEATS, CAR_WORK, Call, HOUR_MS, MAX_MECHANICS, SIGHTING_LOYALTY, SIGHTING_SCRAP, TRAIL_HOURS, Travel, Vehicle,
   carName, freshness, rollCall, travelHours, tripFuel,
 } from "./sightings";
-import { LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, workPace } from "./staff";
+import { Job, LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, workPace } from "./staff";
 import { Habits, adaptNews, learn, noHabits, observe } from "./tactical/adapt";
 import type { RaceId } from "./tactical/aliens";
 import type { Outcome, Tally } from "./tactical/battle";
@@ -582,8 +583,51 @@ export class Campaign {
     for (const id of team) {
       const p = this.staff.find((x) => x.id === id);
       if (!p || !this.canScavenge(p)) return `${p?.name ?? "Someone"} can't go`;
+      const clash = dutyClash(p, dutyOf(this.findPlace(where)?.kind ?? (where as SiteId)));
+      if (clash?.locked) return clash.text;
     }
     return null;
+  }
+
+  /** Warnings for sending this team on this kind of run: people meant for something else. Locks are refused by `checkRun`. */
+  dutyWarnings(where: number | SiteId, team: number[]): string[] {
+    const duty = dutyOf(this.findPlace(where)?.kind ?? (where as SiteId));
+    return team.flatMap((id) => {
+      const p = this.person(id);
+      const clash = p && dutyClash(p, duty);
+      return clash && !clash.locked ? [clash.text] : [];
+    });
+  }
+
+  /**
+   * Sets what someone is kept for, and how firmly. A lock that rules out their job at home moves
+   * them to one it allows, or to rest if it allows none.
+   */
+  allocate(personId: number, duties: Duty[], hold: Hold): void {
+    const p = this.person(personId);
+    if (!p) throw new Error("No such person");
+    const set = [...new Set(duties)];
+    if (hold === "any" || !set.length) {
+      delete p.duties;
+      delete p.locked;
+      return;
+    }
+    p.duties = set;
+    if (hold === "lock") p.locked = true;
+    else delete p.locked;
+    p.job = allowedJob(p);
+    for (const base of this.bases) base.layout.setCrew(this.builders(base.id));
+  }
+
+  /** Puts someone on a job at home. A lock refuses jobs outside it; resting is always allowed. */
+  setJob(personId: number, job: Job): void {
+    const p = this.person(personId);
+    if (!p) throw new Error("No such person");
+    const duty = jobDuty(job);
+    const clash = duty && dutyClash(p, duty);
+    if (clash?.locked) throw new Error(clash.text);
+    p.job = job;
+    for (const base of this.bases) base.layout.setCrew(this.builders(base.id));
   }
 
   /** Sends people out. They stop their other work until they're back. */

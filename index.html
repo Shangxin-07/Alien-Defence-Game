@@ -36,6 +36,10 @@
           <span class="name">Armoury</span>
           <span class="meta" id="armourySummary">—</span>
         </button>
+        <button id="openAlloc" class="staffbtn" type="button" hidden>
+          <span class="name">Unit allocation</span>
+          <span class="meta" id="allocSummary">—</span>
+        </button>
         <button id="openStaff" class="staffbtn" type="button" hidden>
           <span class="name">Staff &amp; research</span>
           <span class="meta" id="staffSummary">—</span>
@@ -161,6 +165,18 @@
           <h2>Loadouts</h2>
           <ul id="loadoutList" class="people loadouts"></ul>
           <p class="dim note">Nobody packs their own bag. Each person asks for a loadout, and the quartermaster fills it from the stores in the order people are listed, as soon as anything changes. People who are out keep what they took with them. All ammunition fits all guns for now: a clip fills any magazine. At home a part-used magazine is swapped for a full one and the rounds go back in the stores. In a fight, reloading drops whatever was left in the old clip. Energy weapons take no clips, but every shot heats them, and fired too fast they shut down for a turn or two. Alien guns can't be issued until they've been researched. Win a fight and you bring your dead's kit home; lose and it stays where they fell. Used medikits are restocked at home for a unit of medicine.</p>
+        </div>
+      </div>
+
+      <div class="modal" id="allocModal" hidden>
+        <div class="card staffcard alloccard" role="dialog" aria-modal="true" aria-labelledby="allocTitle">
+          <div class="cardhead">
+            <h1 id="allocTitle">Unit allocation</h1>
+            <button id="closeAlloc" type="button">Close</button>
+          </div>
+          <ul id="allocGaps" class="warnings"></ul>
+          <div class="allocwrap"><table id="allocTable" class="alloc"></table></div>
+          <p class="dim note">Tick what each person is for. <b>Preferred</b> people can still be sent anywhere, but every team list and send button warns you first. <b>Locked</b> people can't be picked for anything else, and their job at home follows the lock: someone locked only to work outside the base rests between trips. Anyone left on <b>Any job</b> goes wherever they're sent. Fights aren't a duty of their own: an ambush finds whoever is out on a run, and a sighting call is a hunt you choose to send people on.</p>
         </div>
       </div>
 

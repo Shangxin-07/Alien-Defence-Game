@@ -1,3 +1,4 @@
+import type { Duty } from "./allocation";
 import type { Kit, Request } from "./armoury";
 import type { Stats } from "./tactical/rules";
 
@@ -46,6 +47,10 @@ export interface Person {
   kit?: Kit;
   /** What they've asked the quartermaster for. Missing means their role's default. */
   request?: Request;
+  /** What they're set aside for on the allocation page. Missing or empty means anything. */
+  duties?: Duty[];
+  /** Whether those duties are a lock (they can't be sent elsewhere) or only a preference (a warning). */
+  locked?: boolean;
 }
 
 /** Hungry people work at half pace. */

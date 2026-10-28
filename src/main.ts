@@ -2,6 +2,7 @@ import "./styles.css";
 import { Color, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
 import { closeBase, openBase } from "./base";
 import { ROOMS } from "./base/rooms";
+import { DUTIES, DUTY_NAMES, DUTY_SHORT, Duty, HOLD_NAMES, Hold, dutyClash, dutyList, dutyOf, holdOf, jobDuty } from "./allocation";
 import { BaseRecord, Campaign, Completion, GRANT, nmiToRadians } from "./campaign";
 import { ARMOURS, GEAR, GUNS, GearId, GunId, MAX_CLIPS, MEDIKIT_COST, Request, describeKit, kitAfter, noKit } from "./armoury";
 import { Gear, closeCombat, openCombat } from "./combat";
@@ -221,6 +222,8 @@ function refreshBases() {
   const spoils = $("spoils");
   spoils.hidden = !pro?.recovered.length;
   $("openStaff").hidden = !campaign.staff.length;
+  $("openAlloc").hidden = !campaign.staff.length;
+  $("allocSummary").textContent = allocSummary();
   $("openArmoury").hidden = !campaign.staff.length;
   $("armourySummary").textContent = armourySummary();
   $("armourySummary").className = campaign.staff.some((p) => campaign.kitWarnings(p).some((w) => /No gun|No ammo/.test(w))) ? "meta bad" : "meta";
@@ -304,6 +307,7 @@ function refresh() {
   if (!$("scavengeModal").hidden) refreshScavenge();
   if (!$("sightingModal").hidden) refreshSightings();
   if (!$("recruitModal").hidden) refreshRecruit();
+  if (!$("allocModal").hidden) refreshAlloc();
   checkAmbush();
   lastClock = "";
 }
@@ -422,8 +426,7 @@ function refreshStaff() {
     li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div></div><div class="pick"><select aria-label="Base"></select><select aria-label="Job"></select></div>`;
     li.querySelector("b")!.textContent = p.name;
     li.querySelector(".dim")!.textContent = p.role;
-    const run = campaign.runs.find((r) => r.id === p.away);
-    const status = `${run ? (run.recruit ? " · out recruiting" : run.search ? " · out searching" : run.call ? " · answering a call" : run.repair ? " · fixing a car" : ` · out at ${runWhere(run)}`) : ""}${p.hunger ? ` · hungry ${p.hunger}d` : ""}${p.loyalty !== undefined ? ` · loyalty ${p.loyalty}` : ""}${p.dependants ? ` · family of ${p.dependants}` : ""}`;
+    const status = `${doing(p) ? ` · ${doing(p)}` : ""}${p.hunger ? ` · hungry ${p.hunger}d` : ""}${p.loyalty !== undefined ? ` · loyalty ${p.loyalty}` : ""}${p.dependants ? ` · family of ${p.dependants}` : ""}`;
     li.querySelector(".meta")!.textContent = `${where}${status} · HP ${p.health}/${p.stats.health}${fit ? "" : " · recovering"} · build ${buildSkill(p).toFixed(2)} · research ${p.aptitude.toFixed(2)}`;
     const [baseSel, sel] = li.querySelectorAll("select");
     baseSel.disabled = sel.disabled = !!p.away;
@@ -441,15 +444,9 @@ function refreshStaff() {
       refreshStaff();
       refreshBases();
     });
-    for (const job of Object.keys(JOB_NAMES) as Job[]) {
-      const o = document.createElement("option");
-      o.value = job;
-      o.textContent = JOB_NAMES[job];
-      sel.appendChild(o);
-    }
-    sel.value = p.job;
+    fillJobs(sel, p);
     sel.addEventListener("change", () => {
-      p.job = sel.value as Job;
+      campaign.setJob(p.id, sel.value as Job);
       persist();
       refreshStaff();
       refreshBases();
@@ -460,6 +457,28 @@ function refreshStaff() {
   $("doneList").innerHTML = r.done.map((d) => `<li><b>${escape(project(d).name)}</b> ${escape(project(d).result)}</li>`).join("");
 }
 
+/** What someone is out doing, or an empty string when they're home. */
+function doing(p: Person): string {
+  const run = campaign.runs.find((r) => r.id === p.away);
+  if (!run) return "";
+  return run.recruit ? "out recruiting" : run.search ? "out searching" : run.call ? "answering a call" : run.repair ? "fixing a car" : `out at ${runWhere(run)}`;
+}
+
+/** Fills a job picker for someone: jobs their lock rules out can be seen but not picked. */
+function fillJobs(sel: HTMLSelectElement, p: Person) {
+  for (const job of Object.keys(JOB_NAMES) as Job[]) {
+    const o = new Option(JOB_NAMES[job], job);
+    const duty = jobDuty(job);
+    const clash = duty && dutyClash(p, duty);
+    if (clash?.locked) {
+      o.disabled = true;
+      o.textContent += " (locked out)";
+    } else if (clash) o.textContent += " ⚠";
+    sel.add(o);
+  }
+  sel.value = p.job;
+}
+
 $("openStaff").addEventListener("click", () => {
   refreshStaff();
   $("staffModal").hidden = false;
@@ -467,6 +486,117 @@ $("openStaff").addEventListener("click", () => {
 $("closeStaff").addEventListener("click", () => ($("staffModal").hidden = true));
 $("staffModal").addEventListener("click", (e) => {
   if (e.target === $("staffModal")) $("staffModal").hidden = true;
+});
+
+// ---------- Unit allocation ----------
+function allocSummary(): string {
+  const locked = campaign.staff.filter((p) => holdOf(p) === "lock").length;
+  const preferred = campaign.staff.filter((p) => holdOf(p) === "prefer").length;
+  const gaps = allocGaps().length;
+  return [locked ? `${locked} locked` : "", preferred ? `${preferred} preferred` : "", gaps ? `${gaps} gap${gaps === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ") || "Everyone on any job";
+}
+
+/** Duties nobody can be given any more, because everyone is locked to something else. */
+function allocGaps(): Duty[] {
+  if (!campaign.staff.length) return [];
+  return DUTIES.filter((d) => campaign.staff.every((p) => dutyClash(p, d)?.locked));
+}
+
+/** A note for a team list on how this trip fits their allocation, and whether their lock rules it out. */
+function dutyNote(p: Person, duty: Duty): { text: string; locked: boolean } {
+  const clash = dutyClash(p, duty);
+  if (clash) return { text: ` · ${clash.locked ? "locked to" : "⚠ meant for"} ${dutyList(p)}`, locked: clash.locked };
+  return { text: p.duties?.length ? ` · assigned to ${DUTY_NAMES[duty].toLowerCase()}` : "", locked: false };
+}
+
+/** Sets a send button and the line beside it. Sending people off their allocation needs "anyway". */
+function sendState(button: string, odds: string, label: string, reason: string | null, text: string, warnings: string[]) {
+  const b = $(button) as HTMLButtonElement;
+  b.disabled = !!reason;
+  b.textContent = !reason && warnings.length ? `${label} anyway` : label;
+  $(odds).textContent = reason ?? (warnings.length ? `⚠ ${warnings.join("; ")}. ${text}` : text);
+  $(odds).className = !reason && warnings.length ? "warnline" : "dim";
+}
+
+function refreshAlloc() {
+  const gaps = allocGaps();
+  $("allocGaps").innerHTML = gaps.map((d) => `<li>Nobody can be put on ${escape(DUTY_NAMES[d].toLowerCase())}: everyone is locked to something else.</li>`).join("");
+  const table = $("allocTable");
+  table.innerHTML = `<thead><tr><th>Person</th><th>Hold</th>${DUTIES.map((d) => `<th title="${escape(DUTY_NAMES[d])}">${escape(DUTY_SHORT[d])}</th>`).join("")}<th>At home</th></tr></thead><tbody></tbody><tfoot></tfoot>`;
+  const body = table.querySelector("tbody")!;
+  for (const p of campaign.staff) {
+    const hold = holdOf(p);
+    const tr = document.createElement("tr");
+    tr.className = hold;
+    const who = document.createElement("td");
+    who.innerHTML = `<b></b> <span class="dim"></span><div class="meta"></div>`;
+    who.querySelector("b")!.textContent = p.name;
+    who.querySelector(".dim")!.textContent = p.role;
+    who.querySelector(".meta")!.textContent = [doing(p), `HP ${p.health}/${p.stats.health}`, fitToWork(p) ? "" : "recovering", `build ${buildSkill(p).toFixed(2)}`, `research ${p.aptitude.toFixed(2)}`, `aim ${p.stats.accuracy}`]
+      .filter(Boolean)
+      .join(" · ");
+    tr.appendChild(who);
+    const holdCell = document.createElement("td");
+    const holdSel = document.createElement("select");
+    holdSel.setAttribute("aria-label", `How firmly ${p.name} is held`);
+    for (const h of Object.keys(HOLD_NAMES) as Hold[]) holdSel.add(new Option(HOLD_NAMES[h], h));
+    holdSel.value = hold;
+    holdSel.addEventListener("change", () => {
+      const next = holdSel.value as Hold;
+      // Holding someone with nothing ticked yet starts from what they're doing at home.
+      const duties = p.duties?.length ? p.duties : [jobDuty(p.job) ?? "construction"];
+      campaign.allocate(p.id, next === "any" ? [] : duties, next);
+      persist();
+      refresh();
+    });
+    holdCell.appendChild(holdSel);
+    tr.appendChild(holdCell);
+    for (const d of DUTIES) {
+      const td = document.createElement("td");
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = !!p.duties?.includes(d);
+      box.setAttribute("aria-label", `${p.name}: ${DUTY_NAMES[d]}`);
+      box.addEventListener("change", () => {
+        const duties = DUTIES.filter((x) => (x === d ? box.checked : !!p.duties?.includes(x)));
+        campaign.allocate(p.id, duties, holdOf(p) === "any" ? "prefer" : holdOf(p));
+        persist();
+        refresh();
+      });
+      td.appendChild(box);
+      tr.appendChild(td);
+    }
+    const now = document.createElement("td");
+    now.className = "now";
+    const sel = document.createElement("select");
+    sel.setAttribute("aria-label", `${p.name}'s job at home`);
+    fillJobs(sel, p);
+    sel.disabled = !!p.away;
+    sel.addEventListener("change", () => {
+      campaign.setJob(p.id, sel.value as Job);
+      persist();
+      refresh();
+    });
+    now.appendChild(sel);
+    tr.appendChild(now);
+    body.appendChild(tr);
+  }
+  const foot = table.querySelector("tfoot")!;
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>Assigned</td><td></td>${DUTIES.map((d) => {
+    const n = campaign.staff.filter((p) => p.duties?.includes(d)).length;
+    return `<td${gaps.includes(d) ? ' class="bad"' : ""}>${gaps.includes(d) ? "none" : n}</td>`;
+  }).join("")}<td></td>`;
+  foot.appendChild(tr);
+}
+
+$("openAlloc").addEventListener("click", () => {
+  refreshAlloc();
+  $("allocModal").hidden = false;
+});
+$("closeAlloc").addEventListener("click", () => ($("allocModal").hidden = true));
+$("allocModal").addEventListener("click", (e) => {
+  if (e.target === $("allocModal")) $("allocModal").hidden = true;
 });
 
 // ---------- Armoury ----------
@@ -654,8 +784,10 @@ function refreshScavenge() {
   }
   const team = $("teamList");
   team.replaceChildren();
+  const runDuty: Duty = runSite === "search" ? "search" : dutyOf(campaign.findPlace(runSite)!.kind);
   for (const p of campaign.staff) {
-    const free = campaign.canScavenge(p);
+    const note = dutyNote(p, runDuty);
+    const free = campaign.canScavenge(p) && !note.locked;
     if (!free) runTeam.delete(p.id);
     const li = document.createElement("li");
     li.innerHTML = `<label><input type="checkbox" /><span><b></b> <span class="dim"></span><span class="meta"></span></span></label>`;
@@ -664,7 +796,7 @@ function refreshScavenge() {
     box.disabled = !free || (!box.checked && runTeam.size >= (runSite === "search" ? MAX_SEARCHERS : MAX_TEAM));
     li.querySelector("b")!.textContent = p.name;
     li.querySelector(".dim")!.textContent = p.role;
-    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !free ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`} · HP ${p.health}/${p.stats.health} · ${describeKit(p.kit ?? noKit())}${kitWarn(p)}`;
+    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !fitToWork(p) ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`}${note.text} · HP ${p.health}/${p.stats.health} · ${describeKit(p.kit ?? noKit())}${kitWarn(p)}`;
     box.addEventListener("change", () => {
       if (box.checked) runTeam.add(p.id);
       else runTeam.delete(p.id);
@@ -674,9 +806,8 @@ function refreshScavenge() {
   }
   const searching = runSite === "search";
   const reason = searching && runTeam.size > MAX_SEARCHERS ? `No more than ${MAX_SEARCHERS} searching at once` : campaign.checkRun(runSite, [...runTeam], runDays);
-  ($("sendRun") as HTMLButtonElement).disabled = !!reason;
   const kind = searching ? "search" : campaign.findPlace(runSite)!.kind;
-  $("runOdds").textContent = reason ?? `${Math.round(cleanChance(kind, runTeam.size, runDays) * 100)}% chance of getting back without trouble`;
+  sendState("sendRun", "runOdds", "Send them", reason, `${Math.round(cleanChance(kind, runTeam.size, runDays) * 100)}% chance of getting back without trouble`, campaign.dutyWarnings(runSite, [...runTeam]));
 }
 
 $("openScavenge").addEventListener("click", () => {
@@ -746,7 +877,8 @@ function refreshSightings() {
   const team = $("callTeamList");
   team.replaceChildren();
   for (const p of campaign.staff) {
-    const free = campaign.canScavenge(p);
+    const note = dutyNote(p, "hunt");
+    const free = campaign.canScavenge(p) && !note.locked;
     if (!free) callTeam.delete(p.id);
     const li = document.createElement("li");
     li.innerHTML = `<label><input type="checkbox" /><span><b></b> <span class="dim"></span><span class="meta"></span></span></label>`;
@@ -755,7 +887,7 @@ function refreshSightings() {
     box.disabled = !free || (!box.checked && callTeam.size >= (travelBy === "car" ? CAR_SEATS : MAX_TEAM));
     li.querySelector("b")!.textContent = p.name;
     li.querySelector(".dim")!.textContent = p.role;
-    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !free ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`} · HP ${p.health}/${p.stats.health} · ${describeKit(p.kit ?? noKit())}${kitWarn(p)}`;
+    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !fitToWork(p) ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`}${note.text} · HP ${p.health}/${p.stats.health} · ${describeKit(p.kit ?? noKit())}${kitWarn(p)}`;
     box.addEventListener("change", () => {
       if (box.checked) callTeam.add(p.id);
       else callTeam.delete(p.id);
@@ -764,11 +896,8 @@ function refreshSightings() {
     team.appendChild(li);
   }
   const reason = call ? campaign.checkResponse(call.id, [...callTeam], travelBy) : "No call to answer";
-  ($("sendCall") as HTMLButtonElement).disabled = !!reason;
-  if (call && !reason) {
-    const h = travelHours(call.km, travelBy);
-    $("callOdds").textContent = `There in ${hoursText(h)}: about ${Math.round(freshness(call, now + h * HOUR_MS) * 100)}% chance it's still there`;
-  } else $("callOdds").textContent = reason ?? "";
+  const h = call ? travelHours(call.km, travelBy) : 0;
+  sendState("sendCall", "callOdds", "Go", reason, call ? `There in ${hoursText(h)}: about ${Math.round(freshness(call, now + h * HOUR_MS) * 100)}% chance it's still there` : "", campaign.dutyWarnings("sighting", [...callTeam]));
   const out = $("responseList");
   out.replaceChildren();
   for (const r of campaign.runs.filter((x) => x.call)) {
@@ -799,16 +928,21 @@ function refreshSightings() {
   if (!cars.children.length) cars.innerHTML = `<li class="dim">No cars yet.</li>`;
   const mechanics = mechanicPick();
   const why = mechanics.length ? campaign.checkRepair(mechanics) : "Nobody free to do it";
-  ($("startRepair") as HTMLButtonElement).disabled = !!why;
-  $("repairOdds").textContent =
-    why ?? `${CAR_SCRAP} scrap. ${mechanics.map((id) => campaign.staff.find((p) => p.id === id)!.name).join(" and ")} would have it running in ${campaign.repairDays(mechanics)} days`;
+  sendState(
+    "startRepair",
+    "repairOdds",
+    "Fix up a car",
+    why,
+    `${CAR_SCRAP} scrap. ${mechanics.map((id) => campaign.staff.find((p) => p.id === id)!.name).join(" and ")} would have it running in ${campaign.repairDays(mechanics)} days`,
+    campaign.dutyWarnings("garage", mechanics),
+  );
 }
 
-/** The handiest free people for a car: up to two, best builders first. */
+/** The handiest free people for a car: up to two, never anyone locked elsewhere, and people meant for something else only if nobody else will do. */
 function mechanicPick(): number[] {
   return campaign.staff
-    .filter((p) => campaign.canScavenge(p))
-    .sort((a, b) => buildSkill(b) - buildSkill(a))
+    .filter((p) => campaign.canScavenge(p) && !dutyClash(p, "garage")?.locked)
+    .sort((a, b) => Number(!!dutyClash(a, "garage")) - Number(!!dutyClash(b, "garage")) || buildSkill(b) - buildSkill(a))
     .slice(0, MAX_MECHANICS)
     .map((p) => p.id);
 }
@@ -902,7 +1036,8 @@ function refreshRecruit() {
   const team = $("recruiterList");
   team.replaceChildren();
   for (const p of campaign.staff) {
-    const free = campaign.canScavenge(p);
+    const note = dutyNote(p, "recruit");
+    const free = campaign.canScavenge(p) && !note.locked;
     if (!free) recruiters.delete(p.id);
     const li = document.createElement("li");
     li.innerHTML = `<label><input type="checkbox" /><span><b></b> <span class="dim"></span><span class="meta"></span></span></label>`;
@@ -911,7 +1046,7 @@ function refreshRecruit() {
     box.disabled = !free || (!box.checked && recruiters.size >= MAX_RECRUITERS);
     li.querySelector("b")!.textContent = p.name;
     li.querySelector(".dim")!.textContent = p.role;
-    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !free ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`}`;
+    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !fitToWork(p) ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`}${note.text}`;
     box.addEventListener("change", () => {
       if (box.checked) recruiters.add(p.id);
       else recruiters.delete(p.id);
@@ -920,8 +1055,7 @@ function refreshRecruit() {
     team.appendChild(li);
   }
   const reason = campaign.checkRun("streets", [...recruiters], recruitDays);
-  ($("sendRecruit") as HTMLButtonElement).disabled = !!reason;
-  $("recruitOdds").textContent = reason ?? `${Math.round(cleanChance("streets", recruiters.size, recruitDays) * 100)}% chance of getting back without trouble`;
+  sendState("sendRecruit", "recruitOdds", "Send them", reason, `${Math.round(cleanChance("streets", recruiters.size, recruitDays) * 100)}% chance of getting back without trouble`, campaign.dutyWarnings("streets", [...recruiters]));
 }
 
 $("openRecruit").addEventListener("click", () => {
@@ -953,6 +1087,7 @@ function checkAmbush() {
   $("scavengeModal").hidden = true;
   $("recruitModal").hidden = true;
   $("staffModal").hidden = true;
+  $("allocModal").hidden = true;
   $("sightingModal").hidden = true;
   const team = run.team.map((id) => campaign.staff.find((p) => p.id === id)!);
   if (run.fightSeed === undefined) {
@@ -1150,6 +1285,7 @@ function updateHud() {
     if (!$("staffModal").hidden) refreshStaff();
     if (!$("scavengeModal").hidden) refreshScavenge();
     if (!$("recruitModal").hidden) refreshRecruit();
+    if (!$("allocModal").hidden) refreshAlloc();
     checkAmbush();
   }
 }
