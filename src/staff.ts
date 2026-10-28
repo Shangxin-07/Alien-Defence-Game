@@ -1,3 +1,4 @@
+import type { Kit, Request } from "./armoury";
 import type { Stats } from "./tactical/rules";
 
 /**
@@ -41,6 +42,10 @@ export interface Person {
   loyalty?: number;
   /** Family who came with them: they eat, but don't work. */
   dependants?: number;
+  /** What they carry. Missing in saves from before the armoury; see `legacyKit`. */
+  kit?: Kit;
+  /** What they've asked the quartermaster for. Missing means their role's default. */
+  request?: Request;
 }
 
 /** Hungry people work at half pace. */
@@ -122,7 +127,23 @@ export const PROJECTS: Project[] = [
     points: 20,
     items: ["Plasma pistol"],
     blurb: "Take the Hunter's weapon apart without it taking us apart.",
-    result: "It fires bolts of contained plasma from a power cell we can't yet make. We can use the ones we have. We can't make more.",
+    result: "It fires bolts of contained plasma from a power cell we can't yet make. We can use the ones we have: it needs no clips, but every shot heats it, and fired too fast it shuts itself down to cool.",
+  },
+  {
+    id: "plasmaScatter",
+    name: "Plasma scattergun",
+    points: 20,
+    items: ["Plasma scattergun"],
+    blurb: "The Brutes' gun. Work out how to fire it without losing a hand.",
+    result: "A wide spray of plasma that empties a room at close range. In our hands it runs hot fast: two shots and it needs a rest.",
+  },
+  {
+    id: "needleRifle",
+    name: "Needle rifle",
+    points: 24,
+    items: ["Needle rifle"],
+    blurb: "The Shades' long gun. Quiet, and it never seems to miss.",
+    result: "It throws charged slivers further and straighter than anything we make. It runs cooler than their pistols, but it still has to rest.",
   },
   {
     id: "autopsy",

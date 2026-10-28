@@ -1,4 +1,4 @@
-import { Battle, BattleEvent, BattleSnapshot, Unit, alive, conscious } from "./battle";
+import { Battle, BattleEvent, BattleSnapshot, Unit, alive, canFire, conscious } from "./battle";
 import { Point, dist } from "./map";
 import { mulberry32 } from "./random";
 import { FireMode, KNEEL_TU, TURN_TU, tuCost } from "./rules";
@@ -102,6 +102,11 @@ function unitTurn(b: Battle, u: Unit, d: Doctrine, fumble: Fumble, rand: () => n
   for (let guard = 0; guard < 10; guard++) {
     if (!conscious(u) || b.outcome || b.side !== "human") return;
     if (patchUp(b, u, out)) continue;
+    // An empty gun gets a fresh clip before anything else.
+    if (!canFire(u) && !b.previewReload(u.id).reason) {
+      out.push(...b.reload(u.id));
+      continue;
+    }
     const targets = seenAliens(b);
     if (d === "capture" && takedown(b, u, targets, fumble, out)) continue;
     if (targets.length && shoot(b, u, targets, d, fumble, out)) continue;
@@ -193,7 +198,7 @@ function takedown(b: Battle, u: Unit, targets: Unit[], fumble: Fumble, out: Batt
 
 /** The best shot worth taking at what's in view. */
 function shoot(b: Battle, u: Unit, targets: Unit[], d: Doctrine, fumble: Fumble, out: BattleEvent[]): boolean {
-  if (!u.weapon || u.ammo <= 0) return false;
+  if (!u.weapon || !canFire(u)) return false;
   const batonUp = b.humans.some((h) => conscious(h) && hasBaton(h));
   let best: { t: Unit; mode: FireMode; score: number; tu: number } | null = null;
   for (const t of targets) {

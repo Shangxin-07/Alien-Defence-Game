@@ -1,3 +1,4 @@
+import { Kit, arrivalKit } from "./armoury";
 import type { Stats } from "./tactical/rules";
 
 /**
@@ -24,6 +25,8 @@ export interface Candidate {
   base: number;
   /** Last day they'll wait for an answer. */
   until: number;
+  /** What they'd bring with them. Missing in saves from before the armoury. */
+  kit?: Kit;
 }
 
 /** A promise made to get someone on board, and when it falls due. */
@@ -106,7 +109,7 @@ export function rollCandidate(id: number, base: number, day: number, rand: () =>
   const wants = (["food", "medicine", "family", "revenge", "bed"] as const)[Math.floor(rand() * 5)];
   const amount = wants === "food" ? Math.round(6 + 12 * q) : wants === "medicine" ? Math.round(2 + 3 * q) : wants === "family" ? 1 + Math.round(2 * q) : 0;
   const stats = civilianStats(rand, !!trade.fighter);
-  return { id, name, role: trade.role, stats, aptitude: lerp(trade.research, q), build: lerp(trade.build, q), wants, amount, base, until: day + CANDIDATE_WAIT };
+  return { id, name, role: trade.role, stats, aptitude: lerp(trade.research, q), build: lerp(trade.build, q), wants, amount, base, until: day + CANDIDATE_WAIT, kit: arrivalKit(trade.role, rand) };
 }
 
 /** Someone desperate who'll work for a roof and nothing else. */
@@ -118,6 +121,6 @@ export function rollDrifter(id: number, base: number, day: number, rand: () => n
     id, name, role: "Drifter", stats, base, until: day + CANDIDATE_WAIT,
     aptitude: Math.round((0.7 + rand() * 0.15) * 100) / 100,
     build: Math.round((0.6 + rand() * 0.2) * 100) / 100,
-    wants: "none", amount: 0,
+    wants: "none", amount: 0, kit: arrivalKit("Drifter", rand),
   };
 }

@@ -6,6 +6,7 @@ import { Battle, Outcome, Unit, alive, conscious } from "./battle";
 import { CITY_STYLES, CityStyle, buildCity } from "./cityMap";
 import { Point, facingTo } from "./map";
 import { hashText, mulberry32 } from "./random";
+import { ALIEN_GUN_INTACT, Kit, fightKit } from "../armoury";
 import { Daylight, Stats, TOOLS, Tool, WEAPONS, Weapon } from "./rules";
 
 /**
@@ -47,6 +48,8 @@ export interface Scavenger {
   role: string;
   stats: Stats;
   health: number;
+  /** What they carry. Without one, they fight with what their old job gave them, or a pistol. */
+  kit?: Kit;
 }
 
 /** What the survivors carry out of the city, by how the night ended. */
@@ -194,11 +197,15 @@ function alienUnit(id: number, name: string, stats: Stats, at: Point, facing: nu
  * What a fight brought home, one item per alien brought down. A leader's body or a live leader is
  * worth far more than the rest. Running leaves everything behind.
  */
-export function battleSpoils(b: Battle, o: Outcome): string[] {
+export function battleSpoils(b: Battle, o: Outcome, rand: () => number = Math.random): string[] {
   if (o === "fled" || o === "wiped") return [];
-  return b.aliens
-    .filter((a) => !conscious(a))
-    .map((a) => (a.mind?.rank === "leader" ? (alive(a) ? "Live commander" : "Commander corpse") : alive(a) ? "Live alien" : "Alien corpse"));
+  const out: string[] = [];
+  for (const a of b.aliens.filter((x) => !conscious(x))) {
+    out.push(a.mind?.rank === "leader" ? (alive(a) ? "Live commander" : "Commander corpse") : alive(a) ? "Live alien" : "Alien corpse");
+    // Some of their guns burn themselves out when their owner falls.
+    if (a.weapon && rand() < ALIEN_GUN_INTACT[alive(a) ? "captured" : "killed"]) out.push(a.weapon.name);
+  }
+  return out;
 }
 
 /** Spread stats a little so no two people are the same. */
@@ -304,14 +311,15 @@ export function startAmbush(
   const centre = field.alienStart;
   const units: Unit[] = team.slice(0, field.humanStart.length).map((m, i) => {
     const kit = ROLES.find((r) => r.role === m.role);
-    const weapon = kit?.weapon ?? WEAPONS.pistol;
+    const carried = m.kit ? fightKit(m.kit) : null;
+    const weapon = carried ? carried.weapon : (kit?.weapon ?? WEAPONS.pistol);
     const p = field.humanStart[i];
     return {
       id: m.id,
       side: "human",
       name: m.name,
       role: m.role,
-      stats: { ...m.stats },
+      stats: { ...m.stats, armour: m.stats.armour + (carried?.armour ?? 0) },
       x: p.x,
       y: p.y,
       facing: facingTo(p, centre),
@@ -322,8 +330,9 @@ export function startAmbush(
       wounds: 0,
       kneeling: false,
       weapon,
-      ammo: weapon.ammo,
-      tools: (kit?.tools ?? []).map((tool) => ({ tool, uses: tool.uses })),
+      ammo: carried ? carried.ammo : weapon!.ammo,
+      clips: carried?.clips ?? 0,
+      tools: carried ? carried.tools : (kit?.tools ?? []).map((tool) => ({ tool, uses: tool.uses })),
       revealed: false,
     };
   });

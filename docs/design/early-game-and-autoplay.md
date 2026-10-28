@@ -415,3 +415,46 @@ Each race keeps a picture of how you fight, between **0 and 1** on three habits,
 | Aggressive (pushing) | 54% | 45% | cautious: 55% |
 
 Not built yet: mixed-race squads, aliens learning from what they see of your gear, and autoplay for anything but these small fights.
+
+## Inventory and loadouts as built
+
+Mike asked (2026-10-28) for more control over kit: reloading from spare clips, stores in the base, good defaults for people coming in, a scavenging target for weapons and ammo, and warnings when someone goes out badly kitted. He leaned towards **requested** loadouts with no carrying limit, all bullets fitting all guns for now, and heat instead of clips for energy weapons. Numbers chosen by Claude; Mike can overrule. Code: `src/armoury.ts`, the armoury methods on `Campaign`, reload and heat in `battle.ts`, the Armoury panel in `main.ts`.
+
+### Stores and requests
+
+- **Stores** are shared by every base, like the supplies. Spare clips are a supply (`ammo`); guns, armour, stun batons and medikits sit on the armoury shelves.
+- **Each person asks for a loadout**: a gun (a particular one, the best going, or none), 0 to 6 spare clips, armour or not, a baton, a medikit. The quartermaster fills every request from the stores in staff order whenever anything changes: a run coming home, a recruit joining, a request changing, every day. People who are out keep what they took.
+- **Defaults by role.** Soldiers and reservists: rifle and 3 clips. Police: pistol, 2 clips and a baton. Guards: shotgun and 2 clips. Nurses and paramedics: pistol, 1 clip and a medikit. Everyone else: the best gun going and 2 clips. Everyone wants armour.
+- **What people walk in with.** Soldiers bring a rifle, 1 to 2 clips and often a vest. Nurses bring a medikit. Anyone else has a 15% chance of a part-loaded pistol. Drifters bring nothing. The first night's survivors keep what they walked out with, so whatever they fired that night is gone.
+- **Start:** 2 spare clips in the stores. Older saves give everyone their old job's gun with one clip, and add a police station to the places they know.
+
+### Ammunition
+
+- **All bullets fit all guns.** A clip fills any magazine: 12 for the pistol, 20 for the rifle, 8 for the shotgun.
+- **Reload in a fight** costs 25% of full time units (R). What was left in the old clip is dropped.
+- **At home nothing is wasted.** A part-used magazine is swapped for a full one and the rounds go back in the stores as loose rounds; every whole clip's worth is repacked.
+- **Black market:** 4 clips for $15k a clip, with the same price creep as everything else there.
+
+### Energy weapons
+
+- No clips. Each shot heats the gun: plasma pistol 35, scattergun 45, needle rifle 30. At 100 it shuts down, and it cools 35, 35 or 30 a turn until it's back under 50. So the plasma pistol fires two shots a turn freely, a third trips it, and it fires about once a turn if you keep it going.
+- **The aliens' own guns don't overheat.** They know how to vent them. Giving them heat would make every fight easier.
+- **Research first.** Alien guns can't be issued until their project is done. The plasma pistol project already existed; scattergun and needle rifle projects are new.
+- **Getting them.** The prologue's plasma pistol goes in the stores. An alien brought down in an ambush or sighting fight leaves its gun intact 60% of the time if captured, 35% if killed. Guns don't count as kills for revenge promises.
+
+### Armour and kit
+
+- Stab vest: armour 4. Body armour: armour 8. Added to the person's own armour in a fight.
+- Medikits: make one from 2 medicine. A used medikit is restocked at home for 1 medicine a day, after the wounded have had theirs.
+- **Kit of the dead:** win the fight and their gun, armour and kit come home (not what was in the gun). Lose or run and it stays where they fell.
+
+### Police stations and gun shops
+
+- A new kind of place to scavenge: danger 0.14 a day (as dangerous as a pharmacy). Each person finds 0 to 2 clips and 0 to 1 crate of arms a day. A starter station holds 14 clips and 5 crates. 7% of new finds are this kind.
+- A crate of arms is sorted on the way in: pistol 34%, shotgun 24%, stab vest 18%, rifle 12%, body armour 6%, stun baton 6%.
+
+### Warnings
+
+Shown in the Armoury, against everyone on the scavenging and sighting team lists, and on the fight-or-run card: no gun, no ammo, no spare clips, fewer clips than asked for, a better gun or armour left in the stores, a medikit or baton asked for and not there, a used-up medikit. The Armoury also warns about alien guns waiting on research.
+
+Not built yet: carrying limits, ammo types per gun, grenades, and swapping gear between people in a fight.

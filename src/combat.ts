@@ -1,7 +1,7 @@
 import "./tactical/tactical.css";
 import { Color, PerspectiveCamera, Plane, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
 import { DOCTRINES, Doctrine, MAX_ROUNDS, REWIND_WINDOW, RISK_SPREAD, RoundRecord, Timeline, oddsText, playRound, simulate } from "./tactical/autoplay";
-import { Battle, BattleEvent, Outcome, Tally, Unit, alive, conscious } from "./tactical/battle";
+import { Battle, BattleEvent, Outcome, Tally, Unit, alive, canFire, conscious, usesHeat } from "./tactical/battle";
 import { TacticalCamera } from "./tactical/camera";
 import { Point } from "./tactical/map";
 import { mulberry32 } from "./tactical/random";
@@ -9,12 +9,15 @@ import { OUTCOME_TEXT, Prologue, SPOILS, battleSpoils, briefing, lightRead, unit
 import { FireMode, KNEEL_TU, STAND_TU, Stats, tuCost } from "./tactical/rules";
 import { TacticalView } from "./tactical/view";
 
+/** What someone came out of a fight carrying. */
+export type Gear = Pick<Unit, "weapon" | "ammo" | "clips" | "tools">;
+
 export interface CombatResult {
   outcome: Outcome;
   recovered: string[];
   survivors: number;
   /** Who walked out, as they are now. */
-  people: { id: number; name: string; role: string; stats: Stats; health: number }[];
+  people: { id: number; name: string; role: string; stats: Stats; health: number; gear: Gear }[];
   turns: number;
   /** How your people fought, for the aliens to learn from. */
   tally: Tally;
@@ -408,7 +411,9 @@ function refreshHud() {
   const u = selected;
   $("unitName").textContent = u?.name ?? "—";
   $("unitRole").textContent = u?.role ?? "";
-  const gear = u ? [u.weapon ? `${u.weapon.name} (${u.ammo})` : null, ...u.tools.map((t) => (t.tool.kind === "medkit" ? `${t.tool.name} ×${t.uses}` : t.tool.name))].filter(Boolean) : [];
+  const gun = (w: Unit) =>
+    !w.weapon ? "Unarmed" : usesHeat(w) ? `${w.weapon.name} ${w.overheated ? "OVERHEATED" : `heat ${Math.round(w.heat ?? 0)}%`}` : `${w.weapon.name} ${w.ammo}/${w.weapon.ammo} · ${w.clips ?? 0} clip${w.clips === 1 ? "" : "s"}`;
+  const gear = u ? [gun(u), ...u.tools.map((t) => (t.tool.kind === "medkit" ? `${t.tool.name} ×${t.uses}` : t.tool.name))].filter(Boolean) : [];
   $("unitGear").textContent = gear.join(" · ");
   bar("Tu", u?.tu ?? 0, u?.stats.tu ?? 1);
   bar("Hp", u?.health ?? 0, u?.stats.health ?? 1, u?.wounds ? `bleeding ${u.wounds}` : "");
@@ -423,7 +428,7 @@ function refreshHud() {
     let label = btn.textContent!.split(" ")[0];
     if (u && (m === "snap" || m === "aimed" || m === "auto")) {
       const sm = u.weapon?.modes[m];
-      enabled &&= !!sm && u.ammo > 0;
+      enabled &&= !!sm && canFire(u);
       btn.hidden = !sm;
       if (sm) label += ` ${tuCost(u.stats.tu, sm.tuPct)}`;
     } else if (u && (m === "stun" || m === "heal")) {
@@ -435,6 +440,12 @@ function refreshHud() {
     btn.textContent = label;
     btn.disabled = !enabled;
   }
+  const reload = $("reload") as HTMLButtonElement;
+  const rl = u ? battle!.previewReload(u.id) : null;
+  reload.hidden = !u?.weapon || usesHeat(u);
+  reload.textContent = `Reload ${rl?.tu ?? ""}`;
+  reload.disabled = !rl || !!rl.reason || busy();
+  reload.title = rl?.reason ? `Reload (R): ${rl.reason}` : "Reload (R): swap in a fresh clip. What's left in the old one is dropped.";
   const kneel = $("kneel") as HTMLButtonElement;
   kneel.textContent = u?.kneeling ? `Stand ${STAND_TU}` : `Kneel ${KNEEL_TU}`;
   kneel.disabled = !u || busy() || u.tu < (u.kneeling ? STAND_TU : KNEEL_TU);
@@ -581,7 +592,10 @@ function results(o: Outcome) {
     settled = { recovered: all.filter((_, i) => !left[i]), lost: all.filter((_, i) => left[i]) };
   }
   const { recovered, lost } = settled;
-  const people = survivors.map((u) => ({ id: u.id, name: u.name, role: u.role, stats: { ...u.stats }, health: Math.max(1, u.health) }));
+  const people = survivors.map((u) => ({
+    id: u.id, name: u.name, role: u.role, stats: { ...u.stats }, health: Math.max(1, u.health),
+    gear: { weapon: u.weapon, ammo: u.ammo, clips: u.clips ?? 0, tools: u.tools.map((t) => ({ ...t })) },
+  }));
   const commanderDown = b.aliens.some((a) => a.mind?.rank === "leader" && !conscious(a));
   const result: CombatResult = { outcome: o, recovered, survivors: survivors.length, turns: b.turn, people, tally: { ...b.tally }, commanderDown };
   const won = o === "captured" || o === "killed";
@@ -940,6 +954,7 @@ for (const btn of $("actions").querySelectorAll<HTMLButtonElement>("button[data-
   btn.addEventListener("click", () => !busy() && setMode(btn.dataset.mode as Mode));
 }
 $("kneel").addEventListener("click", () => !busy() && selected && act(battle!.kneel(selected.id)));
+$("reload").addEventListener("click", () => !busy() && selected && act(battle!.reload(selected.id)));
 $("nextUnit").addEventListener("click", () => !busy() && nextUnit());
 $("endTurn").addEventListener("click", () => {
   if (busy()) return;
@@ -1006,6 +1021,7 @@ window.addEventListener("keydown", (e) => {
   const modes: Record<string, Mode> = { "1": "snap", "2": "aimed", "3": "auto", b: "stun", h: "heal", f: "face" };
   if (modes[k]) !busy() && setMode(modes[k]);
   else if (k === "k") $("kneel").click();
+  else if (k === "r") $("reload").click();
   else if (k === "n" || k === "tab") $("nextUnit").click();
   else if (k === "escape") !busy() && setMode("move");
   else if (k === "q") cam.turn(-45);

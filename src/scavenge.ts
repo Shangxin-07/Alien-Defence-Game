@@ -6,13 +6,14 @@ import type { Call, Travel } from "./sightings";
  * can go wrong.
  */
 
-export type Supply = "food" | "medicine" | "scrap" | "fuel";
+/** Ammo is spare clips. Arms are guns and armour, sorted into the armoury when a run gets home. */
+export type Supply = "food" | "medicine" | "scrap" | "fuel" | "ammo" | "arms";
 export type Supplies = Record<Supply, number>;
 
-export const SUPPLY_NAMES: Record<Supply, string> = { food: "Food", medicine: "Medicine", scrap: "Scrap", fuel: "Fuel" };
+export const SUPPLY_NAMES: Record<Supply, string> = { food: "Food", medicine: "Medicine", scrap: "Scrap", fuel: "Fuel", ammo: "Ammo", arms: "Arms" };
 
-/** What the survivors scraped together on the first night: about a week of food for four. */
-export const START_SUPPLIES: Supplies = { food: 30, medicine: 3, scrap: 0, fuel: 0 };
+/** What the survivors scraped together on the first night: about a week of food for four, and two spare clips. */
+export const START_SUPPLIES: Supplies = { food: 30, medicine: 3, scrap: 0, fuel: 0, ammo: 2, arms: 0 };
 
 /** Everyone eats this much a day, at a base or out on a run. */
 export const RATION = 1;
@@ -30,7 +31,7 @@ export const MAX_RUN_DAYS = 3;
 /** Most people out recruiting together: it's talk, not muscle. */
 export const MAX_RECRUITERS = 2;
 
-export type SiteId = "homes" | "grocery" | "pharmacy" | "hardware" | "industrial" | "streets" | "search" | "sighting" | "garage";
+export type SiteId = "homes" | "grocery" | "pharmacy" | "hardware" | "industrial" | "police" | "streets" | "search" | "sighting" | "garage";
 
 export interface Site {
   id: SiteId;
@@ -79,6 +80,11 @@ export const SITES: Record<SiteId, Site> = {
     id: "garage", name: "Garage", danger: 0, yields: {},
     blurb: "Fixing up an abandoned car in the yard.",
   },
+  police: {
+    id: "police", name: "Police stations and gun shops", danger: 0.14,
+    yields: { ammo: [0, 2], arms: [0, 1] },
+    blurb: "Ammunition, guns and vests, if the armoury wasn't emptied on the first night. Everyone with a gun has thought of it.",
+  },
   industrial: {
     id: "industrial", name: "Industrial estate", danger: 0.15,
     yields: { scrap: [4, 8], fuel: [0, 3], food: [0, 1] },
@@ -89,7 +95,7 @@ export const SITES: Record<SiteId, Site> = {
 /** Runs that go somewhere other than a known place: recruiting, searching, calls, the garage. */
 export const placeless = (where: number | SiteId): where is SiteId => typeof where === "string" && !(where in STOCK);
 
-export const SITE_ORDER: ScavengeKind[] = ["homes", "grocery", "pharmacy", "hardware", "industrial"];
+export const SITE_ORDER: ScavengeKind[] = ["homes", "grocery", "pharmacy", "hardware", "industrial", "police"];
 
 /**
  * Every place holds a fixed amount. Each person takes what they can find and carry out of what's
@@ -102,6 +108,7 @@ export const STOCK: Record<ScavengeKind, Partial<Supplies>> = {
   pharmacy: { medicine: 20, food: 6 },
   hardware: { scrap: 50 },
   industrial: { scrap: 90, fuel: 30, food: 5 },
+  police: { ammo: 14, arms: 5 },
 };
 
 export type ScavengeKind = Exclude<SiteId, "streets" | "search" | "sighting" | "garage">;
@@ -120,6 +127,7 @@ const STARTERS: Record<ScavengeKind, string> = {
   pharmacy: "Health centre on Church Lane",
   hardware: "DIY superstore",
   industrial: "Riverside industrial estate",
+  police: "Police station on Bridge Street",
 };
 
 /** The places the survivors already know about on the first night: one of each kind. */
@@ -131,7 +139,7 @@ export const MAX_SEARCHERS = 2;
 /** Chance each searcher finds somewhere new on a day out. */
 export const SEARCH_CHANCE = 0.3;
 /** How often a new find is each kind of place. */
-const FIND_WEIGHTS: [ScavengeKind, number][] = [["homes", 0.35], ["grocery", 0.2], ["pharmacy", 0.15], ["hardware", 0.15], ["industrial", 0.15]];
+const FIND_WEIGHTS: [ScavengeKind, number][] = [["homes", 0.33], ["grocery", 0.19], ["pharmacy", 0.14], ["hardware", 0.14], ["industrial", 0.13], ["police", 0.07]];
 
 export const STREETS = ["Albert Road", "Station Road", "Victoria Street", "the high street", "Park Lane", "Queen's Road", "the canal", "Hill Street", "the old docks", "North Road", "the bypass", "Chapel Street", "Market Square", "the railway arches"];
 const KIND_NAMES: Record<ScavengeKind, string[]> = {
@@ -140,6 +148,7 @@ const KIND_NAMES: Record<ScavengeKind, string[]> = {
   pharmacy: ["Chemist on", "Vet's surgery off", "Dental practice on", "Care home near"],
   hardware: ["Builders' merchant by", "Garden centre off", "Tool hire on", "Garage on"],
   industrial: ["Depot by", "Factory units off", "Scrapyard near", "Works on"],
+  police: ["Police station on", "Gun shop off", "Shooting club by", "Army surplus store on"],
 };
 
 /** Somewhere new that a searcher turned up. Most places have already been picked at by someone. */
@@ -204,7 +213,7 @@ export interface Run {
 /** Where a run went, for the news: the place's name, or the kind of place. */
 export const runWhere = (run: Run) => run.where ?? `the ${SITES[run.site].name.toLowerCase()}`;
 
-export const emptySupplies = (): Supplies => ({ food: 0, medicine: 0, scrap: 0, fuel: 0 });
+export const emptySupplies = (): Supplies => ({ food: 0, medicine: 0, scrap: 0, fuel: 0, ammo: 0, arms: 0 });
 
 /** One day of finds for a team of `size`, taken out of what's left at the place. */
 export function dayLoot(place: Place, size: number, rand: () => number): Supplies {
@@ -231,14 +240,14 @@ export const describeSupplies = (s: Supplies) =>
  * The black market: money buys what scavenging can't find, at a price. Every unit bought pushes
  * the price up, and it only eases back slowly, so it's a way out of a famine, not a way to live.
  */
-export type Traded = "food" | "medicine" | "fuel";
-export const MARKET_PRICE: Record<Traded, number> = { food: 8_000, medicine: 25_000, fuel: 4_000 };
+export type Traded = "food" | "medicine" | "fuel" | "ammo";
+export const MARKET_PRICE: Record<Traded, number> = { food: 8_000, medicine: 25_000, fuel: 4_000, ammo: 15_000 };
 /** How much each unit bought pushes the price up. */
 export const MARKET_RISE = 1.012;
 /** Share of the markup that's still there the next day. */
 export const MARKET_EASE = 0.97;
 /** What one purchase buys. */
-export const MARKET_LOT: Record<Traded, number> = { food: 10, medicine: 2, fuel: 10 };
+export const MARKET_LOT: Record<Traded, number> = { food: 10, medicine: 2, fuel: 10, ammo: 4 };
 
 /** What `n` units cost with the price pushed up by `heat` (1 is the going rate), to the nearest $1k. */
 export function marketCost(kind: Traded, n: number, heat: number): number {

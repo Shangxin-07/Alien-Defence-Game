@@ -141,7 +141,7 @@ describe("commanders", () => {
     soldier.health = 0;
     b.endTurn();
     expect(b.outcome).toBe("captured");
-    expect(battleSpoils(b, "captured").sort()).toEqual(["Alien corpse", "Live commander"]);
+    expect(battleSpoils(b, "captured", () => 1).sort()).toEqual(["Alien corpse", "Live commander"]);
     expect(battleSpoils(b, "fled")).toEqual([]);
   });
 
