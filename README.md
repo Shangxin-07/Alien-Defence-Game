@@ -139,6 +139,7 @@ a spot and again to build.
   markers and camera controls
 - `src/campaign.ts`: the campaign: shared clock and funds, site surveys, founding bases, staff, research, saving
 - `src/staff.ts`: people, jobs and the research projects
+- `src/armoury.ts`: guns, armour and kit, loadout requests, the quartermaster and kit warnings
 - `src/main.ts`, `src/base.ts`, `src/combat.ts`: the geoscape, base and combat screens
 - `src/tactical/rules.ts`: stats, weapons, TU costs, accuracy and damage
 - `src/tactical/map.ts`: the battlefield grid, line of sight and pathfinding

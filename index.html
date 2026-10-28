@@ -32,6 +32,10 @@
           <span class="name">Sightings</span>
           <span class="meta" id="sightingSummary">—</span>
         </button>
+        <button id="openArmoury" class="staffbtn" type="button" hidden>
+          <span class="name">Armoury</span>
+          <span class="meta" id="armourySummary">—</span>
+        </button>
         <button id="openStaff" class="staffbtn" type="button" hidden>
           <span class="name">Staff &amp; research</span>
           <span class="meta" id="staffSummary">—</span>
@@ -141,6 +145,22 @@
             <button id="ambushFlee" type="button">Run for it</button>
             <button id="ambushFight" class="go" type="button">Fight</button>
           </div>
+        </div>
+      </div>
+
+      <div class="modal" id="armouryModal" hidden>
+        <div class="card staffcard" role="dialog" aria-modal="true" aria-labelledby="armouryTitle">
+          <div class="cardhead">
+            <h1 id="armouryTitle">Armoury</h1>
+            <button id="closeArmoury" type="button">Close</button>
+          </div>
+          <h2>Stores</h2>
+          <div id="storeRows"></div>
+          <div class="sendrow"><span id="medikitOdds" class="dim"></span><button id="makeMedikit" type="button">Make a medikit</button></div>
+          <ul id="armouryWarnings" class="warnings"></ul>
+          <h2>Loadouts</h2>
+          <ul id="loadoutList" class="people loadouts"></ul>
+          <p class="dim note">Nobody packs their own bag. Each person asks for a loadout, and the quartermaster fills it from the stores in the order people are listed, as soon as anything changes. People who are out keep what they took with them. All ammunition fits all guns for now: a clip fills any magazine. At home a part-used magazine is swapped for a full one and the rounds go back in the stores. In a fight, reloading drops whatever was left in the old clip. Energy weapons take no clips, but every shot heats them, and fired too fast they shut down for a turn or two. Alien guns can't be issued until they've been researched. Win a fight and you bring your dead's kit home; lose and it stays where they fell. Used medikits are restocked at home for a unit of medicine.</p>
         </div>
       </div>
 
@@ -299,6 +319,7 @@
           <button type="button" data-mode="heal" title="Medikit: yourself or someone next to you (H)">Medikit</button>
           <button type="button" data-mode="face" title="Turn to face a tile, 1 TU per 45° (F)">Turn</button>
           <button type="button" id="kneel" title="Kneel or stand (K)">Kneel</button>
+          <button type="button" id="reload" title="Reload (R)">Reload</button>
         </div>
         <div class="turnbar">
           <button type="button" id="nextUnit" title="Next unit with time left (N)">Next unit</button>

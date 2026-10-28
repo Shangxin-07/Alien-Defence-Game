@@ -3,7 +3,8 @@ import { Color, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3, WebGLRend
 import { closeBase, openBase } from "./base";
 import { ROOMS } from "./base/rooms";
 import { BaseRecord, Campaign, Completion, GRANT, nmiToRadians } from "./campaign";
-import { closeCombat, openCombat } from "./combat";
+import { ARMOURS, GEAR, GUNS, GearId, GunId, MAX_CLIPS, MEDIKIT_COST, Request, describeKit, kitAfter, noKit } from "./armoury";
+import { Gear, closeCombat, openCombat } from "./combat";
 import { WANT_TEXT } from "./recruit";
 import type { Run } from "./scavenge";
 import { CAR_SCRAP, CAR_SEATS, HOUR_MS, MAX_MECHANICS, TRAIL_HOURS, Travel, freshness, travelHours, tripFuel } from "./sightings";
@@ -19,7 +20,7 @@ import { Globe } from "./geoscape/globe";
 import { GlobeLabels } from "./geoscape/labels";
 import { buildMapTextures } from "./geoscape/mapTextures";
 import { OrbitView } from "./geoscape/orbitView";
-import { JOB_NAMES, Job, buildSkill, fitToWork, project, rollBuild } from "./staff";
+import { JOB_NAMES, Job, Person, buildSkill, fitToWork, project, rollBuild } from "./staff";
 import { adaptReads, adaptSquad } from "./tactical/adapt";
 import { readSquad } from "./tactical/aliens";
 import { lightRead, prologueCity, rollForce, startAmbush, startPrologue } from "./tactical/prologue";
@@ -220,6 +221,9 @@ function refreshBases() {
   const spoils = $("spoils");
   spoils.hidden = !pro?.recovered.length;
   $("openStaff").hidden = !campaign.staff.length;
+  $("openArmoury").hidden = !campaign.staff.length;
+  $("armourySummary").textContent = armourySummary();
+  $("armourySummary").className = campaign.staff.some((p) => campaign.kitWarnings(p).some((w) => /No gun|No ammo/.test(w))) ? "meta bad" : "meta";
   const started = !!campaign.bases.length;
   $("suppliesRow").hidden = !started;
   $("openScavenge").hidden = !started;
@@ -239,7 +243,7 @@ function refreshBases() {
       .join(" · ") || "Nobody waiting";
   const s = campaign.supplies;
   const days = campaign.foodDays;
-  $("globeSupplies").textContent = `${s.food} food (${days === Infinity ? "—" : `${days}d`}) · ${s.medicine} med · ${s.scrap} scrap · ${s.fuel} fuel`;
+  $("globeSupplies").textContent = `${s.food} food (${days === Infinity ? "—" : `${days}d`}) · ${s.medicine} med · ${s.scrap} scrap · ${s.fuel} fuel · ${s.ammo} clips`;
   $("globeSupplies").className = days < 3 ? "bad" : "";
   const scavs = campaign.runs.filter(scavenging);
   $("scavengeSummary").textContent = scavs.length
@@ -465,6 +469,94 @@ $("staffModal").addEventListener("click", (e) => {
   if (e.target === $("staffModal")) $("staffModal").hidden = true;
 });
 
+// ---------- Armoury ----------
+/** Warnings on someone's kit, as one line for a team list. Empty when there's nothing to fix. */
+function kitWarn(p: Person): string {
+  const w = campaign.kitWarnings(p).filter((x) => !/as asked/.test(x));
+  return w.length ? ` · ⚠ ${w.join("; ")}` : "";
+}
+
+function armourySummary(): string {
+  const warned = campaign.staff.filter((p) => campaign.kitWarnings(p).some((w) => !/as asked/.test(w))).length;
+  const guns = GUNS.reduce((n, g) => n + campaign.armoury[g], 0);
+  return [`${campaign.supplies.ammo} clips`, guns ? `${guns} spare gun${guns === 1 ? "" : "s"}` : "", warned ? `${warned} with problems` : ""].filter(Boolean).join(" · ");
+}
+
+function refreshArmoury() {
+  const a = campaign.armoury;
+  const s = campaign.supplies;
+  const shelf = (ids: readonly GearId[]) => ids.filter((g) => a[g]).map((g) => `${a[g]} ${GEAR[g].name.toLowerCase()}`).join(", ") || "none";
+  $("storeRows").innerHTML = `
+    <div class="row"><span>Spare clips</span><span${s.ammo ? "" : ' class="bad"'}>${s.ammo}${campaign.looseClips > 0.01 ? `, and loose rounds worth ${Math.round(campaign.looseClips * 100)}% of a clip` : ""}</span></div>
+    <div class="row"><span>Guns</span><span>${escape(shelf(GUNS))}</span></div>
+    <div class="row"><span>Armour</span><span>${escape(shelf(ARMOURS))}</span></div>
+    <div class="row"><span>Kit</span><span>${escape(shelf(["stunBaton", "medkit"]))}</span></div>`;
+  const reason = campaign.checkMedikit();
+  ($("makeMedikit") as HTMLButtonElement).disabled = !!reason;
+  $("medikitOdds").textContent = reason ?? `${MEDIKIT_COST} medicine of your ${s.medicine}`;
+  $("armouryWarnings").innerHTML = campaign.armouryWarnings().map((w) => `<li>${escape(w)}</li>`).join("");
+  const list = $("loadoutList");
+  list.replaceChildren();
+  for (const p of campaign.staff) {
+    const r = campaign.requestOf(p);
+    const li = document.createElement("li");
+    li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div><div class="warn"></div></div>
+      <div class="pick">
+        <select aria-label="Gun"></select>
+        <select aria-label="Spare clips"></select>
+        <label><input type="checkbox" data-k="armour" /> Armour</label>
+        <label><input type="checkbox" data-k="baton" /> Baton</label>
+        <label><input type="checkbox" data-k="medkit" /> Medikit</label>
+        <button type="button" class="quiet">Default</button>
+      </div>`;
+    li.querySelector("b")!.textContent = p.name;
+    li.querySelector(".dim")!.textContent = p.role;
+    li.querySelector(".meta")!.textContent = `${p.away ? "Out, carrying " : "Carries "}${describeKit(p.kit ?? noKit())}`;
+    li.querySelector(".warn")!.textContent = campaign.kitWarnings(p).join(" · ");
+    const [gunSel, clipSel] = li.querySelectorAll("select");
+    const guns: [Request["gun"], string][] = [["best", "Best gun going"], ...GUNS.map((g): [GunId, string] => [g, GEAR[g].name]), ["none", "No gun"]];
+    for (const [v, label] of guns) gunSel.add(new Option(label, v));
+    gunSel.value = r.gun;
+    for (let n = 0; n <= MAX_CLIPS; n++) clipSel.add(new Option(`${n} spare clip${n === 1 ? "" : "s"}`, String(n)));
+    clipSel.value = String(r.clips);
+    const boxes = li.querySelectorAll<HTMLInputElement>("input[data-k]");
+    for (const b of boxes) b.checked = r[b.dataset.k as "armour" | "baton" | "medkit"];
+    const change = () => {
+      const next: Request = { ...r, gun: gunSel.value as Request["gun"], clips: Number(clipSel.value) };
+      for (const b of boxes) next[b.dataset.k as "armour" | "baton" | "medkit"] = b.checked;
+      campaign.setRequest(p.id, next);
+      persist();
+      refresh();
+    };
+    gunSel.addEventListener("change", change);
+    clipSel.addEventListener("change", change);
+    for (const b of boxes) b.addEventListener("change", change);
+    const reset = li.querySelector("button")!;
+    reset.hidden = !p.request;
+    reset.title = "Back to the usual loadout for their role";
+    reset.addEventListener("click", () => {
+      campaign.resetRequest(p.id);
+      persist();
+      refresh();
+    });
+    list.appendChild(li);
+  }
+}
+
+$("openArmoury").addEventListener("click", () => {
+  refreshArmoury();
+  $("armouryModal").hidden = false;
+});
+$("closeArmoury").addEventListener("click", () => ($("armouryModal").hidden = true));
+$("armouryModal").addEventListener("click", (e) => {
+  if (e.target === $("armouryModal")) $("armouryModal").hidden = true;
+});
+$("makeMedikit").addEventListener("click", () => {
+  campaign.makeMedikit();
+  persist();
+  refresh();
+});
+
 // ---------- Scavenging ----------
 /** Runs that belong on the scavenging panel: out for supplies, or searching for places. */
 const scavenging = (r: Run) => !r.recruit && !r.call && !r.repair;
@@ -481,10 +573,11 @@ function refreshScavenge() {
     <div class="row"><span>Food</span><span${days < 3 ? ' class="bad"' : ""}>${s.food}, ${days === Infinity ? "nobody to feed" : `${days} day${days === 1 ? "" : "s"} for ${campaign.staff.length}`}</span></div>
     <div class="row"><span>Medicine</span><span>${s.medicine}</span></div>
     <div class="row"><span>Scrap</span><span>${s.scrap} (worth ${money(s.scrap * 10_000)} in rooms)</span></div>
-    <div class="row"><span>Fuel</span><span>${s.fuel}</span></div>`;
+    <div class="row"><span>Fuel</span><span>${s.fuel}</span></div>
+    <div class="row"><span>Ammo</span><span>${s.ammo} spare clip${s.ammo === 1 ? "" : "s"} in the stores</span></div>`;
   const market = $("marketRows");
   market.replaceChildren();
-  for (const kind of ["food", "medicine", "fuel"] as Traded[]) {
+  for (const kind of ["food", "medicine", "fuel", "ammo"] as Traded[]) {
     const n = MARKET_LOT[kind];
     const cost = campaign.buyCost(kind, n);
     const row = document.createElement("div");
@@ -571,7 +664,7 @@ function refreshScavenge() {
     box.disabled = !free || (!box.checked && runTeam.size >= (runSite === "search" ? MAX_SEARCHERS : MAX_TEAM));
     li.querySelector("b")!.textContent = p.name;
     li.querySelector(".dim")!.textContent = p.role;
-    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !free ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`} · HP ${p.health}/${p.stats.health}`;
+    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !free ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`} · HP ${p.health}/${p.stats.health} · ${describeKit(p.kit ?? noKit())}${kitWarn(p)}`;
     box.addEventListener("change", () => {
       if (box.checked) runTeam.add(p.id);
       else runTeam.delete(p.id);
@@ -662,7 +755,7 @@ function refreshSightings() {
     box.disabled = !free || (!box.checked && callTeam.size >= (travelBy === "car" ? CAR_SEATS : MAX_TEAM));
     li.querySelector("b")!.textContent = p.name;
     li.querySelector(".dim")!.textContent = p.role;
-    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !free ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`} · HP ${p.health}/${p.stats.health}`;
+    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !free ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`} · HP ${p.health}/${p.stats.health} · ${describeKit(p.kit ?? noKit())}${kitWarn(p)}`;
     box.addEventListener("change", () => {
       if (box.checked) callTeam.add(p.id);
       else callTeam.delete(p.id);
@@ -757,7 +850,7 @@ function refreshRecruit() {
     li.querySelector("b")!.textContent = c.name;
     li.querySelector(".dim")!.textContent = c.role;
     const left = c.until - campaign.day;
-    li.querySelector(".meta")!.textContent = `build ${c.build.toFixed(2)} · research ${c.aptitude.toFixed(2)} · HP ${c.stats.health} · aim ${c.stats.accuracy} · waits ${left <= 0 ? "until tomorrow" : `${left} more day${left === 1 ? "" : "s"}`}`;
+    li.querySelector(".meta")!.textContent = `build ${c.build.toFixed(2)} · research ${c.aptitude.toFixed(2)} · HP ${c.stats.health} · aim ${c.stats.accuracy} · waits ${left <= 0 ? "until tomorrow" : `${left} more day${left === 1 ? "" : "s"}`} · brings ${c.kit ? (describeKit(c.kit) === "unarmed" ? "nothing" : describeKit(c.kit).replace(/^unarmed, /, "")) : "nothing"}`;
     li.querySelector(".want")!.textContent = `Wants ${WANT_TEXT[c.wants](c.amount)}`;
     const reason = campaign.checkCandidate(c.id);
     const yes = li.querySelector(".yes") as HTMLButtonElement;
@@ -882,7 +975,7 @@ function checkAmbush() {
   reads.unshift(`${solarTime(city.lon, campaign.time)} local in ${city.name}. ${lightRead(light)}`);
   $("ambushBody").innerHTML = `<p>${intro}</p>
     <ul class="reads">${reads.map((r) => `<li>${escape(r)}</li>`).join("")}</ul>
-    <ul>${team.map((p) => `<li><b>${escape(p.name)}</b> <span class="dim">${escape(p.role)}, ${p.health}/${p.stats.health} HP</span></li>`).join("")}</ul>
+    <ul>${team.map((p) => `<li><b>${escape(p.name)}</b> <span class="dim">${escape(p.role)}, ${p.health}/${p.stats.health} HP, ${escape(describeKit(p.kit ?? noKit()))}</span>${campaign.kitWarnings(p).length ? `<div class="warn">⚠ ${escape(campaign.kitWarnings(p).join("; "))}</div>` : ""}</li>`).join("")}</ul>
     <p class="dim">${odds}</p>`;
   box.hidden = false;
 }
@@ -926,7 +1019,7 @@ $("ambushFight").addEventListener("click", () => {
         outcome: r.outcome,
         recovered: r.recovered,
         race,
-        people: r.people.map((p) => ({ id: p.id, health: p.health })),
+        people: r.people.map((p) => ({ id: p.id, health: p.health, kit: kitAfter(campaign.staff.find((s) => s.id === p.id)?.kit ?? noKit(), p.gear) })),
         tally: r.tally,
         commanderDown: r.commanderDown,
       });
@@ -972,9 +1065,13 @@ function playPrologue() {
   };
   const prologue = startPrologue(city, seed);
   // Research aptitude is a coin toss, not their old job: anyone can learn anything. Their old job does make some handier with a shovel.
-  const enlist = (people: { name: string; role: string; stats: Stats; health: number }[]) =>
+  // They keep what they walked out with: whatever is left in their guns, and their medikit.
+  const enlist = (people: { name: string; role: string; stats: Stats; health: number; gear: Gear }[]) =>
     campaign.enlist(
-      people.map((p) => ({ ...p, stats: { ...p.stats }, aptitude: Math.round((0.8 + Math.random() * 0.4) * 100) / 100, build: rollBuild(p.role, Math.random) })),
+      people.map((p) => ({
+        name: p.name, role: p.role, stats: { ...p.stats }, health: p.health, kit: kitAfter(noKit(), p.gear),
+        aptitude: Math.round((0.8 + Math.random() * 0.4) * 100) / 100, build: rollBuild(p.role, Math.random),
+      })),
     );
   openCombat({
     prologue,
@@ -990,7 +1087,7 @@ function playPrologue() {
     },
     skip: () => {
       if (!campaign.prologue) campaign.recordPrologue({ city: city.name, outcome: "skipped", recovered: [], survivors: 0, turns: 0 });
-      enlist(prologue.battle.humans);
+      enlist(prologue.battle.humans.map((u) => ({ ...u, gear: u })));
       back();
     },
   });

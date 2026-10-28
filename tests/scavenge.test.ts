@@ -30,7 +30,9 @@ function camp(roll = 0.99): Campaign {
 describe("food", () => {
   it("starts with about a week for four, and everyone eats every day", () => {
     const c = camp();
-    expect(c.supplies).toEqual(START_SUPPLIES);
+    // The spare clips are handed straight out to whoever asked for them.
+    expect({ ...c.supplies, ammo: START_SUPPLIES.ammo }).toEqual(START_SUPPLIES);
+    expect(c.supplies.ammo + c.staff.reduce((n, p) => n + p.kit!.clips, 0)).toBeGreaterThanOrEqual(START_SUPPLIES.ammo);
     expect(c.foodDays).toBe(7);
     c.advanceDays(2);
     expect(c.supplies.food).toBe(START_SUPPLIES.food - 8);
@@ -135,8 +137,8 @@ describe("scavenging runs", () => {
 
   it("starts out knowing one place of each kind, with a fixed stock", () => {
     const c = camp();
-    expect(c.places.map((p) => p.kind)).toEqual(["homes", "grocery", "pharmacy", "hardware", "industrial"]);
-    expect(c.findPlace("homes")!.stock).toEqual({ food: 40, medicine: 6, scrap: 25, fuel: 10 });
+    expect(c.places.map((p) => p.kind)).toEqual(["homes", "grocery", "pharmacy", "hardware", "industrial", "police"]);
+    expect(c.findPlace("homes")!.stock).toEqual({ food: 40, medicine: 6, scrap: 25, fuel: 10, ammo: 0, arms: 0 });
   });
 });
 
@@ -159,7 +161,7 @@ describe("searching for new places", () => {
     expect(() => c.startSearch(ids.slice(0, 3), 1)).toThrow(/2/);
     c.startSearch(ids.slice(0, 1), 1);
     c.advanceDays(1);
-    expect(c.places.length).toBe(5);
+    expect(c.places.length).toBe(6);
     expect(c.news.some((n) => /nowhere new/.test(n))).toBe(true);
   });
 

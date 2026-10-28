@@ -1,3 +1,7 @@
+import {
+  GEAR, GUNS, GearId, Kit, MEDIKIT_COST, MEDIKIT_RESTOCK, Quarters, Request, Stores, defaultRequest, arrivalKit, emptyStores, kitWarnings,
+  legacyKit, noKit, outfit, rollArms, usable,
+} from "./armoury";
 import { BaseLayout, Builder, Item, SavedBase, Site } from "./base/layout";
 import { CITIES, City } from "./geoscape/cities";
 import { CAMPAIGN_START } from "./geoscape/clock";
@@ -84,8 +88,8 @@ export interface AmbushResult {
   recovered?: string[];
   /** Who you fought, so your people learn to read them. */
   race?: RaceId;
-  /** Survivors by person id, with what health they have left. */
-  people: { id: number; health: number }[];
+  /** Survivors by person id, with what health they have left and what they came out carrying. */
+  people: { id: number; health: number; kit?: Kit }[];
   /** How your people fought, for the aliens to learn from. */
   tally?: Tally;
   /** Whether the one giving the orders went down: a race learns less from a fight it lost its commander in. */
@@ -122,6 +126,9 @@ interface SavedCampaign {
   nextCall?: number;
   nextVehicle?: number;
   crops?: Record<string, number>;
+  /** Missing in saves from before the armoury existed. */
+  armoury?: Partial<Stores>;
+  looseClips?: number;
   /** Missing in saves from before the prologue existed. */
   prologue?: PrologueRecord | null;
   /** Missing in saves from before staff existed. */
@@ -193,7 +200,11 @@ export class Campaign {
   /** What each race has learned about how you fight. */
   learned: Partial<Record<RaceId, Habits>> = {};
   /** How far each black-market price has been pushed up: 1 is the going rate. */
-  market: Record<Traded, number> = { food: 1, medicine: 1, fuel: 1 };
+  market: Record<Traded, number> = { food: 1, medicine: 1, fuel: 1, ammo: 1 };
+  /** Guns, armour and kit on the shelves, not counting spare clips, which are in the supplies. */
+  armoury: Stores = emptyStores();
+  /** Part-used clips emptied back into the stores, in clips. Every whole one is repacked. */
+  looseClips = 0;
   /** Days each hydroponic farm has been running, by "base:uid". */
   crops: Record<string, number> = {};
   /** Sightings people have called in, including ones not seen yet (they show from their `at`). */
@@ -238,6 +249,78 @@ export class Campaign {
     return this.staff.reduce((n, p) => n + 1 + (p.dependants ?? 0), 0);
   }
 
+  // ---------- Armoury ----------
+
+  /** What someone has asked the quartermaster for: their own request, or their role's default. */
+  requestOf(p: Person): Request {
+    return p.request ?? defaultRequest(p.role);
+  }
+
+  /** The stores as the quartermaster sees them. Write them back with `stow` after any change. */
+  private quarters(): Quarters {
+    return { stores: this.armoury, ammo: this.supplies.ammo, loose: this.looseClips, medicine: this.supplies.medicine, researched: this.research.done };
+  }
+
+  private stow(q: Quarters) {
+    this.supplies.ammo = q.ammo;
+    this.looseClips = q.loose;
+    this.supplies.medicine = q.medicine;
+  }
+
+  /** Fills everyone's request from the stores, in staff order. People who are out keep what they took. */
+  quartermaster(): void {
+    const q = this.quarters();
+    for (const p of this.staff) {
+      p.kit ??= legacyKit(p.role);
+      if (!p.away) outfit(p.kit, this.requestOf(p), q);
+    }
+    this.stow(q);
+  }
+
+  /** Changes what someone asks for, and fills it at once if they're home. */
+  setRequest(id: number, request: Request): void {
+    const p = this.person(id);
+    if (!p) return;
+    p.request = { ...request };
+    this.quartermaster();
+  }
+
+  /** Back to the role's default. */
+  resetRequest(id: number): void {
+    const p = this.person(id);
+    if (!p) return;
+    delete p.request;
+    this.quartermaster();
+  }
+
+  /** What's wrong with someone's kit: no gun, no ammo, better kit left on the shelf. */
+  kitWarnings(p: Person): string[] {
+    return kitWarnings(p.kit ?? noKit(), this.requestOf(p), { ...this.quarters(), stores: { ...this.armoury } });
+  }
+
+  /** Warnings about the stores as a whole: alien guns nobody can use until they're researched. */
+  armouryWarnings(): string[] {
+    return GUNS.filter((g) => this.armoury[g] && !usable(g, this.quarters())).map((g) => `${GEAR[g].name} in the stores: research it before anyone can use it`);
+  }
+
+  checkMedikit(): string | null {
+    return this.supplies.medicine < MEDIKIT_COST ? `Needs ${MEDIKIT_COST} medicine` : null;
+  }
+
+  /** Makes up a medikit out of the medicine stores. */
+  makeMedikit(): void {
+    const reason = this.checkMedikit();
+    if (reason) throw new Error(reason);
+    this.supplies.medicine -= MEDIKIT_COST;
+    this.armoury.medkit++;
+    this.quartermaster();
+  }
+
+  /** Puts gear into the stores. */
+  stock(items: GearId[]): void {
+    for (const g of items) this.armoury[g]++;
+  }
+
   /** Sends one or two people out to find recruits. Works like a run, and can go wrong like one. */
   startRecruiting(team: number[], days: number): Run {
     if (team.length > MAX_RECRUITERS) throw new Error(`No more than ${MAX_RECRUITERS} recruiters at once`);
@@ -264,6 +347,7 @@ export class Campaign {
     const p: Person = {
       id: this.nextPerson++, name: c.name, role: c.role, stats: { ...c.stats }, health: c.stats.health, aptitude: c.aptitude, build: c.build,
       base, job: "construction", loyalty: c.wants === "none" ? DRIFTER_LOYALTY : RECRUIT_LOYALTY,
+      kit: c.kit ? { ...c.kit } : arrivalKit(c.role, this.rand),
     };
     if (c.wants === "food") this.supplies.food -= c.amount;
     if (c.wants === "family") p.dependants = c.amount;
@@ -271,6 +355,7 @@ export class Campaign {
     if (c.wants === "revenge") this.pledges.push({ person: p.id, wants: "revenge", amount: 0, due: this.day + LONG_PROMISE_DAYS, kills: this.kills });
     if (c.wants === "bed") this.pledges.push({ person: p.id, wants: "bed", amount: 0, due: this.day + LONG_PROMISE_DAYS });
     this.staff.push(p);
+    this.quartermaster();
     for (const b of this.bases) b.layout.setCrew(this.builders(b.id));
     return p;
   }
@@ -505,6 +590,8 @@ export class Campaign {
   startRun(where: number | SiteId, team: number[], days: number): Run {
     const reason = this.checkRun(where, team, days);
     if (reason) throw new Error(reason);
+    // Everyone takes what they asked for before they go.
+    this.quartermaster();
     const place = placeless(where) ? undefined : this.findPlace(where)!;
     const site = place?.kind ?? (where as SiteId);
     const run: Run = { id: this.nextRun++, site, team: [...new Set(team)], daysLeft: days, loot: emptySupplies() };
@@ -522,18 +609,29 @@ export class Campaign {
   resolveAmbush(result: AmbushResult): void {
     const run = this.ambush;
     if (!run) throw new Error("No fight to resolve");
-    const alive = new Map(result.people.map((p) => [p.id, p.health]));
+    const alive = new Map(result.people.map((p) => [p.id, p]));
     const dead = run.team.filter((id) => !alive.has(id)).map((id) => this.person(id)!);
-    for (const p of dead) this.staff.splice(this.staff.indexOf(p), 1);
-    for (const [id, health] of alive) {
+    const won = result.outcome === "captured" || result.outcome === "killed";
+    for (const p of dead) {
+      this.staff.splice(this.staff.indexOf(p), 1);
+      // Hold the ground and you can bring their kit home. What was in their gun is gone.
+      const k = p.kit;
+      if (won && k) this.stock([k.gun, k.armour, k.baton ? "stunBaton" : null, k.medkit !== null ? "medkit" : null].filter((g): g is GearId => !!g));
+    }
+    for (const [id, r] of alive) {
       const p = this.person(id);
-      if (p) p.health = Math.max(1, Math.min(p.stats.health, health));
+      if (!p) continue;
+      p.health = Math.max(1, Math.min(p.stats.health, r.health));
+      if (r.kit) p.kit = r.kit;
     }
     run.team = run.team.filter((id) => alive.has(id));
     const spoils = AMBUSH_SPOILS[result.outcome];
     const items = result.recovered ?? (spoils.item ? [spoils.item] : []);
     for (const item of items) if (!this.trophies.includes(item)) this.trophies.push(item);
-    this.kills += items.length;
+    // Their guns go on the shelf; the bodies and prisoners are what count as kills.
+    const guns = items.map((i) => GUNS.find((g) => GEAR[g].name === i)).filter((g): g is (typeof GUNS)[number] => !!g);
+    this.stock(guns);
+    this.kills += items.length - guns.length;
     if (result.race) this.encounters[result.race] = (this.encounters[result.race] ?? 0) + 1;
     if (result.race && result.tally) this.learnFrom(result.race, result.tally, result.outcome, !!result.commanderDown);
     if (items.some((i) => i.includes("ommander"))) this.news.push("You brought down one of their leaders");
@@ -587,7 +685,11 @@ export class Campaign {
   private endRun(run: Run, share = 1) {
     const kept = emptySupplies();
     addSupplies(kept, run.loot, share);
+    // Arms are sorted onto the armoury shelves.
+    const arms = Array.from({ length: kept.arms }, () => rollArms(this.rand));
+    this.stock(arms);
     addSupplies(this.supplies, kept);
+    this.supplies.arms = 0;
     for (const id of run.team) {
       const p = this.person(id);
       if (p) delete p.away;
@@ -595,6 +697,7 @@ export class Campaign {
     const car = this.vehicles.find((v) => v.id === run.vehicle);
     if (car) delete car.away;
     this.runs.splice(this.runs.indexOf(run), 1);
+    this.quartermaster();
     if (!run.team.length) return;
     if (run.repair) {
       const name = carName(this.nextVehicle - 1);
@@ -612,13 +715,17 @@ export class Campaign {
     } else if (run.search) {
       const n = run.found ?? 0;
       this.news.push(`Back from searching${n ? `: ${n} new place${n === 1 ? "" : "s"} to scavenge` : ", with nowhere new"}`);
-    } else this.news.push(`Back from ${runWhere(run)}: ${describeSupplies(kept)}`);
+    } else {
+      const found = arms.length ? ` (${arms.map((g) => GEAR[g].name.toLowerCase()).join(", ")})` : "";
+      this.news.push(`Back from ${runWhere(run)}: ${describeSupplies(kept)}${found}`);
+    }
   }
 
   /** If everyone is gone, the council sends someone: losing people is never the end. */
   private backfill() {
     if (this.staff.length) return;
-    this.staff.push({ ...LIAISON, stats: { ...LIAISON.stats }, id: this.nextPerson++, base: this.bases[0]?.id ?? null, job: "construction" });
+    this.staff.push({ ...LIAISON, stats: { ...LIAISON.stats }, id: this.nextPerson++, base: this.bases[0]?.id ?? null, job: "construction", kit: legacyKit(LIAISON.role) });
+    this.quartermaster();
     this.news.push("With nobody left, the council sends a liaison");
   }
 
@@ -706,8 +813,11 @@ export class Campaign {
     const base = this.bases[0]?.id ?? null;
     // One keeps the notes, everyone else digs. The first job is getting underground.
     (people.length ? people : [LIAISON]).forEach((p, i) => {
-      this.staff.push({ ...p, stats: { ...p.stats }, id: this.nextPerson++, base, job: i === 0 ? "research" : "construction" });
+      this.staff.push({ ...p, stats: { ...p.stats }, id: this.nextPerson++, base, job: i === 0 ? "research" : "construction", kit: p.kit ? { ...p.kit } : legacyKit(p.role) });
     });
+    // The Hunter's gun, if it came home.
+    if (this.prologue?.recovered.includes(GEAR.plasmaPistol.name)) this.stock(["plasmaPistol"]);
+    this.quartermaster();
   }
 
   /** Everyone fit and on construction at a base. */
@@ -784,11 +894,19 @@ export class Campaign {
       }
       p.health = Math.min(p.stats.health, p.health + heal);
     }
+    // Used medikits get restocked at home, after the wounded have had their share.
+    for (const p of this.staff) {
+      const k = p.kit;
+      if (p.away || !k || k.medkit === null || k.medkit >= GEAR.medkit.tool!.uses || this.supplies.medicine < MEDIKIT_RESTOCK) continue;
+      this.supplies.medicine -= MEDIKIT_RESTOCK;
+      k.medkit = GEAR.medkit.tool!.uses;
+    }
     this.keepPromises(day);
     this.disloyal();
     for (let i = this.candidates.length - 1; i >= 0; i--) if (this.candidates[i].until < day) this.candidates.splice(i, 1);
     for (const run of [...this.runs]) if (!run.ambush) this.runDay(run);
     const id = this.research.active;
+    const armed = id ? GUNS.filter((g) => GEAR[g].research === id) : [];
     if (id) {
       const done = (this.research.progress[id] ?? 0) + this.researchRate();
       this.research.progress[id] = done;
@@ -796,6 +914,8 @@ export class Campaign {
         this.research.done.push(id);
         this.research.active = null;
         this.news.push(`Research complete: ${project(id).name}`);
+        // Alien guns on the shelf can be handed out now.
+        if (armed.some((g) => this.armoury[g])) this.quartermaster();
       }
     }
     const done: Completion[] = [];
@@ -930,6 +1050,8 @@ export class Campaign {
       nextCall: this.nextCall,
       nextVehicle: this.nextVehicle,
       crops: this.crops,
+      armoury: this.armoury,
+      looseClips: this.looseClips,
       bases: this.bases.map((b) => ({ ...b, layout: b.layout.save() })),
     };
   }
@@ -971,6 +1093,15 @@ export class Campaign {
     }
     for (const b of data.bases) c.bases.push({ ...b, layout: BaseLayout.load(b.layout) });
     for (const p of c.staff) if (p.base === null && c.bases[0]) p.base = c.bases[0].id;
+    c.armoury = { ...emptyStores(), ...data.armoury };
+    c.looseClips = data.looseClips ?? 0;
+    if (!data.armoury) {
+      // Saves from before the armoury: everyone keeps what their old job gave them, and someone remembers a police station.
+      for (const p of c.staff) p.kit ??= legacyKit(p.role);
+      if (data.prologue?.recovered.includes(GEAR.plasmaPistol.name)) c.stock(["plasmaPistol"]);
+      const station = startPlaces().find((p) => p.kind === "police")!;
+      c.places.push({ ...station, id: c.nextPlace++ });
+    }
     return c;
   }
 }

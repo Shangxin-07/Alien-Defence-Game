@@ -5,9 +5,12 @@ import { mulberry32 } from "./random";
 import {
   ALIEN_FOV,
   FireMode,
+  HEAT_MAX,
+  HEAT_RESTART,
   HUMAN_FOV,
   KNEEL_TU,
   Daylight,
+  RELOAD_PCT,
   SIGHT_DAY,
   STAND_TU,
   Side,
@@ -43,6 +46,11 @@ export interface Unit {
   kneeling: boolean;
   weapon: Weapon | null;
   ammo: number;
+  /** Spare clips carried. Any clip fits any gun. */
+  clips?: number;
+  /** How hot an energy weapon is, and whether it has shut down to cool. Human hands only. */
+  heat?: number;
+  overheated?: boolean;
   tools: { tool: Tool; uses: number }[];
   /** Gave away their position by firing this turn. */
   revealed: boolean;
@@ -162,6 +170,10 @@ const SHOT_REACH = 30;
 
 export const alive = (u: Unit) => u.health > 0;
 export const conscious = (u: Unit) => u.health > 0 && u.stun < u.health;
+/** Energy weapons heat up in human hands instead of running dry. */
+export const usesHeat = (u: Unit) => u.side === "human" && !!u.weapon?.heat;
+/** Has a shot in the gun: rounds in the magazine, or an energy weapon that hasn't shut down. */
+export const canFire = (u: Unit) => !!u.weapon && (usesHeat(u) ? !u.overheated : u.ammo > 0);
 
 /**
  * One battle, played out in turns. Every action spends time units, updates the state at once
@@ -498,7 +510,8 @@ export class Battle {
     const no = (reason: string): ShotPreview => ({ chance: 0, tu, reason, cover: false });
     if (!w || !m) return no("Can't fire that way");
     if (u.x === target.x && u.y === target.y) return no("Pick a target");
-    if (u.ammo <= 0) return no("Out of ammo");
+    if (usesHeat(u) && u.overheated) return no("Overheated: cooling down");
+    if (!usesHeat(u) && u.ammo <= 0) return no(u.clips ? "Empty: reload" : "Out of ammo");
     if (tu > u.tu) return no("Not enough time units");
     if (!this.map.clearLine(u, target)) return no("No line of fire");
     const base = baseHitChance(this.accuracyOf(u) * this.drill(u, target), m, w, dist(u, target), u.kneeling, u.wounds * 4);
@@ -532,6 +545,31 @@ export class Battle {
       this.react(u);
     }
     this.check();
+    return this.flush();
+  }
+
+  /** Why this unit can't reload now, or null, with what it costs. */
+  previewReload(id: number): { tu: number; reason: string | null } {
+    const u = this.unit(id);
+    const tu = tuCost(u.stats.tu, RELOAD_PCT);
+    const no = (reason: string) => ({ tu, reason });
+    if (!u.weapon) return no("No gun");
+    if (usesHeat(u)) return no("Energy weapons don't take clips");
+    if (!u.clips) return no("No spare clips");
+    if (u.ammo >= u.weapon.ammo) return no("Already full");
+    if (tu > u.tu) return no("Not enough time units");
+    return { tu, reason: null };
+  }
+
+  /** Swaps in a fresh clip. Whatever was left in the old one is dropped. */
+  reload(id: number): BattleEvent[] {
+    this.events = [];
+    const u = this.unit(id);
+    if (!this.mayAct(u) || this.previewReload(id).reason) return this.flush();
+    u.tu -= tuCost(u.stats.tu, RELOAD_PCT);
+    u.clips = (u.clips ?? 0) - 1;
+    u.ammo = u.weapon!.ammo;
+    this.events.push({ kind: "say", text: `${u.name} reloads. ${u.clips ? `${u.clips} spare clip${u.clips === 1 ? "" : "s"} left.` : "That was the last clip."}`, tone: u.clips ? undefined : "bad" });
     return this.flush();
   }
 
@@ -701,8 +739,8 @@ export class Battle {
     if (!conscious(mover)) return;
     const moverScore = this.reactionsOf(mover) * (mover.tu / mover.stats.tu);
     for (const e of this.units) {
-      if (e.side === mover.side || !conscious(e) || !e.weapon || e.ammo <= 0 || this.outcome) continue;
-      const snap = e.weapon.modes.snap;
+      if (e.side === mover.side || !conscious(e) || !canFire(e) || this.outcome) continue;
+      const snap = e.weapon!.modes.snap;
       if (!snap) continue;
       const cost = tuCost(e.stats.tu, snap.tuPct) + turnSteps(e.facing, facingTo(e, mover)) * TURN_TU;
       if (cost > e.tu || !this.canSee(e, mover, mover.revealed)) continue;
@@ -732,8 +770,12 @@ export class Battle {
     u.tu -= tuCost(u.stats.tu, m.tuPct);
     u.revealed = true;
     const aimedAt = this.unitAt(target.x, target.y);
-    for (let s = 0; s < m.shots && u.ammo > 0; s++) {
-      u.ammo--;
+    const hot = usesHeat(u);
+    for (let s = 0; s < m.shots && canFire(u); s++) {
+      if (hot) {
+        u.heat = (u.heat ?? 0) + w.heat!.shot;
+        if (u.heat >= HEAT_MAX) u.overheated = true;
+      } else u.ammo--;
       const chance = baseHitChance(this.accuracyOf(u) * this.drill(u, target), m, w, dist(u, target), u.kneeling, u.wounds * 4);
       const onTarget = this.rand() < chance;
       let end = target;
@@ -781,7 +823,8 @@ export class Battle {
       if (hit) this.damage(hit, w.power, u);
       if (this.outcome) return;
     }
-    if (u.ammo <= 0) this.events.push({ kind: "say", text: `${u.name} is out of ammo.`, tone: "bad" });
+    if (hot && u.overheated) this.events.push({ kind: "say", text: `${u.name}'s ${w.name.toLowerCase()} overheats and shuts down.`, tone: "bad" });
+    else if (!hot && u.ammo <= 0) this.events.push({ kind: "say", text: u.clips ? `${u.name}'s clip is empty.` : `${u.name} is out of ammo.`, tone: "bad" });
   }
 
   private damage(t: Unit, power: number, by: Unit) {
@@ -825,6 +868,13 @@ export class Battle {
         this.events.push({ kind: "damage", unit: u.id, amount: u.wounds, stun: false, dead, out: false });
         if (side === "human") this.events.push({ kind: "say", text: dead ? `${u.name} bleeds out.` : `${u.name} is bleeding (−${u.wounds}).`, tone: "bad" });
         if (dead && side === "human") for (const h of this.humans) if (alive(h) && h !== u) h.morale = Math.max(0, h.morale - moraleLoss(h.stats.bravery));
+      }
+      if (u.heat && u.weapon?.heat) {
+        u.heat = Math.max(0, u.heat - u.weapon.heat.cool);
+        if (u.overheated && u.heat <= HEAT_RESTART) {
+          u.overheated = false;
+          if (side === "human" && conscious(u)) this.events.push({ kind: "say", text: `${u.name}'s ${u.weapon.name.toLowerCase()} has cooled and is working again.` });
+        }
       }
       if (!conscious(u)) continue;
       u.tu = u.stats.tu;

@@ -43,10 +43,21 @@ export interface Weapon {
   range: number;
   /** Accuracy lost per tile beyond range, percent points. */
   falloff: number;
-  /** Rounds in a magazine; reloading is not modelled yet, so this is the whole supply. */
+  /** Rounds in a magazine. A spare clip fills any gun's magazine: for now, all bullets fit all guns. */
   ammo: number;
   alien?: boolean;
+  /**
+   * Energy weapons in human hands have no clips: every shot heats them up, and past HEAT_MAX they
+   * shut down until they cool. The aliens know how to vent their own guns, so this is ours alone.
+   */
+  heat?: { shot: number; cool: number };
 }
+
+/** Heat at which an energy weapon shuts down, and the heat it has to cool to before it fires again. */
+export const HEAT_MAX = 100;
+export const HEAT_RESTART = 50;
+/** Swapping in a fresh clip, as a share of full time units. The part-used clip is dropped. */
+export const RELOAD_PCT = 25;
 
 export interface Tool {
   id: string;
@@ -94,6 +105,7 @@ export const WEAPONS: Record<string, Weapon> = {
     falloff: 2,
     ammo: 99,
     alien: true,
+    heat: { shot: 35, cool: 35 },
   },
   /** A Brute's gun: a wide, short spray of plasma. Deadly up close, wild beyond a few streets' width. */
   plasmaScatter: {
@@ -105,6 +117,7 @@ export const WEAPONS: Record<string, Weapon> = {
     falloff: 7,
     ammo: 99,
     alien: true,
+    heat: { shot: 45, cool: 35 },
   },
   /** A Shade's gun: quiet, long and very accurate, and it doesn't hit as hard. */
   needleRifle: {
@@ -116,6 +129,7 @@ export const WEAPONS: Record<string, Weapon> = {
     falloff: 1,
     ammo: 99,
     alien: true,
+    heat: { shot: 30, cool: 30 },
   },
 };
 
