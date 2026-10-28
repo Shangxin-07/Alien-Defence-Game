@@ -14,7 +14,7 @@ import { BIOMES, BIOME_ORDER, biomeAt } from "./geoscape/biomes";
 import { blocAt } from "./geoscape/blocs";
 import { CITIES } from "./geoscape/cities";
 import { GameClock, TIME_SPEEDS, formatClock } from "./geoscape/clock";
-import { DEG, LatLon, formatLatLon, latLonToVector, lightingAt, subsolarPoint, sunElevation, vectorToLatLon } from "./geoscape/geo";
+import { DEG, LatLon, daylightAt, formatLatLon, latLonToVector, lightingAt, solarTime, subsolarPoint, sunElevation, vectorToLatLon } from "./geoscape/geo";
 import { Globe } from "./geoscape/globe";
 import { GlobeLabels } from "./geoscape/labels";
 import { buildMapTextures } from "./geoscape/mapTextures";
@@ -22,7 +22,7 @@ import { OrbitView } from "./geoscape/orbitView";
 import { JOB_NAMES, Job, buildSkill, fitToWork, project, rollBuild } from "./staff";
 import { adaptReads, adaptSquad } from "./tactical/adapt";
 import { readSquad } from "./tactical/aliens";
-import { prologueCity, rollForce, startAmbush, startPrologue } from "./tactical/prologue";
+import { lightRead, prologueCity, rollForce, startAmbush, startPrologue } from "./tactical/prologue";
 
 const css = getComputedStyle(document.documentElement);
 const token = (name: string) => css.getPropertyValue(name).trim();
@@ -877,6 +877,9 @@ function checkAmbush() {
   const odds = run.call
     ? `Fight and you might bring home ${many ? "bodies or prisoners" : "a body or a prisoner"}, and what's left of the kit. Pull back and someone may get hurt getting away.`
     : "Fight it and you might bring home a body or a prisoner as well as the supplies. Run and you drop everything, and someone may get hurt getting away.";
+  const city = fightCity(run.team);
+  const light = daylightAt(city, campaign.time);
+  reads.unshift(`${solarTime(city.lon, campaign.time)} local in ${city.name}. ${lightRead(light)}`);
   $("ambushBody").innerHTML = `<p>${intro}</p>
     <ul class="reads">${reads.map((r) => `<li>${escape(r)}</li>`).join("")}</ul>
     <ul>${team.map((p) => `<li><b>${escape(p.name)}</b> <span class="dim">${escape(p.role)}, ${p.health}/${p.stats.health} HP</span></li>`).join("")}</ul>
@@ -895,8 +898,7 @@ $("ambushFight").addEventListener("click", () => {
   const run = campaign.ambush;
   if (!run) return;
   $("ambushModal").hidden = true;
-  const home = campaign.bases.find((b) => b.id === campaign.staff.find((p) => p.id === run.team[0])?.base) ?? campaign.bases[0];
-  const city = CITIES.find((c) => c.name === home?.city) ?? nearestCityTo(home);
+  const city = fightCity(run.team);
   const team = run.team.map((id) => campaign.staff.find((p) => p.id === id)!);
   screen.hidden = true;
   view.enabled = false;
@@ -904,7 +906,9 @@ $("ambushFight").addEventListener("click", () => {
   const seed = run.fightSeed ?? Math.floor(Math.random() * 2 ** 31);
   const race = rollForce(seed, !!run.call).race;
   const knowledge = campaign.knowledge(race);
-  const fight = startAmbush(city, seed, team, SITES[run.site].name, sighting, knowledge, campaign.learned[race]);
+  // The fight is fought in whatever light the globe shows there right now.
+  const light = daylightAt(city, campaign.time);
+  const fight = startAmbush(city, seed, team, SITES[run.site].name, sighting, knowledge, campaign.learned[race], light, solarTime(city.lon, campaign.time));
   const back = () => {
     closeCombat();
     screen.hidden = false;
@@ -932,6 +936,12 @@ $("ambushFight").addEventListener("click", () => {
     skip: () => {},
   });
 });
+
+/** Where a team's fight happens: the city their base hides under, or the nearest one. */
+function fightCity(team: number[]) {
+  const home = campaign.bases.find((b) => b.id === campaign.staff.find((p) => p.id === team[0])?.base) ?? campaign.bases[0];
+  return CITIES.find((c) => c.name === home?.city) ?? nearestCityTo(home);
+}
 
 /** The city a base hides under, or the nearest one to a remote base. */
 function nearestCityTo(b: BaseRecord | undefined) {

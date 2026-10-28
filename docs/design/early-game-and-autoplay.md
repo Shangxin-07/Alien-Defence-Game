@@ -397,7 +397,7 @@ Each race keeps a picture of how you fight, between **0 and 1** on three habits,
 
 | Habit | What it watches | What the race does about it |
 |---|---|---|
-| **Holding** | Time units left unspent at the end of your turns | Stops walking into your sights. It keeps outside the 9 tiles you see at night and takes the long shot, and goes round the side rather than down the street. |
+| **Holding** | Time units left unspent at the end of your turns | Stops walking into your sights. It keeps just outside what you can see (10 tiles at night, 15 at dusk or dawn; by day, 14 tiles off, where pistols and shotguns fall away) and takes the long shot, and goes round the side rather than down the street. |
 | **Pushing** | Time units spent, and how many of your shots were at 5 tiles or less | Waits for you to overreach. Against anyone who has spent 70% of their time units charging, it's twice as quick on the draw and aims 30% better. |
 | **Takedowns** | Swings of the stun baton | Shoots whoever carries a baton first. |
 
