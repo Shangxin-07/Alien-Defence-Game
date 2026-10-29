@@ -1,6 +1,6 @@
 import { batonGrudge } from "./adapt";
 import { AlienMind, Personality, RACES, firstLook } from "./aliens";
-import { DIRS, Point, TacMap, Thing, dist, facingTo, turnSteps } from "./map";
+import { DIRS, LinePoint, Point, TacMap, Thing, adjacent, dist, facingTo, lvl, pt, samePoint, turnSteps } from "./map";
 import { mulberry32 } from "./random";
 import {
   ALIEN_FOV,
@@ -35,6 +35,8 @@ export interface Unit {
   stats: Stats;
   x: number;
   y: number;
+  /** The level they're on; left out, the street. */
+  z?: number;
   facing: number;
   tu: number;
   health: number;
@@ -165,6 +167,8 @@ const OVERREACH = 0.3;
 const DAY_STANDOFF = 14;
 /** Health the alien grows back each turn. */
 export const ALIEN_REGEN = 2;
+/** How much less low cover hides you from someone shooting down from a floor above. */
+const PLUNGING = 0.5;
 /** Reaction fire and plain misses fly this far before they're spent. */
 const SHOT_REACH = 30;
 
@@ -214,11 +218,13 @@ export class Battle {
   tally: Tally = emptyTally();
   private rand: () => number;
   private events: BattleEvent[] = [];
+  /** Where your people stood and faced when `visible` was last worked out. */
+  private sightKey = "";
 
   constructor(readonly map: TacMap, readonly units: Unit[], seed = 1, scent: Point | null = null, readonly light: Daylight = "night") {
     this.rand = mulberry32(seed);
-    this.seen = new Uint8Array(map.w * map.h);
-    this.visible = new Uint8Array(map.w * map.h);
+    this.seen = new Uint8Array(map.plane * map.levels);
+    this.visible = new Uint8Array(map.plane * map.levels);
     for (const a of this.aliens) this.scent.set(a.id, scent);
     this.inCharge = this.aliens.find((a) => a.mind?.rank === "leader")?.id ?? null;
     this.nextUp = this.aliens.find((a) => a.mind?.rank === "second")?.id ?? null;
@@ -245,8 +251,8 @@ export class Battle {
     return this.units.find((u) => u.id === id)!;
   }
 
-  unitAt(x: number, y: number): Unit | undefined {
-    return this.units.find((u) => alive(u) && u.x === x && u.y === y);
+  unitAt(p: Point): Unit | undefined {
+    return this.units.find((u) => alive(u) && samePoint(u, p));
   }
 
   // ---------- Rewinding ----------
@@ -260,7 +266,7 @@ export class Battle {
       units: this.units.map(cloneUnit),
       seen: this.seen.slice(),
       visible: this.visible.slice(),
-      lastSeen: [...this.lastSeen].map(([id, p]) => [id, { ...p }]),
+      lastSeen: [...this.lastSeen].map(([id, p]) => [id, pt(p)]),
       inView: [...this.inView],
       scent: [...this.scent].map(([id, p]) => [id, p && { ...p }]),
       inCharge: this.inCharge,
@@ -310,6 +316,7 @@ export class Battle {
     reset(this.remarked, s.remarked);
     reset(this.focus, s.focus);
     s.things.forEach((t, i) => (this.map.thing[i] = t));
+    this.sightKey = "";
     this.tally = { ...s.tally };
     this.events = [];
   }
@@ -364,7 +371,7 @@ export class Battle {
 
   /** Aim against whoever walked into it. */
   drill(u: Unit, target: Point): number {
-    return this.braced(u) && this.overreached(this.unitAt(target.x, target.y)) ? CLOSE_DRILL : 1;
+    return this.braced(u) && this.overreached(this.unitAt(target)) ? CLOSE_DRILL : 1;
   }
 
   /** Reflexes against whoever walked into it. */
@@ -393,18 +400,25 @@ export class Battle {
     return this.light === "day" ? DAY_STANDOFF : this.sight + 1;
   }
 
-  /** Whether a unit can see a tile. Revealed targets (muzzle flash) can be seen in the dark. */
+  /**
+   * Whether a unit can see a tile, on its own level or another one. Revealed targets (muzzle flash)
+   * can be seen in the dark. Floors block sight; open air over the street and stairwells don't.
+   */
   canSee(u: Unit, p: Point, revealed = false): boolean {
     const d = dist(u, p);
     if (d < 1.5) return true;
     if (d > SIGHT_DAY) return false;
-    const lit = revealed || u.side === "alien" || this.map.lit[this.map.idx(p.x, p.y)] === 1;
+    const lit = revealed || u.side === "alien" || this.map.lit[this.map.idx(p.x, p.y, lvl(p))] === 1;
     if (!lit && d > this.sight) return false;
-    const fx = DIRS[u.facing].x;
-    const fy = DIRS[u.facing].y;
-    const cos = ((p.x - u.x) * fx + (p.y - u.y) * fy) / (d * Math.hypot(fx, fy));
-    const fov = u.side === "alien" ? ALIEN_FOV : HUMAN_FOV;
-    if (cos < Math.cos((fov * Math.PI) / 180) - 1e-9) return false;
+    // Which way it faces only matters across the map, not straight up or down a stairwell.
+    const across = Math.hypot(p.x - u.x, p.y - u.y);
+    if (across >= 1) {
+      const fx = DIRS[u.facing].x;
+      const fy = DIRS[u.facing].y;
+      const cos = ((p.x - u.x) * fx + (p.y - u.y) * fy) / (across * Math.hypot(fx, fy));
+      const fov = u.side === "alien" ? ALIEN_FOV : HUMAN_FOV;
+      if (cos < Math.cos((fov * Math.PI) / 180) - 1e-9) return false;
+    }
     return this.map.clearLine(u, p);
   }
 
@@ -415,27 +429,42 @@ export class Battle {
 
   /** Recomputes what your people can see. Returns the aliens that just came into view. */
   private updateVision(): Unit[] {
-    this.visible.fill(0);
-    for (const u of this.humans) {
-      if (!conscious(u)) continue;
-      for (let y = Math.max(0, u.y - SIGHT_DAY); y <= Math.min(this.map.h - 1, u.y + SIGHT_DAY); y++) {
-        for (let x = Math.max(0, u.x - SIGHT_DAY); x <= Math.min(this.map.w - 1, u.x + SIGHT_DAY); x++) {
-          const i = this.map.idx(x, y);
-          if (this.visible[i]) continue;
-          if (this.canSee(u, { x, y })) this.visible[i] = this.seen[i] = 1;
-        }
-      }
-    }
+    // What your people see only changes when one of them moves or turns, or a door opens: not
+    // every time an alien takes a step.
+    const key = this.humans.map((u) => (conscious(u) ? `${u.x},${u.y},${u.z ?? 0},${u.facing}` : "-")).join(";");
+    if (key !== this.sightKey) this.lookAround(key);
     const fresh: Unit[] = [];
     for (const a of this.aliens) {
       const now = alive(a) && this.spotted(a);
       if (now && !this.inView.has(a.id)) fresh.push(a);
       if (now) {
         this.inView.add(a.id);
-        this.lastSeen.set(a.id, { x: a.x, y: a.y });
+        this.lastSeen.set(a.id, pt(a));
       } else this.inView.delete(a.id);
     }
     return fresh;
+  }
+
+  /** Which tiles your people can see from where they stand. */
+  private lookAround(key: string) {
+    this.sightKey = key;
+    this.visible.fill(0);
+    const m = this.map;
+    for (const u of this.humans) {
+      if (!conscious(u)) continue;
+      for (let z = m.bottom; z <= m.top; z++) {
+        // Open sky and solid earth have nothing to see in them.
+        const other = z !== lvl(u);
+        for (let y = Math.max(0, u.y - SIGHT_DAY); y <= Math.min(m.h - 1, u.y + SIGHT_DAY); y++) {
+          for (let x = Math.max(0, u.x - SIGHT_DAY); x <= Math.min(m.w - 1, u.x + SIGHT_DAY); x++) {
+            const i = m.idx(x, y, z);
+            if (this.visible[i]) continue;
+            if (other && (m.ground[i] === "air" || m.ground[i] === "earth")) continue;
+            if (this.canSee(u, { x, y, z })) this.visible[i] = this.seen[i] = 1;
+          }
+        }
+      }
+    }
   }
 
   /** Spot events for aliens that just came into view, and what your people make of them. */
@@ -461,7 +490,7 @@ export class Battle {
   }
 
   private occupied(except: Unit): Set<number> {
-    return new Set(this.units.filter((o) => o !== except && alive(o)).map((o) => this.map.idx(o.x, o.y)));
+    return new Set(this.units.filter((o) => o !== except && alive(o)).map((o) => this.map.idx(o.x, o.y, lvl(o))));
   }
 
   /** Walks a unit along its cheapest route. Stops early if it spots the alien or is shot. */
@@ -470,7 +499,7 @@ export class Battle {
     const u = this.unit(id);
     if (!this.mayAct(u)) return this.flush();
     const { cost, prev } = this.reach(u);
-    if (!Number.isFinite(cost[this.map.idx(target.x, target.y)])) return this.flush();
+    if (!Number.isFinite(cost[this.map.idx(target.x, target.y, lvl(target))])) return this.flush();
     if (u.kneeling) this.setKneel(u, false);
     this.walk(u, this.map.route(prev, target));
     return this.flush();
@@ -509,7 +538,7 @@ export class Battle {
     const tu = m ? tuCost(u.stats.tu, m.tuPct) + turnSteps(u.facing, facingTo(u, target)) * TURN_TU : 0;
     const no = (reason: string): ShotPreview => ({ chance: 0, tu, reason, cover: false });
     if (!w || !m) return no("Can't fire that way");
-    if (u.x === target.x && u.y === target.y) return no("Pick a target");
+    if (samePoint(u, target)) return no("Pick a target");
     if (usesHeat(u) && u.overheated) return no("Overheated: cooling down");
     if (!usesHeat(u) && u.ammo <= 0) return no(u.clips ? "Empty: reload" : "Out of ammo");
     if (tu > u.tu) return no("Not enough time units");
@@ -517,12 +546,12 @@ export class Battle {
     const base = baseHitChance(this.accuracyOf(u) * this.drill(u, target), m, w, dist(u, target), u.kneeling, u.wounds * 4);
     let through = 1;
     let cover = false;
-    const target_ = this.unitAt(target.x, target.y);
+    const target_ = this.unitAt(target);
     for (const p of this.map.line(u, target).slice(1, -1)) {
       const k = this.interceptChance(u, p, target_);
       if (k) cover = true;
       through *= 1 - k;
-      const other = this.unitAt(p.x, p.y);
+      const other = this.unitAt(p);
       if (other) through *= 0.5;
     }
     return { chance: base * through, tu, reason: null, cover };
@@ -541,7 +570,7 @@ export class Battle {
     this.fire(u, target, mode);
     if (u.side === "human") {
       // They hear every shot.
-      for (const a of this.aliens) this.scent.set(a.id, { x: u.x, y: u.y });
+      for (const a of this.aliens) this.scent.set(a.id, pt(u));
       this.react(u);
     }
     this.check();
@@ -580,7 +609,7 @@ export class Battle {
     const tu = tool ? tuCost(u.stats.tu, tool.tool.tuPct) + turnSteps(u.facing, facingTo(u, target)) * TURN_TU : 0;
     const no = (reason: string): ShotPreview => ({ chance: 0, tu, reason, cover: false });
     if (!tool) return no("No stun weapon");
-    if (Math.max(Math.abs(u.x - target.x), Math.abs(u.y - target.y)) > 1) return no("Get next to it first");
+    if (!adjacent(u, target)) return no(lvl(u) === lvl(target) ? "Get next to it first" : "It's on another level");
     if (tu > u.tu) return no("Not enough time units");
     return { chance: Math.min(0.95, u.stats.melee / 100), tu, reason: null, cover: false };
   }
@@ -619,7 +648,7 @@ export class Battle {
     const no = (reason: string): ShotPreview => ({ chance: 0, tu, reason, cover: false });
     if (!kit || kit.uses <= 0) return no("No medikit uses left");
     if (target.side !== u.side || !alive(target)) return no("Pick a wounded friend");
-    if (Math.max(Math.abs(u.x - target.x), Math.abs(u.y - target.y)) > 1) return no("Get next to them first");
+    if (!adjacent(u, target)) return no(lvl(u) === lvl(target) ? "Get next to them first" : "They're on another level");
     if (!target.wounds && target.health >= target.stats.health) return no("Not hurt");
     if (tu > u.tu) return no("Not enough time units");
     return { chance: 1, tu, reason: null, cover: false };
@@ -706,18 +735,21 @@ export class Battle {
   private walk(u: Unit, path: Point[]): boolean {
     for (const step of path) {
       const cost = this.map.stepCost(u, step);
-      if (cost > u.tu || this.unitAt(step.x, step.y)) return false;
-      const i = this.map.idx(step.x, step.y);
+      if (cost > u.tu || this.unitAt(step)) return false;
+      const i = this.map.idx(step.x, step.y, lvl(step));
       if (this.map.thing[i] === "door") {
         this.map.thing[i] = "open";
-        this.events.push({ kind: "door", at: step });
+        this.sightKey = "";
+        this.events.push({ kind: "door", at: pt(step) });
       }
       u.tu -= cost;
-      u.facing = facingTo(u, step);
+      // Up or down the stairs, it keeps facing the way it was.
+      if (step.x !== u.x || step.y !== u.y) u.facing = facingTo(u, step);
       u.x = step.x;
       u.y = step.y;
+      u.z = lvl(step);
       const fresh = this.updateVision();
-      this.events.push({ kind: "move", unit: u.id, to: { x: u.x, y: u.y }, facing: u.facing, seen: u.side === "human" || this.isSeen(u) });
+      this.events.push({ kind: "move", unit: u.id, to: pt(u), facing: u.facing, seen: u.side === "human" || this.isSeen(u) });
       if (u.side === "human" && fresh.length) {
         this.announce(fresh);
         this.events.push({ kind: "say", text: `${u.name}: "Contact!"`, tone: "bad" });
@@ -747,20 +779,24 @@ export class Battle {
       if (this.reactionsOf(e) * this.reflex(e, mover) * (e.tu / e.stats.tu) <= moverScore) continue;
       this.events.push({ kind: "say", text: e.side === "alien" ? "It fires as you move!" : `${e.name} fires on reflex!`, tone: e.side === "alien" ? "bad" : "good" });
       if (e.side === "human") this.tally.reflexShots++;
-      this.fire(e, { x: mover.x, y: mover.y }, "snap");
+      this.fire(e, pt(mover), "snap");
       if (e.side === "human") this.smell(mover, e);
       this.check();
       if (!conscious(mover)) return;
     }
   }
 
-  /** Chance a piece of cover on the line soaks up a shot. Cover right in front of the shooter is shot over. */
+  /**
+   * Chance a piece of cover on the line soaks up a shot. Cover right in front of the shooter is shot
+   * over, and from a floor above, low cover hides much less of whoever is behind it.
+   */
   private interceptChance(shooter: Unit, p: Point, target?: Unit): number {
-    if (!this.map.isCover(p.x, p.y)) return 0;
-    if (Math.max(Math.abs(p.x - shooter.x), Math.abs(p.y - shooter.y)) <= 1) return 0;
-    const hugging = target && Math.max(Math.abs(p.x - target.x), Math.abs(p.y - target.y)) <= 1;
-    if (hugging && target.kneeling) return 0.6;
-    return hugging ? 0.4 : 0.25;
+    if (!this.map.isCover(p.x, p.y, lvl(p))) return 0;
+    if (adjacent(p, shooter)) return 0;
+    const hugging = target && adjacent(p, target);
+    const above = hugging && lvl(shooter) > lvl(target) ? PLUNGING : 1;
+    if (hugging && target.kneeling) return 0.6 * above;
+    return hugging ? 0.4 * above : 0.25;
   }
 
   private fire(u: Unit, target: Point, mode: FireMode) {
@@ -769,7 +805,7 @@ export class Battle {
     this.turnToward(u, target);
     u.tu -= tuCost(u.stats.tu, m.tuPct);
     u.revealed = true;
-    const aimedAt = this.unitAt(target.x, target.y);
+    const aimedAt = this.unitAt(target);
     const hot = usesHeat(u);
     for (let s = 0; s < m.shots && canFire(u); s++) {
       if (hot) {
@@ -778,27 +814,29 @@ export class Battle {
       } else u.ammo--;
       const chance = baseHitChance(this.accuracyOf(u) * this.drill(u, target), m, w, dist(u, target), u.kneeling, u.wounds * 4);
       const onTarget = this.rand() < chance;
-      let end = target;
+      let end: Point = target;
       if (!onTarget) {
         // A miss goes somewhere near, worse the further the target.
         const spread = 0.8 + dist(u, target) * 0.12;
-        end = { x: target.x + (this.rand() * 2 - 1) * spread * 1.6, y: target.y + (this.rand() * 2 - 1) * spread * 1.6 };
+        end = { x: target.x + (this.rand() * 2 - 1) * spread * 1.6, y: target.y + (this.rand() * 2 - 1) * spread * 1.6, z: lvl(target) };
       }
       const d = dist(u, end) || 1;
-      const far = {
+      // It flies on past, still climbing or dropping, until something stops it.
+      const far: Point = {
         x: Math.round(u.x + ((end.x - u.x) / d) * SHOT_REACH),
         y: Math.round(u.y + ((end.y - u.y) / d) * SHOT_REACH),
+        z: lvl(u) + ((lvl(end) - lvl(u)) / d) * SHOT_REACH,
       };
       const path = this.map.line(u, onTarget ? target : far);
-      let impact = path[path.length - 1];
+      let impact: LinePoint = path[path.length - 1];
       let hit: Unit | null = null;
       for (const p of path.slice(1)) {
-        if (!this.map.inside(p.x, p.y) || this.map.blocksSight(p.x, p.y)) {
+        if (!this.map.inside(p.x, p.y, p.z) || this.map.stops(p)) {
           impact = p;
           break;
         }
-        const there = this.unitAt(p.x, p.y);
-        const intended = there && there === aimedAt && p.x === target.x && p.y === target.y;
+        const there = this.unitAt(p);
+        const intended = there && there === aimedAt && samePoint(p, target);
         if (there && there !== u) {
           if (intended && onTarget) {
             hit = there;
@@ -816,10 +854,10 @@ export class Battle {
           break;
         }
         impact = p;
-        if (onTarget && p.x === target.x && p.y === target.y) break;
+        if (onTarget && samePoint(p, target)) break;
       }
       const seen = u.side === "human" || this.spotted(u);
-      this.events.push({ kind: "shot", unit: u.id, from: { x: u.x, y: u.y }, to: impact, hit: hit?.id ?? null, plasma: !!w.alien, seen });
+      this.events.push({ kind: "shot", unit: u.id, from: pt(u), to: { x: impact.x, y: impact.y, z: impact.z }, hit: hit?.id ?? null, plasma: !!w.alien, seen });
       if (hit) this.damage(hit, w.power, u);
       if (this.outcome) return;
     }
@@ -1075,7 +1113,7 @@ export class Battle {
 
   /** It knows where you are now; a squad working together all know. */
   private smell(a: Unit, at: Point) {
-    const p = { x: at.x, y: at.y };
+    const p = pt(at);
     this.scent.set(a.id, p);
     if (this.coordination() !== "none") for (const o of this.aliens) if (conscious(o)) this.scent.set(o.id, p);
   }
@@ -1107,6 +1145,7 @@ export class Battle {
       const flank = {
         x: Math.max(0, Math.min(this.map.w - 1, Math.round(goal.x - ((goal.y - cy) / len) * 6 * side))),
         y: Math.max(0, Math.min(this.map.h - 1, Math.round(goal.y + ((goal.x - cx) / len) * 6 * side))),
+        z: lvl(goal),
       };
       if (dist(a, flank) > 3 && dist(a, goal) > 6) return { goal: flank, within: 2, alone: true };
     }
@@ -1152,7 +1191,7 @@ export class Battle {
     }
     const scent = this.scent.get(a.id);
     // Somewhere it can see with nobody there is a cold trail.
-    const cold = scent && (dist(a, scent) <= 1.5 || (this.canSee(a, scent) && !this.humans.some((h) => conscious(h) && h.x === scent.x && h.y === scent.y)));
+    const cold = scent && (dist(a, scent) <= 1.5 || (this.canSee(a, scent) && !this.humans.some((h) => conscious(h) && samePoint(h, scent))));
     if (scent && !cold) return scent;
     // Lost the trail: cast about somewhere near one of you. They know roughly where people are, and
     // nobody can hide from them for ever.
@@ -1162,6 +1201,7 @@ export class Battle {
     const guess = {
       x: Math.max(0, Math.min(this.map.w - 1, Math.round(q.x + (this.rand() * 2 - 1) * 8))),
       y: Math.max(0, Math.min(this.map.h - 1, Math.round(q.y + (this.rand() * 2 - 1) * 8))),
+      z: lvl(q),
     };
     this.scent.set(a.id, guess);
     return guess;
@@ -1184,7 +1224,7 @@ export class Battle {
     let sight: Point | null = null;
     for (let i = 0; i < cost.length; i++) {
       if (!Number.isFinite(cost[i])) continue;
-      const p = { x: i % this.map.w, y: Math.floor(i / this.map.w) };
+      const p = this.map.at(i);
       const d = dist(p, goal);
       const view = prey.find((h) => dist(p, h) <= within && this.map.clearLine(p, h));
       let score = view ? cost[i] + dist(p, view) * 2 : 10_000 + d * 100 + cost[i] * 0.01;
@@ -1195,7 +1235,7 @@ export class Battle {
     }
     // Closing in only makes sense toward a spot with a view of its prey.
     if (best < 0 || (strict && (!sight || cost[best] > a.tu - reserve))) return false;
-    const path = this.map.route(prev, { x: best % this.map.w, y: Math.floor(best / this.map.w) });
+    const path = this.map.route(prev, this.map.at(best));
     const steps: Point[] = [];
     let spend = 0;
     for (const p of path) {
@@ -1208,7 +1248,7 @@ export class Battle {
     }
     if (!steps.length) {
       // Already where it wants to be: turn to look at whoever it's after.
-      if (!sight || best !== this.map.idx(a.x, a.y)) return false;
+      if (!sight || best !== this.map.idx(a.x, a.y, lvl(a))) return false;
       const f = facingTo(a, sight);
       const cost = turnSteps(a.facing, f) * TURN_TU;
       if (!cost || cost > a.tu) return false;
@@ -1220,13 +1260,13 @@ export class Battle {
   }
 
   private nearCover(p: Point): boolean {
-    for (const d of DIRS) if (this.map.inside(p.x + d.x, p.y + d.y) && this.map.isCover(p.x + d.x, p.y + d.y)) return true;
+    for (const d of DIRS) if (this.map.isCover(p.x + d.x, p.y + d.y, lvl(p))) return true;
     return false;
   }
 
   /** Could the alien see a human from a tile, facing the way it would be walking? */
   private canSeeFrom(a: Unit, p: Point, h: Unit): boolean {
-    return this.canSee({ ...a, x: p.x, y: p.y, facing: facingTo(p, h) }, h, h.revealed);
+    return this.canSee({ ...a, x: p.x, y: p.y, z: lvl(p), facing: p.x === h.x && p.y === h.y ? a.facing : facingTo(p, h) }, h, h.revealed);
   }
 
   /** Breaks line of sight with everyone it knows about, as far as it can get. */
@@ -1237,14 +1277,14 @@ export class Battle {
     let bestScore = -Infinity;
     for (let i = 0; i < cost.length; i++) {
       if (!Number.isFinite(cost[i])) continue;
-      const p = { x: i % this.map.w, y: Math.floor(i / this.map.w) };
+      const p = this.map.at(i);
       const exposed = threats.filter((h) => this.map.clearLine(h, p) && dist(h, p) <= SIGHT_DAY).length;
       const away = Math.min(...threats.map((h) => dist(h, p)), 30);
       const score = away - exposed * 15;
       if (score > bestScore) [best, bestScore] = [i, score];
     }
     if (best < 0) return;
-    const path = this.map.route(prev, { x: best % this.map.w, y: Math.floor(best / this.map.w) });
+    const path = this.map.route(prev, this.map.at(best));
     if (path.length) this.walk(a, path);
   }
 }

@@ -1,5 +1,5 @@
 import { Battle, BattleEvent, BattleSnapshot, Unit, alive, canFire, conscious } from "./battle";
-import { Point, dist } from "./map";
+import { Point, adjacent, dist, lvl, pt } from "./map";
 import { mulberry32 } from "./random";
 import { FireMode, KNEEL_TU, TURN_TU, tuCost } from "./rules";
 
@@ -36,13 +36,13 @@ const seenAliens = (b: Battle) => b.aliens.filter((a) => conscious(a) && b.isSee
 /** Where your people think the aliens are: what they see, else where they last saw them. */
 function knownThreats(b: Battle): Point[] {
   const seen = seenAliens(b);
-  if (seen.length) return seen.map((a) => ({ x: a.x, y: a.y }));
+  if (seen.length) return seen.map(pt);
   return b.aliens.filter((a) => alive(a) && conscious(a) && b.lastSeen.has(a.id)).map((a) => b.lastSeen.get(a.id)!);
 }
 
 function centre(units: Point[]): Point {
   const n = units.length || 1;
-  return { x: units.reduce((s, u) => s + u.x, 0) / n, y: units.reduce((s, u) => s + u.y, 0) / n };
+  return { x: units.reduce((s, u) => s + u.x, 0) / n, y: units.reduce((s, u) => s + u.y, 0) / n, z: units.reduce((s, u) => s + lvl(u), 0) / n };
 }
 
 const nearest = (from: Point, pts: Point[]) => pts.reduce<Point | null>((best, p) => (!best || dist(from, p) < dist(from, best) ? p : best), null);
@@ -53,8 +53,8 @@ function unexplored(b: Battle, from: Point): Point | null {
   let bestD = Infinity;
   for (let i = 0; i < b.seen.length; i++) {
     if (b.seen[i]) continue;
-    const p = { x: i % b.map.w, y: Math.floor(i / b.map.w) };
-    if (!b.map.walkable(p.x, p.y)) continue;
+    const p = b.map.at(i);
+    if (!b.map.walkable(p.x, p.y, p.z)) continue;
     const d = dist(p, from);
     if (d >= 6 && d < bestD) [best, bestD] = [p, d];
   }
@@ -62,13 +62,13 @@ function unexplored(b: Battle, from: Point): Point | null {
 }
 
 function nearCover(b: Battle, p: Point): boolean {
-  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && b.map.isCover(p.x + dx, p.y + dy)) return true;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && b.map.isCover(p.x + dx, p.y + dy, lvl(p))) return true;
   return false;
 }
 
 /** Whether one of your own is standing in the line of fire. */
 function friendInTheWay(b: Battle, u: Unit, t: Point): boolean {
-  return b.map.line(u, t).slice(1, -1).some((p) => b.unitAt(p.x, p.y)?.side === "human");
+  return b.map.line(u, t).slice(1, -1).some((p) => b.unitAt(p)?.side === "human");
 }
 
 const hasBaton = (u: Unit) => u.tools.some((t) => t.tool.kind === "stun");
@@ -130,7 +130,7 @@ function outward(b: Battle, u: Unit): Point | null {
   const dx = u.x - c.x;
   const dy = u.y - c.y;
   if (!dx && !dy) return null;
-  return { x: Math.round(u.x + dx * 3), y: Math.round(u.y + dy * 3) };
+  return { x: Math.round(u.x + dx * 3), y: Math.round(u.y + dy * 3), z: lvl(u) };
 }
 
 /** A medic stops anyone bleeding they can reach, themselves included. */
@@ -157,15 +157,15 @@ function patchUp(b: Battle, u: Unit, out: BattleEvent[]): boolean {
 
 /** The cheapest tile next to someone that a unit can reach within a budget. */
 function adjacentSpot(b: Battle, u: Unit, t: Point, budget: number): Point | null {
-  if (Math.max(Math.abs(u.x - t.x), Math.abs(u.y - t.y)) <= 1) return null;
+  if (adjacent(u, t)) return null;
   const { cost } = b.reach(u);
   let best: Point | null = null;
   let bestC = Infinity;
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
-      const p = { x: t.x + dx, y: t.y + dy };
-      if ((!dx && !dy) || !b.map.inside(p.x, p.y)) continue;
-      const c = cost[b.map.idx(p.x, p.y)];
+      const p = { x: t.x + dx, y: t.y + dy, z: lvl(t) };
+      if ((!dx && !dy) || !b.map.inside(p.x, p.y, p.z)) continue;
+      const c = cost[b.map.idx(p.x, p.y, p.z)];
       if (c <= budget && c < bestC) [best, bestC] = [p, c];
     }
   }
@@ -249,7 +249,7 @@ function reposition(b: Battle, u: Unit, d: Doctrine, targets: Unit[], reserve: n
     let score = dist(p, g);
     if (nearCover(b, p)) score -= d === "aggressive" ? 0.8 : 2;
     // Bunched up, one shot hits two.
-    if (squad.some((h) => h !== u && Math.max(Math.abs(h.x - p.x), Math.abs(h.y - p.y)) <= 1)) score += 1.2;
+    if (squad.some((h) => h !== u && adjacent(h, p))) score += 1.2;
     if (!goIn) score += Math.max(0, dist(p, middle) - HUDDLE) * 1.5;
     return score;
   };
@@ -258,7 +258,7 @@ function reposition(b: Battle, u: Unit, d: Doctrine, targets: Unit[], reserve: n
   for (let i = 0; i < cost.length; i++) {
     const c = cost[i];
     if (!(c > 0) || c > budget) continue;
-    const p = { x: i % b.map.w, y: Math.floor(i / b.map.w) };
+    const p = b.map.at(i);
     options.push({ p, score: rate(p) });
   }
   if (!options.length) return false;

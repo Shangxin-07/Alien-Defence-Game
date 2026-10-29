@@ -89,6 +89,10 @@
   gap: 4px;
 }
 .camctl button { width: 32px; font-size: 14px; }
+.camctl .levels { display: flex; align-items: center; gap: 4px; margin-left: 6px; }
+#lvName { min-width: 64px; text-align: center; font-family: var(--display); font-size: 11px; letter-spacing: 0.06em; color: var(--amber); white-space: nowrap; }
+/* An alien in view on a level you aren't looking at. */
+.camctl .levels button.alert { color: var(--bad, #e2553f); box-shadow: inset 0 0 0 1px currentColor; }
 
 .turnbanner {
   position: fixed;

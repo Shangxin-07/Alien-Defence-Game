@@ -143,6 +143,9 @@ export const STEP_TU = 4;
 export const DIAGONAL_TU = 6;
 /** Opening a door on the way through. */
 export const DOOR_TU = 3;
+/** Up or down one storey: a flight of stairs is hard going, a lift is quicker but you wait for it. */
+export const STAIRS_TU = 8;
+export const LIFT_TU = 6;
 /** Each 45° of turning. */
 export const TURN_TU = 1;
 export const KNEEL_TU = 4;

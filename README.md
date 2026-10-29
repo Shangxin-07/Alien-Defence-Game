@@ -122,6 +122,10 @@ In battle: click or tap one of your people to select them, then a tile to move (
 once to preview and again to go). Click the alien to line up your best shot, or pick Snap, Aimed or
 Auto (`1`/`2`/`3`) and then a target. `B` stun baton, `H` medikit, `F` turn to face, `K` kneel,
 `N` next unit. Drag or hold `W`/`A`/`S`/`D` to pan, right-drag or `Q`/`E` to turn the view, scroll or pinch to zoom.
+Battle maps have four levels (cellars, the street and two floors above): ▲/▼ by the view
+buttons, `[`/`]` or Page Up/Down look at another level, and everything above it is lifted off.
+Walk onto stairs (8 TU a storey) or a lift (6 TU) and on to the floor you want; a level button
+turns red when one of them is in view up or down there.
 
 In the base view: drag to turn, scroll or pinch to zoom, `[`/`]` or Page Up/Down to change level,
 `R` rotates, `X` demolishes, `Esc` goes back to inspecting. On touch screens, tap once to preview
@@ -142,7 +146,7 @@ a spot and again to build.
 - `src/armoury.ts`: guns, armour and kit, loadout requests, the quartermaster and kit warnings
 - `src/main.ts`, `src/base.ts`, `src/combat.ts`: the geoscape, base and combat screens
 - `src/tactical/rules.ts`: stats, weapons, TU costs, accuracy and damage
-- `src/tactical/map.ts`: the battlefield grid, line of sight and pathfinding
+- `src/tactical/map.ts`: the battlefield grid and its levels, stairs and lifts, line of sight and pathfinding
 - `src/tactical/battle.ts`: turns, actions, reaction fire, bleeding, morale and the alien's AI
 - `src/tactical/cityMap.ts`: the city map generator and its per-biome looks
 - `src/tactical/prologue.ts`: the opening battle, the survivors and what they can bring home

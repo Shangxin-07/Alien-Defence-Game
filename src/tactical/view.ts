@@ -26,7 +26,7 @@ import {
 } from "three";
 import { Battle, Unit, alive, conscious } from "./battle";
 import { CityStyle } from "./cityMap";
-import { CoverLook, Point, TacMap } from "./map";
+import { CoverLook, Point, TacMap, lvl } from "./map";
 import { Daylight } from "./rules";
 
 /** Sky and sun for each light: hemisphere sky and ground colours, the main light, and where it shines from. */
@@ -42,6 +42,8 @@ const FOG = [0.07, 0.38, 1];
 /** By day what you can't see is still plainly there, just not up to date. */
 const DAY_FOG = [0.3, 0.6, 1];
 const WALL_H = 1.15;
+/** Height of a storey in the world: walls plus the floor slab. */
+export const LEVEL_Y = 1.3;
 
 const COVER: Record<CoverLook, { h: number; s: number; color: string }> = {
   car: { h: 0.7, s: 0.9, color: "#6a7584" },
@@ -51,6 +53,7 @@ const COVER: Record<CoverLook, { h: number; s: number; color: string }> = {
   bench: { h: 0.4, s: 0.85, color: "#6b5236" },
   barrier: { h: 0.55, s: 0.95, color: "#b34a3a" },
   wreck: { h: 0.6, s: 0.9, color: "#2b2622" },
+  parapet: { h: 0.4, s: 1, color: "#77736a" },
 };
 const CAR_PAINT = ["#7a2e2a", "#2f4f7a", "#9a9a92", "#2a2a2c", "#4f6a3a", "#b08a3a"];
 
@@ -58,10 +61,13 @@ const CAR_PAINT = ["#7a2e2a", "#2f4f7a", "#9a9a92", "#2a2a2c", "#4f6a3a", "#b08a
 export class TacticalView {
   readonly root = new Group();
   private map!: TacMap;
-  private floor!: InstancedMesh;
+  /** Floor tiles and what stands on them, one group per level, so upper levels can be lifted off. */
+  private levels: Group[] = [];
   private things: { mesh: InstancedMesh; tiles: number[]; base: Color[] }[] = [];
-  private floorBase: Color[] = [];
-  private readonly units = new Map<number, { g: Group; body: Group; target: Vector3; from: Vector3; t: number }>();
+  /** The level being looked at: everything above it is hidden. */
+  private viewZ = 0;
+  private readonly units = new Map<number, { g: Group; body: Group; target: Vector3; from: Vector3; t: number; z: number; shown: boolean }>();
+
   private readonly selRing: Mesh;
   /** Where each alien was last seen, while it's out of sight. */
   private readonly ghosts = new Map<number, Mesh>();
@@ -104,14 +110,28 @@ export class TacticalView {
     this.root.add(this.lights);
   }
 
-  /** World position of a tile's centre. */
+  /** World position of a tile's centre, `y` above the floor of its level. */
   world(p: Point, y = 0, out = new Vector3()): Vector3 {
-    return out.set(p.x - this.map.w / 2 + 0.5, y, p.y - this.map.h / 2 + 0.5);
+    return out.set(p.x - this.map.w / 2 + 0.5, y + lvl(p) * LEVEL_Y, p.y - this.map.h / 2 + 0.5);
   }
 
+  /** The tile under a point on the level being looked at. */
   tileAt(x: number, z: number): Point | null {
-    const p = { x: Math.floor(x + this.map.w / 2), y: Math.floor(z + this.map.h / 2) };
-    return this.map.inside(p.x, p.y) ? p : null;
+    const p = { x: Math.floor(x + this.map.w / 2), y: Math.floor(z + this.map.h / 2), z: this.viewZ };
+    return this.map.inside(p.x, p.y, p.z) ? p : null;
+  }
+
+  /** The level being looked at. */
+  get level(): number {
+    return this.viewZ;
+  }
+
+  /** Looks at one level: it and everything below show, everything above is lifted off. */
+  setLevel(z: number): void {
+    if (!this.map) return;
+    this.viewZ = Math.max(this.map.bottom, Math.min(this.map.top, z));
+    this.levels.forEach((g, k) => (g.visible = k + this.map.bottom <= this.viewZ));
+    for (const v of this.units.values()) v.g.visible = v.shown && this.inSight(v.g.position, v.z);
   }
 
   /**
@@ -130,20 +150,15 @@ export class TacticalView {
     // By day the street lights are off and nobody has a lamp on.
     const dark = light !== "day";
     this.fogLevels = dark ? FOG : DAY_FOG;
-    for (const t of this.things) {
-      this.root.remove(t.mesh);
-      t.mesh.dispose();
+    for (const g of this.levels) {
+      this.root.remove(g);
+      g.traverse((o) => o instanceof InstancedMesh && o.dispose());
     }
+    this.levels = [];
     this.things = [];
-    if (this.floor) {
-      this.root.remove(this.floor);
-      this.floor.dispose();
-    }
     this.lights.clear();
 
-    const n = map.w * map.h;
-    const tile = new BoxGeometry(1, 0.1, 1);
-    this.floor = new InstancedMesh(tile, new MeshLambertMaterial(), n);
+    const n = map.plane * map.levels;
     const ground: Record<string, Color> = {
       road: new Color(style.road),
       pavement: new Color(style.pavement),
@@ -151,37 +166,54 @@ export class TacticalView {
       floor: new Color(style.floor),
       rubble: new Color(style.road).lerp(new Color("#5a4a3a"), 0.5),
       yard: new Color(style.road).lerp(new Color(style.pavement), 0.5),
+      roof: new Color(style.wall).lerp(new Color("#3a3a3a"), 0.55),
+      earth: new Color("#1b1814"),
     };
-    this.floorBase = [];
     const pos = new Vector3();
-    for (let i = 0; i < n; i++) {
-      const p = { x: i % map.w, y: Math.floor(i / map.w) };
-      this.world(p, -0.05, pos);
-      this.tmp.makeTranslation(pos.x, pos.y, pos.z);
-      this.floor.setMatrixAt(i, this.tmp);
-      const c = ground[map.ground[i]].clone();
-      // A little noise so the ground isn't flat colour; road markings down the middle.
-      c.offsetHSL(0, 0, ((p.x * 7 + p.y * 13) % 5) * 0.004);
-      if (dark && map.lit[i]) c.lerp(new Color("#d8b070"), 0.12);
-      this.floorBase.push(c);
-    }
-    this.root.add(this.floor);
 
-    // Everything that stands on a tile, grouped by shape.
-    const groups = new Map<string, { geo: BufferGeometry; tiles: number[]; colors: Color[]; y: number; jitter?: boolean }>();
+    // Everything on a tile, grouped by level and shape. The floor tiles are a shape like any other.
+    const groups = new Map<string, { geo: BufferGeometry; tiles: number[]; colors: Color[]; y: number; z: number }>();
     const add = (key: string, geo: () => BufferGeometry, y: number, i: number, color: Color) => {
-      let g = groups.get(key);
-      if (!g) groups.set(key, (g = { geo: geo(), tiles: [], colors: [], y }));
+      const z = Math.floor(i / map.plane) + map.bottom;
+      let g = groups.get(`${z}:${key}`);
+      if (!g) groups.set(`${z}:${key}`, (g = { geo: geo(), tiles: [], colors: [], y, z }));
       g.tiles.push(i);
       g.colors.push(color);
     };
+    const tile = new BoxGeometry(1, 0.1, 1);
+    for (let i = 0; i < n; i++) {
+      const g = map.ground[i];
+      if (g === "air") continue;
+      const p = map.at(i);
+      // The top of a flight of stairs or a lift is an opening onto the flight below.
+      if (map.linked(p.x, p.y, p.z!, -1)) continue;
+      // Solid earth only shows round the cellars, as the dark they're dug into.
+      if (g === "earth" && !this.besideCellar(p)) continue;
+      const c = ground[g].clone();
+      // A little noise so the ground isn't flat colour.
+      c.offsetHSL(0, 0, ((p.x * 7 + p.y * 13) % 5) * 0.004);
+      if (dark && map.lit[i]) c.lerp(new Color("#d8b070"), 0.12);
+      add("floor", () => tile, -0.05, i, c);
+    }
+
     const wall = new Color(style.wall);
     const glass = new Color("#5f86a0");
     const door = new Color("#5a3d26");
+    const metal = new Color("#8d949c");
     for (let i = 0; i < n; i++) {
       const t = map.thing[i];
       const look = map.look[i];
-      if (t === "wall") add("wall", () => new BoxGeometry(1, WALL_H, 1), WALL_H / 2, i, wall.clone().offsetHSL(0, 0, ((i * 31) % 3) * 0.01));
+      if (map.ground[i] === "earth") continue;
+      if (t === "stairs") {
+        const p = map.at(i);
+        // A flight runs up from here if the tile above is stairs too.
+        if (map.linked(p.x, p.y, p.z!, 1)) for (let k = 0; k < 4; k++) add(`step${k}`, () => new BoxGeometry(0.9, (LEVEL_Y * (k + 1)) / 4, 0.25), (LEVEL_Y * (k + 1)) / 8, i, wall.clone().offsetHSL(0, 0, -0.04 + k * 0.02));
+        else add("rail", () => new BoxGeometry(0.9, 0.5, 0.06), 0.25, i, metal.clone());
+      } else if (t === "lift") {
+        add("liftcar", () => new BoxGeometry(0.86, 0.06, 0.86), 0.03, i, metal.clone());
+        const p = map.at(i);
+        if (map.linked(p.x, p.y, p.z!, 1) || map.linked(p.x, p.y, p.z!, -1)) add("liftframe", () => new BoxGeometry(0.94, WALL_H, 0.06), WALL_H / 2, i, metal.clone().multiplyScalar(0.7));
+      } else if (t === "wall") add("wall", () => new BoxGeometry(1, WALL_H, 1), WALL_H / 2, i, wall.clone().offsetHSL(0, 0, ((i * 31) % 3) * 0.01));
       else if (t === "window") {
         add("sill", () => new BoxGeometry(1, 0.55, 1), 0.275, i, wall.clone());
         add("glass", () => new BoxGeometry(0.9, WALL_H - 0.55, 0.25), 0.55 + (WALL_H - 0.55) / 2, i, dark && map.lit[i] ? new Color("#d8c08a") : glass.clone());
@@ -205,18 +237,30 @@ export class TacticalView {
         if (look === "car") add("roof", () => new BoxGeometry(0.55, 0.3, 0.48), c.h + 0.15, i, color.clone().multiplyScalar(0.8));
       }
     }
-    for (const g of groups.values()) {
+    for (let z = map.bottom; z <= map.top; z++) {
+      const level = new Group();
+      this.levels.push(level);
+      this.root.add(level);
+    }
+    for (const [key, g] of groups) {
       const mesh = new InstancedMesh(g.geo, new MeshLambertMaterial(), g.tiles.length);
+      const step = key.includes(":step") ? Number(key.slice(-1)) : -1;
       g.tiles.forEach((i, k) => {
-        this.world({ x: i % map.w, y: Math.floor(i / map.w) }, g.y, pos);
-        // Cars lie along the road; everything else square to the grid.
-        const turned = map.look[i] === "car" || map.look[i] === "wreck" ? (Math.floor(i / map.w) === 18 || Math.floor(i / map.w) === 21 ? 0 : 1) : 0;
+        const p = map.at(i);
+        this.world(p, g.y, pos);
+        // Cars lie along the road; everything else square to the grid. Steps climb from south to north.
+        const turned = map.look[i] === "car" || map.look[i] === "wreck" ? (p.y === 18 || p.y === 21 ? 0 : 1) : 0;
+        if (step >= 0) pos.z += 0.375 - step * 0.25;
+        else if (key.endsWith(":rail")) pos.z += 0.45;
+        else if (key.endsWith(":liftframe")) pos.z -= 0.45;
         this.tmp.makeRotationY(turned ? Math.PI / 2 : 0).setPosition(pos);
         mesh.setMatrixAt(k, this.tmp);
       });
-      this.root.add(mesh);
+      this.levels[g.z - map.bottom].add(mesh);
       this.things.push({ mesh, tiles: g.tiles, base: g.colors });
     }
+    // Street lights stand on the street.
+    this.levels[-map.bottom]?.add(this.lights);
 
     // Lamp posts and the pools of light under them.
     const post = new CylinderGeometry(0.04, 0.05, 2.2, 6);
@@ -241,14 +285,36 @@ export class TacticalView {
       }
       this.lights.add(g);
     }
+    this.setLevel(this.viewZ);
     return sky.clear;
+  }
+
+  /**
+   * Whether something on level z at a world position shows from the level being looked at: not above
+   * it, and not under a floor between.
+   */
+  private inSight(pos: Vector3, z: number): boolean {
+    if (z > this.viewZ) return false;
+    const x = Math.floor(pos.x + this.map.w / 2);
+    const y = Math.floor(pos.z + this.map.h / 2);
+    for (let k = z + 1; k <= this.viewZ; k++) if (this.map.slab(x, y, k)) return false;
+    return true;
+  }
+
+  /** Earth that walls in a cellar, so the cellar has a dark edge rather than floating in nothing. */
+  private besideCellar(p: Point): boolean {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const g = this.map.groundAt(p.x + dx, p.y + dy, p.z);
+        if (g !== "earth" && this.map.inside(p.x + dx, p.y + dy, p.z)) return true;
+      }
+    }
+    return false;
   }
 
   /** Recolours everything for what your people can see now. */
   fog(b: Battle): void {
     const level = (i: number) => this.fogLevels[b.visible[i] ? 2 : b.seen[i] ? 1 : 0];
-    for (let i = 0; i < this.floorBase.length; i++) this.floor.setColorAt(i, this.col.copy(this.floorBase[i]).multiplyScalar(level(i)));
-    this.floor.instanceColor!.needsUpdate = true;
     for (const t of this.things) {
       t.tiles.forEach((i, k) => t.mesh.setColorAt(k, this.col.copy(t.base[k]).multiplyScalar(level(i))));
       t.mesh.instanceColor!.needsUpdate = true;
@@ -257,7 +323,7 @@ export class TacticalView {
 
   /** Doors swing open when someone walks through: swap the closed slab for an open one. */
   openDoor(at: Point): void {
-    const i = this.map.idx(at.x, at.y);
+    const i = this.map.idx(at.x, at.y, lvl(at));
     for (const t of this.things) {
       const k = t.tiles.indexOf(i);
       if (k < 0) continue;
@@ -317,7 +383,7 @@ export class TacticalView {
     }
     const pos = this.world(u);
     g.position.copy(pos);
-    this.units.set(u.id, { g, body, target: pos.clone(), from: pos.clone(), t: 1 });
+    this.units.set(u.id, { g, body, target: pos.clone(), from: pos.clone(), t: 1, z: lvl(u), shown: true });
     this.pose(u);
   }
 
@@ -351,6 +417,8 @@ export class TacticalView {
     this.world(p, 0, v.target);
     v.t = 0;
     v.g.rotation.y = -(facing * Math.PI) / 4;
+    v.z = lvl(p);
+    v.g.visible = v.shown && this.inSight(v.target, v.z);
   }
 
   face(id: number, facing: number): void {
@@ -360,7 +428,9 @@ export class TacticalView {
 
   setVisible(id: number, visible: boolean): void {
     const v = this.units.get(id);
-    if (v) v.g.visible = visible;
+    if (!v) return;
+    v.shown = visible;
+    v.g.visible = visible && this.inSight(v.target, v.z);
   }
 
   /** Snaps every unit to the battle state. */
@@ -371,14 +441,16 @@ export class TacticalView {
       this.world(u, 0, v.target);
       v.g.position.copy(v.target);
       v.t = 1;
+      v.z = lvl(u);
       if (!conscious(u) && !v.body.userData.down) this.pose(u);
       else if (conscious(u)) this.pose(u);
-      v.g.visible = u.side === "human" || b.isSeen(u) || !conscious(u);
+      v.shown = u.side === "human" || b.isSeen(u) || !conscious(u);
+      v.g.visible = v.shown && this.inSight(v.g.position, v.z);
       const ghost = this.ghosts.get(u.id);
       const last = b.lastSeen.get(u.id);
       if (!ghost) continue;
-      ghost.visible = !b.isSeen(u) && !!last && conscious(u);
       if (last) this.world(last, 0.08, ghost.position);
+      ghost.visible = !b.isSeen(u) && !!last && conscious(u) && this.inSight(ghost.position, lvl(last));
     }
     this.fog(b);
   }
@@ -388,18 +460,18 @@ export class TacticalView {
   }
 
   select(u: Unit | null): void {
-    this.selRing.visible = !!u;
+    this.selRing.visible = !!u && lvl(u) <= this.viewZ;
     if (u) this.world(u, 0.07, this.selRing.position);
   }
 
-  /** Where the unit can walk this turn. */
+  /** Where the unit can walk this turn, on the level being looked at. */
   showReach(tiles: number[]): void {
     const pos = new Vector3();
-    this.reachMesh.count = Math.min(tiles.length, 2000);
+    const here = tiles.filter((i) => this.map.at(i).z === this.viewZ);
+    this.reachMesh.count = Math.min(here.length, 2000);
     for (let k = 0; k < this.reachMesh.count; k++) {
-      const i = tiles[k];
-      this.world({ x: i % this.map.w, y: Math.floor(i / this.map.w) }, 0, pos);
-      this.tmp.makeTranslation(pos.x, 0, pos.z);
+      this.world(this.map.at(here[k]), 0, pos);
+      this.tmp.makeTranslation(pos.x, pos.y, pos.z);
       this.reachMesh.setMatrixAt(k, this.tmp);
     }
     this.reachMesh.instanceMatrix.needsUpdate = true;
@@ -408,11 +480,12 @@ export class TacticalView {
   /** The route a move would take: green while affordable. */
   showPath(path: Point[], ok: boolean): void {
     const pos = new Vector3();
-    this.marks.count = Math.min(path.length, 80);
+    const shown = path.filter((p) => lvl(p) <= this.viewZ);
+    this.marks.count = Math.min(shown.length, 80);
     (this.marks.material as MeshBasicMaterial).color.set(ok ? 0x8fd1a2 : 0xe2553f);
     for (let k = 0; k < this.marks.count; k++) {
-      this.world(path[k], 0, pos);
-      this.tmp.makeTranslation(pos.x, 0, pos.z);
+      this.world(shown[k], 0, pos);
+      this.tmp.makeTranslation(pos.x, pos.y, pos.z);
       this.marks.setMatrixAt(k, this.tmp);
     }
     this.marks.instanceMatrix.needsUpdate = true;

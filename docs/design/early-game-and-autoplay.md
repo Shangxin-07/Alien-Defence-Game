@@ -471,3 +471,17 @@ Mike asked for one place to set people aside for particular work, with a lock or
 - The automatic car-repair pick never takes anyone locked elsewhere, and only takes people meant for something else if nobody else is free.
 - The page lists gaps: any duty everyone is locked away from.
 - Nothing about difficulty changed.
+
+## Battle levels as built
+
+Mike asked for levels in the combatscape, four like the base, with stairs and lifts so nothing is locked out (2026-10-29). Code: `TacMap` levels, `linked`, `slab`, `line`, `reach` and `cutOff` in `src/tactical/map.ts`; `raise`, `shaft` and `connect` in `src/tactical/cityMap.ts`; level view in `src/tactical/view.ts` and `src/combat.ts`.
+
+- Every city has four levels: cellars (level −1), the street (0) and two floors above (1 and 2). Off the street there's open air above and solid earth below until a building fills them in.
+- Buildings: the big block is three storeys with a cellar and a lift; paired buildings two or three storeys, cellar 40% of the time; the car-park office one or two, cellar 30%; the park kiosk one. Buildings under the top of the map get a flat roof with a low parapet that counts as cover. Every building has one stairwell from its lowest level to its roof.
+- Stairs cost 8 TU a storey, a lift 6. You climb from the stairs tile to the same tile on the next level; facing doesn't change. Doors only on the ground floor.
+- **Nothing is locked out.** After the map is built, `connect` walks it from the junction and keeps fixing until every walkable tile on every level can be reached: it clears clutter or knocks a door through a wall, runs stairs to a floor it can't reach from its own level, and as a last resort digs through a row of trees. Tests check 300 cities every run (and 3000 were checked once), and that no floor exists outside a building.
+- Sight and fire run eye to eye in 3D, storeys counting 1.5 tiles. A line can drop from an upstairs window or a roof to the street or climb a stairwell, but never pass through a floor, so you can't see straight down through a building. Facing only matters across the map. Nobody sees into a cellar from outside.
+- Shooting down from a floor above, low cover beside the target hides half as much: a roof or upstairs window is a real advantage, for them as much as you.
+- Baton and medikit only work on the same level. The aliens' tracker senses you through floors as through walls; they path up and down stairs to hunt you and flank on your level.
+- Screen: ▲/▼ by the view buttons, `[`/`]` or Page Up/Down. Everything above the level you look at is lifted off; units under a floor are hidden. Selecting someone, following them up stairs, or an alien coming into view switches to that level. A level button turns red when an alien is in view up or down there.
+- Balance (autoplay sims, 300 prologue seeds and 100 sightings, cautious doctrine): disasters 199–201 of 300 before and after, sightings 70 → 73 of 100. Within noise. No defaults eased.
