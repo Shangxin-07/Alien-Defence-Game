@@ -234,3 +234,20 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .loadouts li { flex-wrap: wrap; }
 .loadouts .pick label { font-size: 11px; gap: 4px; }
 .loadouts .pick input[type="checkbox"] { width: 14px; height: 14px; }
+
+/* Unit allocation */
+.modal .card.alloccard { max-width: 900px; }
+.allocwrap { overflow-x: auto; margin: 0 -4px; }
+.alloc { border-collapse: collapse; width: 100%; font-size: 12px; }
+.alloc th, .alloc td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: center; vertical-align: middle; }
+.alloc th { font-family: var(--display); font-size: 10px; letter-spacing: 0.08em; color: var(--dim); font-weight: 700; }
+.alloc th:first-child, .alloc td:first-child { text-align: left; min-width: 150px; position: sticky; left: 0; z-index: 1; background: #071420; }
+.alloc td.now { text-align: left; min-width: 120px; }
+.alloc b { font-family: var(--display); letter-spacing: 0.06em; }
+.alloc .meta { color: var(--dim); font-size: 11px; }
+.alloc select { font: inherit; font-size: 12px; color: var(--ink); background: var(--void); border: 1px solid var(--line); padding: 3px 4px; }
+.alloc input[type="checkbox"] { accent-color: var(--amber); width: 16px; height: 16px; cursor: pointer; }
+.alloc tr.lock input[type="checkbox"]:checked { accent-color: var(--alert); }
+.alloc tfoot td { color: var(--dim); font-size: 10px; border-bottom: none; }
+.alloc tfoot td.bad { color: var(--alert); }
+.sendrow .warnline { color: var(--amber); }

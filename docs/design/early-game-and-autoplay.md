@@ -458,3 +458,16 @@ Mike asked (2026-10-28) for more control over kit: reloading from spare clips, s
 Shown in the Armoury, against everyone on the scavenging and sighting team lists, and on the fight-or-run card: no gun, no ammo, no spare clips, fewer clips than asked for, a better gun or armour left in the stores, a medikit or baton asked for and not there, a used-up medikit. The Armoury also warns about alien guns waiting on research.
 
 Not built yet: carrying limits, ammo types per gun, grenades, and swapping gear between people in a fight.
+
+## Unit allocation as built
+
+Mike asked for one place to set people aside for particular work, with a lock or at least a warning (2026-10-28). Code: `src/allocation.ts`, `Campaign.allocate`, `Campaign.setJob`, `Campaign.dutyWarnings`, and the duty check in `Campaign.checkRun`.
+
+- Duties: supply runs, searching, recruiting, sighting calls, fixing cars, research, construction. Every scavenging place counts as a supply run.
+- Each person is on **Any job** (the default), **Preferred** or **Locked**, with a set of ticked duties.
+- Preferred: they can still be sent anywhere. Team lists flag "⚠ meant for …", the line by the send button repeats it, and the button reads "Send anyway".
+- Locked: they can't be ticked for anything else, and `checkRun` refuses it, so the rules hold outside the UI too. Their job at home must be one of their duties; a lock with no home duty puts them on rest between trips. Resting is always allowed.
+- Fights aren't a duty: ambushes take whoever is on the run, and a sighting call is the hunt you choose to send people on.
+- The automatic car-repair pick never takes anyone locked elsewhere, and only takes people meant for something else if nobody else is free.
+- The page lists gaps: any duty everyone is locked away from.
+- Nothing about difficulty changed.
