@@ -136,6 +136,17 @@
   .info { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); width: calc(100% - 32px); min-width: 0; font-size: 11px; }
 }
 .info { box-sizing: border-box; }
+/* Landscape phones: levels as one short row, status scrolls below it. */
+@media (max-height: 500px) and (min-width: 641px) {
+  .levels { padding: 6px; }
+  #levels { grid-template-columns: repeat(4, auto); }
+  #levels button { min-width: 0; justify-content: center; padding: 6px 8px; }
+  #levels .long, #levels .meta { display: none; }
+  #levels .short { display: inline; }
+  .stats { max-height: calc(100% - 90px); overflow-y: auto; }
+  /* The hint goes along the top, between the header and the level buttons. */
+  .info { top: calc(12px + env(safe-area-inset-top, 0px)); bottom: auto; left: calc(max(16px, env(safe-area-inset-left, 0px)) + 260px); right: calc(max(16px, env(safe-area-inset-right, 0px)) + 174px); translate: none; width: auto; min-width: 0; font-size: 11px; }
+}
 @media (max-width: 640px) {
   .levels { max-width: none; }
 }

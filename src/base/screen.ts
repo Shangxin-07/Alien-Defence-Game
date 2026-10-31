@@ -463,7 +463,7 @@ window.addEventListener("keydown", (e) => {
   e.preventDefault();
 });
 
-if (window.matchMedia("(max-width: 640px)").matches) ($("statsBox") as HTMLDetailsElement).open = false;
+if (window.matchMedia("(max-width: 640px), (max-height: 500px)").matches) ($("statsBox") as HTMLDetailsElement).open = false;
 
 // ---------- Loop ----------
 function resize() {
