@@ -225,17 +225,28 @@
   .log { display: none; }
   .unitpanel { width: min(560px, calc(100% - 32px - 160px)); min-width: 0; }
 }
-@media (max-width: 720px) {
+/* Phones: portrait, or landscape with little height. Compact panels, map in the middle. */
+@media (max-width: 720px), (max-height: 500px) {
   .mission h2, .objectives, .setting, .check, #autoNote { display: none; }
   .autobar { top: auto; bottom: calc(var(--panel-h, 190px) + 20px + env(safe-area-inset-bottom, 0px)); }
   .combat .mission { top: calc(12px + env(safe-area-inset-top, 0px)); width: 130px; padding: 6px 10px; gap: 2px; }
   .combat .mission h1 { display: block; }
-  .combat .squad { left: auto; width: 46%; padding: 6px; }
+  .combat .squad { left: auto; width: min(46%, calc(100% - 206px)); padding: 6px; }
   #roster .member { padding: 3px 6px; }
   #roster .meta { display: none; }
   .unitpanel { left: 16px; right: 16px; translate: none; width: auto; padding: 8px; gap: 5px; }
   .unitpanel .stats { display: none; }
-  .camctl { bottom: auto; top: calc(100px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); right: auto; padding: 4px; }
+  .camctl { padding: 4px; }
   .mission h1 { font-size: 13px; }
   .actions button { padding: 5px 4px; font-size: 10px; }
+}
+/* Portrait phones: view controls sit just above the unit panel, the hint and autoplay bar above them. */
+@media (max-width: 720px) {
+  .camctl { bottom: calc(var(--panel-h, 190px) + 20px + env(safe-area-inset-bottom, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); right: auto; }
+  .hint, .autobar { bottom: calc(var(--panel-h, 190px) + 70px + env(safe-area-inset-bottom, 0px)); }
+}
+/* Landscape phones: view controls along the top, between the mission and squad panels. */
+@media (max-height: 500px) and (min-width: 721px) {
+  .combat .squad { width: 200px; }
+  .camctl { top: calc(12px + env(safe-area-inset-top, 0px)); bottom: auto; left: calc(max(16px, env(safe-area-inset-left, 0px)) + 142px); right: auto; }
 }
