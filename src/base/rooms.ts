@@ -223,5 +223,7 @@ export function powerSupply(level: number): number {
   return 12 + 4 * Math.max(0, level - 1);
 }
 
+/** Scrap stands in for money on rooms: what one unit is worth. */
+export const SCRAP_VALUE = 10_000;
 /** Digging gets dearer and slower the deeper you go. */
 export const DEPTH_COST = [1, 1.1, 1.25, 1.5];

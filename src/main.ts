@@ -1,34 +1,33 @@
 import "./styles.css";
 import { Color, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
-import { closeBase, openBase } from "./base";
 import { ROOMS } from "./base/rooms";
-import { DUTIES, DUTY_NAMES, DUTY_SHORT, Duty, HOLD_NAMES, Hold, dutyClash, dutyList, dutyOf, holdOf, jobDuty } from "./allocation";
-import { BaseRecord, Campaign, Completion, GRANT, nmiToRadians } from "./campaign";
-import { ARMOURS, GEAR, GUNS, GearId, GunId, MAX_CLIPS, MEDIKIT_COST, Request, describeKit, kitAfter, noKit } from "./armoury";
-import { Gear, closeCombat, openCombat } from "./combat";
-import { WANT_TEXT } from "./recruit";
-import type { Run } from "./scavenge";
-import { CAR_SCRAP, CAR_SEATS, HOUR_MS, MAX_MECHANICS, TRAIL_HOURS, Travel, freshness, travelHours, tripFuel } from "./sightings";
-import { MARKET_LOT, MARKET_PRICE, MAX_RECRUITERS, MAX_RUN_DAYS, MAX_SEARCHERS, MAX_TEAM, SEARCH_CHANCE, SITES, Traded, cleanChance, describeSupplies, runWhere } from "./scavenge";
-import type { Stats } from "./tactical/rules";
+import { closeBase, openBase } from "./base/screen";
+import { BaseRecord, Campaign, Completion, GRANT, nmiToRadians } from "./campaign/campaign";
 import { BaseMarks } from "./geoscape/baseMarks";
 import { BIOMES, BIOME_ORDER, biomeAt } from "./geoscape/biomes";
 import { blocAt } from "./geoscape/blocs";
-import { CITIES } from "./geoscape/cities";
+import { CITIES, City } from "./geoscape/cities";
 import { GameClock, TIME_SPEEDS, formatClock } from "./geoscape/clock";
-import { DEG, LatLon, daylightAt, formatLatLon, latLonToVector, lightingAt, solarTime, subsolarPoint, sunElevation, vectorToLatLon } from "./geoscape/geo";
+import { DEG, LatLon, formatLatLon, latLonToVector, lightingAt, subsolarPoint, sunElevation, vectorToLatLon } from "./geoscape/geo";
 import { Globe } from "./geoscape/globe";
 import { GlobeLabels } from "./geoscape/labels";
 import { buildMapTextures } from "./geoscape/mapTextures";
 import { OrbitView } from "./geoscape/orbitView";
-import { JOB_NAMES, Job, Person, buildSkill, fitToWork, project, rollBuild } from "./staff";
-import { adaptReads, adaptSquad } from "./tactical/adapt";
-import { readSquad } from "./tactical/aliens";
-import { lightRead, prologueCity, rollForce, startAmbush, startPrologue } from "./tactical/prologue";
+import { $, addItem, choiceButton, escape, money, toast } from "./ui/dom";
+import { FightHost, ambushDialog, playPrologue } from "./ui/fights";
+import { Panel } from "./ui/panel";
+import { allocationPanel } from "./ui/panels/allocation";
+import { armouryPanel } from "./ui/panels/armoury";
+import { recruitPanel } from "./ui/panels/recruit";
+import { scavengePanel } from "./ui/panels/scavenge";
+import { sightingsPanel } from "./ui/panels/sightings";
+import { staffPanel } from "./ui/panels/staff";
+
+// The geoscape screen: the globe, the command panel and the clock. The panels it opens live in
+// ui/panels/, the fights in ui/fights.ts and the base screen in base/screen.ts.
 
 const css = getComputedStyle(document.documentElement);
 const token = (name: string) => css.getPropertyValue(name).trim();
-const $ = (id: string) => document.getElementById(id)!;
 
 const SAVE_KEY = "alien-defence.campaign.v1";
 
@@ -65,6 +64,39 @@ const labels = new GlobeLabels($("globeLabels"));
 const marks = new BaseMarks($("baseMarks"));
 const view = new OrbitView(camera, canvas);
 const clock = new GameClock(campaign.time, 60);
+
+// ---------- Panels and fights ----------
+const host: FightHost = {
+  get campaign() {
+    return campaign;
+  },
+  persist,
+  refresh,
+  toast,
+  get onGlobe() {
+    return !screen.hidden;
+  },
+  leaveGlobe() {
+    screen.hidden = true;
+    view.enabled = false;
+  },
+  returnToGlobe() {
+    screen.hidden = false;
+    view.enabled = true;
+    resize();
+  },
+  news: () => completed([]),
+  closePanels: () => panels.forEach((p) => p.hide()),
+  suggestSite(city: City) {
+    picked = { kind: "site", ll: { lat: city.lat, lon: city.lon } };
+    globe.placeMarker(city);
+    view.flyTo(city.lat, city.lon);
+  },
+};
+
+/** The panels opened from the command panel. To add one, see ui/panel.ts. */
+const panels = [scavengePanel, recruitPanel, sightingsPanel, armouryPanel, allocationPanel, staffPanel].map((make) => new Panel(make(host)));
+const ambush = ambushDialog(host);
 
 // ---------- Picking ----------
 const ray = new Raycaster();
@@ -185,10 +217,9 @@ function setRate(rate: number) {
   [...speedBox.children].forEach((x, i) => x.setAttribute("aria-pressed", String(TIME_SPEEDS[i].rate === rate)));
 }
 
-const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+// ---------- Command panel ----------
 const dateText = () => formatClock(campaign.time).date;
 const placeOf = (b: BaseRecord) => (b.city ? `${b.city}, covert` : `Remote, ${BIOMES[biomeAt(b.lat, b.lon)].name.toLowerCase()}`);
-const escape = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
 function baseSummary(b: BaseRecord): string {
   const { building, radar } = b.layout.stats();
@@ -206,54 +237,21 @@ function refreshBases() {
   const list = $("baseList");
   list.replaceChildren();
   for (const b of campaign.bases) {
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.innerHTML = `<span class="name"></span><span class="meta"></span>`;
-    btn.querySelector(".name")!.textContent = b.name;
-    btn.querySelector(".meta")!.textContent = baseSummary(b);
+    const btn = choiceButton(b.name, baseSummary(b));
     btn.title = `Open ${b.name}`;
     btn.addEventListener("click", () => enterBase(b));
-    li.appendChild(btn);
-    list.appendChild(li);
+    addItem(list, btn);
   }
   list.hidden = !campaign.bases.length;
   const pro = campaign.prologue;
   const spoils = $("spoils");
   spoils.hidden = !pro?.recovered.length;
-  $("openStaff").hidden = !campaign.staff.length;
-  $("openAlloc").hidden = !campaign.staff.length;
-  $("allocSummary").textContent = allocSummary();
-  $("openArmoury").hidden = !campaign.staff.length;
-  $("armourySummary").textContent = armourySummary();
-  $("armourySummary").className = campaign.staff.some((p) => campaign.kitWarnings(p).some((w) => /No gun|No ammo/.test(w))) ? "meta bad" : "meta";
-  const started = !!campaign.bases.length;
-  $("suppliesRow").hidden = !started;
-  $("openScavenge").hidden = !started;
-  $("openRecruit").hidden = !started;
-  $("openSightings").hidden = !started;
-  const calls = campaign.openCalls.length;
-  const answering = campaign.runs.filter((r) => r.call).length;
-  $("sightingSummary").textContent =
-    [calls ? `${calls} call${calls === 1 ? "" : "s"} waiting` : "", answering ? `${answering} team${answering === 1 ? "" : "s"} out` : "", campaign.vehicles.length ? `${campaign.vehicles.length} car${campaign.vehicles.length === 1 ? "" : "s"}` : ""]
-      .filter(Boolean)
-      .join(" · ") || "No calls";
-  $("sightingSummary").className = calls ? "meta bad" : "meta";
-  const recruiting = campaign.runs.some((r) => r.recruit);
-  $("recruitSummary").textContent =
-    [campaign.candidates.length ? `${campaign.candidates.length} want to join` : "", campaign.pledges.length ? `${campaign.pledges.length} promises` : "", recruiting ? "recruiting" : ""]
-      .filter(Boolean)
-      .join(" · ") || "Nobody waiting";
+  if (pro?.recovered.length) spoils.innerHTML = `<b>Recovered in ${escape(pro.city)}</b><span class="dim">${pro.recovered.map(escape).join(", ")}</span>`;
   const s = campaign.supplies;
   const days = campaign.foodDays;
+  $("suppliesRow").hidden = !campaign.bases.length;
   $("globeSupplies").textContent = `${s.food} food (${days === Infinity ? "—" : `${days}d`}) · ${s.medicine} med · ${s.scrap} scrap · ${s.fuel} fuel · ${s.ammo} clips`;
   $("globeSupplies").className = days < 3 ? "bad" : "";
-  const scavs = campaign.runs.filter(scavenging);
-  $("scavengeSummary").textContent = scavs.length
-    ? scavs.map((r) => `${r.search ? "Searching" : r.where ?? SITES[r.site].name}${r.ambush ? ", in trouble" : `, ${r.daysLeft}d`}`).join(" · ")
-    : "Nobody out";
-  $("staffSummary").textContent = staffSummary();
-  if (pro?.recovered.length) spoils.innerHTML = `<b>Recovered in ${escape(pro.city)}</b><span class="dim">${pro.recovered.map(escape).join(", ")}</span>`;
   marks.set(
     campaign.bases.map((b) => ({ id: b.id, name: b.name, lat: b.lat, lon: b.lon, covert: b.site === "city" })),
     picked?.kind === "base" ? picked.id : null,
@@ -301,14 +299,12 @@ function lightText(ll: LatLon): string {
   return light === "day" ? `Day, sun ${sunElevation(ll, campaign.time).toFixed(0)}° up` : light === "twilight" ? "Twilight" : "Night";
 }
 
+/** Redraws everything on the geoscape that follows the campaign: the command panel, the survey and any open panel. */
 function refresh() {
   refreshBases();
   refreshSurvey();
-  if (!$("scavengeModal").hidden) refreshScavenge();
-  if (!$("sightingModal").hidden) refreshSightings();
-  if (!$("recruitModal").hidden) refreshRecruit();
-  if (!$("allocModal").hidden) refreshAlloc();
-  checkAmbush();
+  for (const p of panels) p.refresh();
+  ambush.check();
   lastClock = "";
 }
 
@@ -328,8 +324,7 @@ function completed(done: Completion[]) {
   if (campaign.news.length) {
     toast(campaign.news.splice(0).join(" · "));
     if (clock.rate > 300) setRate(5);
-    if (!$("staffModal").hidden) refreshStaff();
-    refreshBases();
+    refresh();
   }
   if (!done.length) return;
   const names = done.map(({ base, item }) => `${ROOMS[item.type].name} at ${base.name}`);
@@ -340,8 +335,7 @@ function completed(done: Completion[]) {
 
 // ---------- Base screen ----------
 function enterBase(b: BaseRecord) {
-  screen.hidden = true;
-  view.enabled = false;
+  host.leaveGlobe();
   openBase({
     name: b.name,
     place: placeOf(b),
@@ -368,866 +362,14 @@ function leaveBase(b: BaseRecord) {
   campaign.settle(b);
   persist();
   closeBase();
-  screen.hidden = false;
-  view.enabled = true;
   picked = { kind: "base", id: b.id };
   globe.hideMarker();
-  resize();
+  host.returnToGlobe();
   refresh();
 }
 
-// ---------- Staff and research ----------
-function staffSummary(): string {
-  const id = campaign.research.active;
-  if (!campaign.staff.length) return "Nobody yet";
-  if (!campaign.bases.length) return `${campaign.staff.length} waiting for a base`;
-  if (!id) return "No research project";
-  const eta = campaign.researchEta();
-  return `${project(id).name}${eta ? `, ~${eta} day${eta === 1 ? "" : "s"}` : ", stalled"}`;
-}
-
-function refreshStaff() {
-  const r = campaign.research;
-  const id = r.active;
-  const rate = campaign.researchRate();
-  const eta = campaign.researchEta();
-  $("researchNow").innerHTML = id
-    ? `<div class="row"><span>Working on</span><span>${escape(project(id).name)}</span></div>
-       <div class="meter"><i style="width:${Math.min(100, ((r.progress[id] ?? 0) / project(id).points) * 100)}%"></i></div>
-       <div class="row"><span>${rate.toFixed(1)} points a day</span><span>${eta ? `~${eta} days left` : campaign.bases.length ? "Nobody on research" : "Waiting for a base"}</span></div>`
-    : `<p class="dim">Pick a project. Everyone on research works on it together.</p>`;
-  const list = $("projectList");
-  list.replaceChildren();
-  for (const { project: p, blocker, progress } of campaign.projects()) {
-    if (blocker === "Done") continue;
-    const li = document.createElement("li");
-    const b = document.createElement("button");
-    b.type = "button";
-    b.disabled = !!blocker;
-    b.setAttribute("aria-pressed", String(p.id === id));
-    b.innerHTML = `<span class="name"></span><span class="meta"></span>`;
-    b.querySelector(".name")!.textContent = p.name;
-    b.querySelector(".meta")!.textContent = blocker ?? `${p.blurb} ${Math.floor(progress)}/${p.points}`;
-    b.addEventListener("click", () => {
-      campaign.setResearch(p.id === id ? null : p.id);
-      persist();
-      refreshStaff();
-      refreshBases();
-    });
-    li.appendChild(b);
-    list.appendChild(li);
-  }
-  const people = $("staffList");
-  people.replaceChildren();
-  for (const p of campaign.staff) {
-    const li = document.createElement("li");
-    const where = campaign.bases.find((b) => b.id === p.base)?.name ?? "No base yet";
-    const fit = fitToWork(p);
-    li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div></div><div class="pick"><select aria-label="Base"></select><select aria-label="Job"></select></div>`;
-    li.querySelector("b")!.textContent = p.name;
-    li.querySelector(".dim")!.textContent = p.role;
-    const status = `${doing(p) ? ` · ${doing(p)}` : ""}${p.hunger ? ` · hungry ${p.hunger}d` : ""}${p.loyalty !== undefined ? ` · loyalty ${p.loyalty}` : ""}${p.dependants ? ` · family of ${p.dependants}` : ""}`;
-    li.querySelector(".meta")!.textContent = `${where}${status} · HP ${p.health}/${p.stats.health}${fit ? "" : " · recovering"} · build ${buildSkill(p).toFixed(2)} · research ${p.aptitude.toFixed(2)}`;
-    const [baseSel, sel] = li.querySelectorAll("select");
-    baseSel.disabled = sel.disabled = !!p.away;
-    baseSel.hidden = campaign.bases.length < 2;
-    for (const b of campaign.bases) {
-      const o = document.createElement("option");
-      o.value = String(b.id);
-      o.textContent = b.name;
-      baseSel.appendChild(o);
-    }
-    if (p.base !== null) baseSel.value = String(p.base);
-    baseSel.addEventListener("change", () => {
-      campaign.transfer(p.id, Number(baseSel.value));
-      persist();
-      refreshStaff();
-      refreshBases();
-    });
-    fillJobs(sel, p);
-    sel.addEventListener("change", () => {
-      campaign.setJob(p.id, sel.value as Job);
-      persist();
-      refreshStaff();
-      refreshBases();
-    });
-    people.appendChild(li);
-  }
-  $("doneBox").hidden = !r.done.length;
-  $("doneList").innerHTML = r.done.map((d) => `<li><b>${escape(project(d).name)}</b> ${escape(project(d).result)}</li>`).join("");
-}
-
-/** What someone is out doing, or an empty string when they're home. */
-function doing(p: Person): string {
-  const run = campaign.runs.find((r) => r.id === p.away);
-  if (!run) return "";
-  return run.recruit ? "out recruiting" : run.search ? "out searching" : run.call ? "answering a call" : run.repair ? "fixing a car" : `out at ${runWhere(run)}`;
-}
-
-/** Fills a job picker for someone: jobs their lock rules out can be seen but not picked. */
-function fillJobs(sel: HTMLSelectElement, p: Person) {
-  for (const job of Object.keys(JOB_NAMES) as Job[]) {
-    const o = new Option(JOB_NAMES[job], job);
-    const duty = jobDuty(job);
-    const clash = duty && dutyClash(p, duty);
-    if (clash?.locked) {
-      o.disabled = true;
-      o.textContent += " (locked out)";
-    } else if (clash) o.textContent += " ⚠";
-    sel.add(o);
-  }
-  sel.value = p.job;
-}
-
-$("openStaff").addEventListener("click", () => {
-  refreshStaff();
-  $("staffModal").hidden = false;
-});
-$("closeStaff").addEventListener("click", () => ($("staffModal").hidden = true));
-$("staffModal").addEventListener("click", (e) => {
-  if (e.target === $("staffModal")) $("staffModal").hidden = true;
-});
-
-// ---------- Unit allocation ----------
-function allocSummary(): string {
-  const locked = campaign.staff.filter((p) => holdOf(p) === "lock").length;
-  const preferred = campaign.staff.filter((p) => holdOf(p) === "prefer").length;
-  const gaps = allocGaps().length;
-  return [locked ? `${locked} locked` : "", preferred ? `${preferred} preferred` : "", gaps ? `${gaps} gap${gaps === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ") || "Everyone on any job";
-}
-
-/** Duties nobody can be given any more, because everyone is locked to something else. */
-function allocGaps(): Duty[] {
-  if (!campaign.staff.length) return [];
-  return DUTIES.filter((d) => campaign.staff.every((p) => dutyClash(p, d)?.locked));
-}
-
-/** A note for a team list on how this trip fits their allocation, and whether their lock rules it out. */
-function dutyNote(p: Person, duty: Duty): { text: string; locked: boolean } {
-  const clash = dutyClash(p, duty);
-  if (clash) return { text: ` · ${clash.locked ? "locked to" : "⚠ meant for"} ${dutyList(p)}`, locked: clash.locked };
-  return { text: p.duties?.length ? ` · assigned to ${DUTY_NAMES[duty].toLowerCase()}` : "", locked: false };
-}
-
-/** Sets a send button and the line beside it. Sending people off their allocation needs "anyway". */
-function sendState(button: string, odds: string, label: string, reason: string | null, text: string, warnings: string[]) {
-  const b = $(button) as HTMLButtonElement;
-  b.disabled = !!reason;
-  b.textContent = !reason && warnings.length ? `${label} anyway` : label;
-  $(odds).textContent = reason ?? (warnings.length ? `⚠ ${warnings.join("; ")}. ${text}` : text);
-  $(odds).className = !reason && warnings.length ? "warnline" : "dim";
-}
-
-function refreshAlloc() {
-  const gaps = allocGaps();
-  $("allocGaps").innerHTML = gaps.map((d) => `<li>Nobody can be put on ${escape(DUTY_NAMES[d].toLowerCase())}: everyone is locked to something else.</li>`).join("");
-  const table = $("allocTable");
-  table.innerHTML = `<thead><tr><th>Person</th><th>Hold</th>${DUTIES.map((d) => `<th title="${escape(DUTY_NAMES[d])}">${escape(DUTY_SHORT[d])}</th>`).join("")}<th>At home</th></tr></thead><tbody></tbody><tfoot></tfoot>`;
-  const body = table.querySelector("tbody")!;
-  for (const p of campaign.staff) {
-    const hold = holdOf(p);
-    const tr = document.createElement("tr");
-    tr.className = hold;
-    const who = document.createElement("td");
-    who.innerHTML = `<b></b> <span class="dim"></span><div class="meta"></div>`;
-    who.querySelector("b")!.textContent = p.name;
-    who.querySelector(".dim")!.textContent = p.role;
-    who.querySelector(".meta")!.textContent = [doing(p), `HP ${p.health}/${p.stats.health}`, fitToWork(p) ? "" : "recovering", `build ${buildSkill(p).toFixed(2)}`, `research ${p.aptitude.toFixed(2)}`, `aim ${p.stats.accuracy}`]
-      .filter(Boolean)
-      .join(" · ");
-    tr.appendChild(who);
-    const holdCell = document.createElement("td");
-    const holdSel = document.createElement("select");
-    holdSel.setAttribute("aria-label", `How firmly ${p.name} is held`);
-    for (const h of Object.keys(HOLD_NAMES) as Hold[]) holdSel.add(new Option(HOLD_NAMES[h], h));
-    holdSel.value = hold;
-    holdSel.addEventListener("change", () => {
-      const next = holdSel.value as Hold;
-      // Holding someone with nothing ticked yet starts from what they're doing at home.
-      const duties = p.duties?.length ? p.duties : [jobDuty(p.job) ?? "construction"];
-      campaign.allocate(p.id, next === "any" ? [] : duties, next);
-      persist();
-      refresh();
-    });
-    holdCell.appendChild(holdSel);
-    tr.appendChild(holdCell);
-    for (const d of DUTIES) {
-      const td = document.createElement("td");
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = !!p.duties?.includes(d);
-      box.setAttribute("aria-label", `${p.name}: ${DUTY_NAMES[d]}`);
-      box.addEventListener("change", () => {
-        const duties = DUTIES.filter((x) => (x === d ? box.checked : !!p.duties?.includes(x)));
-        campaign.allocate(p.id, duties, holdOf(p) === "any" ? "prefer" : holdOf(p));
-        persist();
-        refresh();
-      });
-      td.appendChild(box);
-      tr.appendChild(td);
-    }
-    const now = document.createElement("td");
-    now.className = "now";
-    const sel = document.createElement("select");
-    sel.setAttribute("aria-label", `${p.name}'s job at home`);
-    fillJobs(sel, p);
-    sel.disabled = !!p.away;
-    sel.addEventListener("change", () => {
-      campaign.setJob(p.id, sel.value as Job);
-      persist();
-      refresh();
-    });
-    now.appendChild(sel);
-    tr.appendChild(now);
-    body.appendChild(tr);
-  }
-  const foot = table.querySelector("tfoot")!;
-  const tr = document.createElement("tr");
-  tr.innerHTML = `<td>Assigned</td><td></td>${DUTIES.map((d) => {
-    const n = campaign.staff.filter((p) => p.duties?.includes(d)).length;
-    return `<td${gaps.includes(d) ? ' class="bad"' : ""}>${gaps.includes(d) ? "none" : n}</td>`;
-  }).join("")}<td></td>`;
-  foot.appendChild(tr);
-}
-
-$("openAlloc").addEventListener("click", () => {
-  refreshAlloc();
-  $("allocModal").hidden = false;
-});
-$("closeAlloc").addEventListener("click", () => ($("allocModal").hidden = true));
-$("allocModal").addEventListener("click", (e) => {
-  if (e.target === $("allocModal")) $("allocModal").hidden = true;
-});
-
-// ---------- Armoury ----------
-/** Warnings on someone's kit, as one line for a team list. Empty when there's nothing to fix. */
-function kitWarn(p: Person): string {
-  const w = campaign.kitWarnings(p).filter((x) => !/as asked/.test(x));
-  return w.length ? ` · ⚠ ${w.join("; ")}` : "";
-}
-
-function armourySummary(): string {
-  const warned = campaign.staff.filter((p) => campaign.kitWarnings(p).some((w) => !/as asked/.test(w))).length;
-  const guns = GUNS.reduce((n, g) => n + campaign.armoury[g], 0);
-  return [`${campaign.supplies.ammo} clips`, guns ? `${guns} spare gun${guns === 1 ? "" : "s"}` : "", warned ? `${warned} with problems` : ""].filter(Boolean).join(" · ");
-}
-
-function refreshArmoury() {
-  const a = campaign.armoury;
-  const s = campaign.supplies;
-  const shelf = (ids: readonly GearId[]) => ids.filter((g) => a[g]).map((g) => `${a[g]} ${GEAR[g].name.toLowerCase()}`).join(", ") || "none";
-  $("storeRows").innerHTML = `
-    <div class="row"><span>Spare clips</span><span${s.ammo ? "" : ' class="bad"'}>${s.ammo}${campaign.looseClips > 0.01 ? `, and loose rounds worth ${Math.round(campaign.looseClips * 100)}% of a clip` : ""}</span></div>
-    <div class="row"><span>Guns</span><span>${escape(shelf(GUNS))}</span></div>
-    <div class="row"><span>Armour</span><span>${escape(shelf(ARMOURS))}</span></div>
-    <div class="row"><span>Kit</span><span>${escape(shelf(["stunBaton", "medkit"]))}</span></div>`;
-  const reason = campaign.checkMedikit();
-  ($("makeMedikit") as HTMLButtonElement).disabled = !!reason;
-  $("medikitOdds").textContent = reason ?? `${MEDIKIT_COST} medicine of your ${s.medicine}`;
-  $("armouryWarnings").innerHTML = campaign.armouryWarnings().map((w) => `<li>${escape(w)}</li>`).join("");
-  const list = $("loadoutList");
-  list.replaceChildren();
-  for (const p of campaign.staff) {
-    const r = campaign.requestOf(p);
-    const li = document.createElement("li");
-    li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div><div class="warn"></div></div>
-      <div class="pick">
-        <select aria-label="Gun"></select>
-        <select aria-label="Spare clips"></select>
-        <label><input type="checkbox" data-k="armour" /> Armour</label>
-        <label><input type="checkbox" data-k="baton" /> Baton</label>
-        <label><input type="checkbox" data-k="medkit" /> Medikit</label>
-        <button type="button" class="quiet">Default</button>
-      </div>`;
-    li.querySelector("b")!.textContent = p.name;
-    li.querySelector(".dim")!.textContent = p.role;
-    li.querySelector(".meta")!.textContent = `${p.away ? "Out, carrying " : "Carries "}${describeKit(p.kit ?? noKit())}`;
-    li.querySelector(".warn")!.textContent = campaign.kitWarnings(p).join(" · ");
-    const [gunSel, clipSel] = li.querySelectorAll("select");
-    const guns: [Request["gun"], string][] = [["best", "Best gun going"], ...GUNS.map((g): [GunId, string] => [g, GEAR[g].name]), ["none", "No gun"]];
-    for (const [v, label] of guns) gunSel.add(new Option(label, v));
-    gunSel.value = r.gun;
-    for (let n = 0; n <= MAX_CLIPS; n++) clipSel.add(new Option(`${n} spare clip${n === 1 ? "" : "s"}`, String(n)));
-    clipSel.value = String(r.clips);
-    const boxes = li.querySelectorAll<HTMLInputElement>("input[data-k]");
-    for (const b of boxes) b.checked = r[b.dataset.k as "armour" | "baton" | "medkit"];
-    const change = () => {
-      const next: Request = { ...r, gun: gunSel.value as Request["gun"], clips: Number(clipSel.value) };
-      for (const b of boxes) next[b.dataset.k as "armour" | "baton" | "medkit"] = b.checked;
-      campaign.setRequest(p.id, next);
-      persist();
-      refresh();
-    };
-    gunSel.addEventListener("change", change);
-    clipSel.addEventListener("change", change);
-    for (const b of boxes) b.addEventListener("change", change);
-    const reset = li.querySelector("button")!;
-    reset.hidden = !p.request;
-    reset.title = "Back to the usual loadout for their role";
-    reset.addEventListener("click", () => {
-      campaign.resetRequest(p.id);
-      persist();
-      refresh();
-    });
-    list.appendChild(li);
-  }
-}
-
-$("openArmoury").addEventListener("click", () => {
-  refreshArmoury();
-  $("armouryModal").hidden = false;
-});
-$("closeArmoury").addEventListener("click", () => ($("armouryModal").hidden = true));
-$("armouryModal").addEventListener("click", (e) => {
-  if (e.target === $("armouryModal")) $("armouryModal").hidden = true;
-});
-$("makeMedikit").addEventListener("click", () => {
-  campaign.makeMedikit();
-  persist();
-  refresh();
-});
-
-// ---------- Scavenging ----------
-/** Runs that belong on the scavenging panel: out for supplies, or searching for places. */
-const scavenging = (r: Run) => !r.recruit && !r.call && !r.repair;
-
-/** A known place by id, or "search" to look for new ones. */
-let runSite: number | "search" = 1;
-let runDays = 1;
-const runTeam = new Set<number>();
-
-function refreshScavenge() {
-  const s = campaign.supplies;
-  const days = campaign.foodDays;
-  $("supplyRows").innerHTML = `
-    <div class="row"><span>Food</span><span${days < 3 ? ' class="bad"' : ""}>${s.food}, ${days === Infinity ? "nobody to feed" : `${days} day${days === 1 ? "" : "s"} for ${campaign.staff.length}`}</span></div>
-    <div class="row"><span>Medicine</span><span>${s.medicine}</span></div>
-    <div class="row"><span>Scrap</span><span>${s.scrap} (worth ${money(s.scrap * 10_000)} in rooms)</span></div>
-    <div class="row"><span>Fuel</span><span>${s.fuel}</span></div>
-    <div class="row"><span>Ammo</span><span>${s.ammo} spare clip${s.ammo === 1 ? "" : "s"} in the stores</span></div>`;
-  const market = $("marketRows");
-  market.replaceChildren();
-  for (const kind of ["food", "medicine", "fuel", "ammo"] as Traded[]) {
-    const n = MARKET_LOT[kind];
-    const cost = campaign.buyCost(kind, n);
-    const row = document.createElement("div");
-    row.className = "sendrow";
-    const heat = campaign.market[kind];
-    row.innerHTML = `<span class="dim"></span><button type="button"></button>`;
-    row.querySelector("span")!.textContent = `${n} ${kind} for ${money(cost)}${heat > 1.05 ? `, ${Math.round((heat - 1) * 100)}% over the going rate of ${money(MARKET_PRICE[kind])} a unit` : `, ${money(MARKET_PRICE[kind])} a unit`}`;
-    const b = row.querySelector("button")!;
-    b.textContent = "Buy";
-    const reason = campaign.checkBuy(kind, n);
-    b.disabled = !!reason;
-    if (reason) b.title = reason;
-    b.addEventListener("click", () => {
-      campaign.buy(kind, n);
-      persist();
-      refresh();
-    });
-    market.appendChild(row);
-  }
-  const runs = $("runList");
-  runs.replaceChildren();
-  for (const r of campaign.runs.filter(scavenging)) {
-    const li = document.createElement("li");
-    const names = r.team.map((id) => campaign.staff.find((p) => p.id === id)?.name ?? "?").join(", ");
-    li.innerHTML = `<div><b></b><div class="meta"></div></div>`;
-    li.querySelector("b")!.textContent = r.search ? "Searching for new places" : r.where ?? SITES[r.site].name;
-    const found = r.search ? `${r.found ?? 0} new place${r.found === 1 ? "" : "s"}` : describeSupplies(r.loot);
-    li.querySelector(".meta")!.textContent = `${names} · ${r.ambush ? "in a fight" : `back in ${r.daysLeft}d`} · found ${found}`;
-    runs.appendChild(li);
-  }
-  if (!campaign.runs.some(scavenging)) runs.innerHTML = `<li class="dim">Nobody is out.</li>`;
-  const sites = $("siteList");
-  sites.replaceChildren();
-  if (runSite !== "search" && !campaign.findPlace(runSite)) runSite = campaign.places[0]?.id ?? "search";
-  const option = (picked: boolean, name: string, meta: string, pick: () => void) => {
-    const li = document.createElement("li");
-    const b = document.createElement("button");
-    b.type = "button";
-    b.setAttribute("aria-pressed", String(picked));
-    b.innerHTML = `<span class="name"></span><span class="meta"></span>`;
-    b.querySelector(".name")!.textContent = name;
-    b.querySelector(".meta")!.textContent = meta;
-    b.addEventListener("click", () => {
-      pick();
-      refreshScavenge();
-    });
-    li.appendChild(b);
-    sites.appendChild(li);
-  };
-  for (const place of campaign.places) {
-    const site = SITES[place.kind];
-    const finds = Object.entries(site.yields).map(([k, [lo, hi]]) => `${k} ${lo}–${hi}`).join(", ");
-    option(place.id === runSite, place.name, `${site.name}. ${describeSupplies(place.stock)} left. Each person finds ${finds} a day while it lasts.`, () => (runSite = place.id));
-  }
-  if (!campaign.places.length) sites.innerHTML = `<li class="dim">Nowhere left that you know of.</li>`;
-  option(
-    runSite === "search",
-    "Search for new places",
-    `${SITES.search.blurb} Up to ${MAX_SEARCHERS} people; each has a ${Math.round(SEARCH_CHANCE * 100)}% chance a day of finding somewhere new.`,
-    () => (runSite = "search"),
-  );
-  const seg = $("runDays");
-  seg.replaceChildren();
-  for (let d = 1; d <= MAX_RUN_DAYS; d++) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = `${d} day${d === 1 ? "" : "s"}`;
-    b.setAttribute("aria-pressed", String(d === runDays));
-    b.addEventListener("click", () => {
-      runDays = d;
-      refreshScavenge();
-    });
-    seg.appendChild(b);
-  }
-  const team = $("teamList");
-  team.replaceChildren();
-  const runDuty: Duty = runSite === "search" ? "search" : dutyOf(campaign.findPlace(runSite)!.kind);
-  for (const p of campaign.staff) {
-    const note = dutyNote(p, runDuty);
-    const free = campaign.canScavenge(p) && !note.locked;
-    if (!free) runTeam.delete(p.id);
-    const li = document.createElement("li");
-    li.innerHTML = `<label><input type="checkbox" /><span><b></b> <span class="dim"></span><span class="meta"></span></span></label>`;
-    const box = li.querySelector("input")!;
-    box.checked = runTeam.has(p.id);
-    box.disabled = !free || (!box.checked && runTeam.size >= (runSite === "search" ? MAX_SEARCHERS : MAX_TEAM));
-    li.querySelector("b")!.textContent = p.name;
-    li.querySelector(".dim")!.textContent = p.role;
-    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !fitToWork(p) ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`}${note.text} · HP ${p.health}/${p.stats.health} · ${describeKit(p.kit ?? noKit())}${kitWarn(p)}`;
-    box.addEventListener("change", () => {
-      if (box.checked) runTeam.add(p.id);
-      else runTeam.delete(p.id);
-      refreshScavenge();
-    });
-    team.appendChild(li);
-  }
-  const searching = runSite === "search";
-  const reason = searching && runTeam.size > MAX_SEARCHERS ? `No more than ${MAX_SEARCHERS} searching at once` : campaign.checkRun(runSite, [...runTeam], runDays);
-  const kind = searching ? "search" : campaign.findPlace(runSite)!.kind;
-  sendState("sendRun", "runOdds", "Send them", reason, `${Math.round(cleanChance(kind, runTeam.size, runDays) * 100)}% chance of getting back without trouble`, campaign.dutyWarnings(runSite, [...runTeam]));
-}
-
-$("openScavenge").addEventListener("click", () => {
-  refreshScavenge();
-  $("scavengeModal").hidden = false;
-});
-$("closeScavenge").addEventListener("click", () => ($("scavengeModal").hidden = true));
-$("scavengeModal").addEventListener("click", (e) => {
-  if (e.target === $("scavengeModal")) $("scavengeModal").hidden = true;
-});
-$("sendRun").addEventListener("click", () => {
-  const run = runSite === "search" ? campaign.startSearch([...runTeam], runDays) : campaign.startRun(runSite, [...runTeam], runDays);
-  runTeam.clear();
-  persist();
-  const who = run.team.length === 1 ? "One person heads" : `${run.team.length} head`;
-  toast(run.search ? `${who} out to look for new places` : `${who} out to ${runWhere(run)}`);
-  refreshScavenge();
-  refreshBases();
-});
-
-// ---------- Sightings ----------
-let callPick: number | null = null;
-let travelBy: Travel = "foot";
-const callTeam = new Set<number>();
-
-const hoursText = (h: number) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : `${Math.round(h * 10) / 10} h`);
-
-function refreshSightings() {
-  const now = campaign.time;
-  const calls = campaign.openCalls;
-  if (callPick !== null && !calls.some((c) => c.id === callPick)) callPick = null;
-  if (callPick === null && calls.length) callPick = calls[0].id;
-  const list = $("callList");
-  list.replaceChildren();
-  for (const c of calls) {
-    const li = document.createElement("li");
-    const b = document.createElement("button");
-    b.type = "button";
-    b.setAttribute("aria-pressed", String(c.id === callPick));
-    b.innerHTML = `<span class="name"></span><span class="meta"></span>`;
-    b.querySelector(".name")!.textContent = `Something ${c.place}`;
-    const ago = (now - c.at) / HOUR_MS;
-    b.querySelector(".meta")!.textContent = `${c.caller} called it in ${hoursText(ago)} ago. ${c.km} km away. Gone for sure in ${hoursText(Math.max(0, TRAIL_HOURS - ago))}.`;
-    b.addEventListener("click", () => {
-      callPick = c.id;
-      refreshSightings();
-    });
-    li.appendChild(b);
-    list.appendChild(li);
-  }
-  if (!calls.length) list.innerHTML = `<li class="dim">No calls. Someone will see something soon enough.</li>`;
-  const call = calls.find((c) => c.id === callPick);
-  const seg = $("callTravel");
-  seg.replaceChildren();
-  for (const by of ["foot", "car"] as Travel[]) {
-    const b = document.createElement("button");
-    b.type = "button";
-    const h = call ? travelHours(call.km, by) : 0;
-    b.textContent = by === "foot" ? `On foot${call ? `, ${hoursText(h)}` : ""}` : `By car${call ? `, ${hoursText(h)}, ${tripFuel(call.km)} fuel` : ""}`;
-    b.setAttribute("aria-pressed", String(by === travelBy));
-    b.addEventListener("click", () => {
-      travelBy = by;
-      refreshSightings();
-    });
-    seg.appendChild(b);
-  }
-  const team = $("callTeamList");
-  team.replaceChildren();
-  for (const p of campaign.staff) {
-    const note = dutyNote(p, "hunt");
-    const free = campaign.canScavenge(p) && !note.locked;
-    if (!free) callTeam.delete(p.id);
-    const li = document.createElement("li");
-    li.innerHTML = `<label><input type="checkbox" /><span><b></b> <span class="dim"></span><span class="meta"></span></span></label>`;
-    const box = li.querySelector("input")!;
-    box.checked = callTeam.has(p.id);
-    box.disabled = !free || (!box.checked && callTeam.size >= (travelBy === "car" ? CAR_SEATS : MAX_TEAM));
-    li.querySelector("b")!.textContent = p.name;
-    li.querySelector(".dim")!.textContent = p.role;
-    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !fitToWork(p) ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`}${note.text} · HP ${p.health}/${p.stats.health} · ${describeKit(p.kit ?? noKit())}${kitWarn(p)}`;
-    box.addEventListener("change", () => {
-      if (box.checked) callTeam.add(p.id);
-      else callTeam.delete(p.id);
-      refreshSightings();
-    });
-    team.appendChild(li);
-  }
-  const reason = call ? campaign.checkResponse(call.id, [...callTeam], travelBy) : "No call to answer";
-  const h = call ? travelHours(call.km, travelBy) : 0;
-  sendState("sendCall", "callOdds", "Go", reason, call ? `There in ${hoursText(h)}: about ${Math.round(freshness(call, now + h * HOUR_MS) * 100)}% chance it's still there` : "", campaign.dutyWarnings("sighting", [...callTeam]));
-  const out = $("responseList");
-  out.replaceChildren();
-  for (const r of campaign.runs.filter((x) => x.call)) {
-    const li = document.createElement("li");
-    const names = r.team.map((id) => campaign.staff.find((p) => p.id === id)?.name ?? "?").join(", ");
-    li.innerHTML = `<div><b></b><div class="meta"></div></div>`;
-    li.querySelector("b")!.textContent = `Answering: something ${r.call!.place}`;
-    const state = r.ambush ? "in a fight" : r.arrived ? `trail was cold, home in ${hoursText((r.back! - now) / HOUR_MS)}` : `there in ${hoursText((r.arrive! - now) / HOUR_MS)}`;
-    li.querySelector(".meta")!.textContent = `${names} · ${r.by === "car" ? "by car" : "on foot"} · ${state}`;
-    out.appendChild(li);
-  }
-  if (!campaign.runs.some((x) => x.call)) out.innerHTML = `<li class="dim">Nobody is out.</li>`;
-  const cars = $("vehicleList");
-  cars.replaceChildren();
-  for (const v of campaign.vehicles) {
-    const li = document.createElement("li");
-    li.innerHTML = `<div><b></b><div class="meta"></div></div>`;
-    li.querySelector("b")!.textContent = v.name[0].toUpperCase() + v.name.slice(1);
-    li.querySelector(".meta")!.textContent = v.away ? "out on a call" : "in the yard";
-    cars.appendChild(li);
-  }
-  for (const r of campaign.runs.filter((x) => x.repair)) {
-    const li = document.createElement("li");
-    li.className = "dim";
-    li.textContent = `A car being fixed up: running in ${r.daysLeft} day${r.daysLeft === 1 ? "" : "s"}`;
-    cars.appendChild(li);
-  }
-  if (!cars.children.length) cars.innerHTML = `<li class="dim">No cars yet.</li>`;
-  const mechanics = mechanicPick();
-  const why = mechanics.length ? campaign.checkRepair(mechanics) : "Nobody free to do it";
-  sendState(
-    "startRepair",
-    "repairOdds",
-    "Fix up a car",
-    why,
-    `${CAR_SCRAP} scrap. ${mechanics.map((id) => campaign.staff.find((p) => p.id === id)!.name).join(" and ")} would have it running in ${campaign.repairDays(mechanics)} days`,
-    campaign.dutyWarnings("garage", mechanics),
-  );
-}
-
-/** The handiest free people for a car: up to two, never anyone locked elsewhere, and people meant for something else only if nobody else will do. */
-function mechanicPick(): number[] {
-  return campaign.staff
-    .filter((p) => campaign.canScavenge(p) && !dutyClash(p, "garage")?.locked)
-    .sort((a, b) => Number(!!dutyClash(a, "garage")) - Number(!!dutyClash(b, "garage")) || buildSkill(b) - buildSkill(a))
-    .slice(0, MAX_MECHANICS)
-    .map((p) => p.id);
-}
-
-$("openSightings").addEventListener("click", () => {
-  refreshSightings();
-  $("sightingModal").hidden = false;
-});
-$("closeSightings").addEventListener("click", () => ($("sightingModal").hidden = true));
-$("sightingModal").addEventListener("click", (e) => {
-  if (e.target === $("sightingModal")) $("sightingModal").hidden = true;
-});
-$("sendCall").addEventListener("click", () => {
-  if (callPick === null) return;
-  const run = campaign.respond(callPick, [...callTeam], travelBy);
-  callTeam.clear();
-  persist();
-  toast(`${run.team.length === 1 ? "One person heads" : `${run.team.length} head`} out ${run.by === "car" ? "by car" : "on foot"}`);
-  refresh();
-  refreshBases();
-});
-$("startRepair").addEventListener("click", () => {
-  campaign.startRepair(mechanicPick());
-  persist();
-  refresh();
-  refreshBases();
-});
-
-// ---------- Recruitment ----------
-let recruitDays = 2;
-const recruiters = new Set<number>();
-
-function refreshRecruit() {
-  const list = $("candidateList");
-  list.replaceChildren();
-  for (const c of campaign.candidates) {
-    const li = document.createElement("li");
-    li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div><div class="want"></div></div><div class="acts"><button type="button" class="no">Turn away</button><button type="button" class="yes">Take on</button></div>`;
-    li.querySelector("b")!.textContent = c.name;
-    li.querySelector(".dim")!.textContent = c.role;
-    const left = c.until - campaign.day;
-    li.querySelector(".meta")!.textContent = `build ${c.build.toFixed(2)} · research ${c.aptitude.toFixed(2)} · HP ${c.stats.health} · aim ${c.stats.accuracy} · waits ${left <= 0 ? "until tomorrow" : `${left} more day${left === 1 ? "" : "s"}`} · brings ${c.kit ? (describeKit(c.kit) === "unarmed" ? "nothing" : describeKit(c.kit).replace(/^unarmed, /, "")) : "nothing"}`;
-    li.querySelector(".want")!.textContent = `Wants ${WANT_TEXT[c.wants](c.amount)}`;
-    const reason = campaign.checkCandidate(c.id);
-    const yes = li.querySelector(".yes") as HTMLButtonElement;
-    yes.disabled = !!reason;
-    if (reason) yes.title = reason;
-    yes.addEventListener("click", () => {
-      const p = campaign.accept(c.id);
-      persist();
-      toast(`${p.name} joins${p.dependants ? ` with ${p.dependants === 1 ? "a partner" : `a family of ${p.dependants}`}` : ""}`);
-      refreshRecruit();
-      refreshBases();
-    });
-    li.querySelector(".no")!.addEventListener("click", () => {
-      campaign.turnAway(c.id);
-      persist();
-      refreshRecruit();
-      refreshBases();
-    });
-    list.appendChild(li);
-  }
-  if (!campaign.candidates.length) list.innerHTML = `<li class="dim">Nobody yet. Send someone out to talk to people.</li>`;
-  const pledges = $("pledgeList");
-  pledges.replaceChildren();
-  for (const pl of campaign.pledges) {
-    const p = campaign.staff.find((x) => x.id === pl.person);
-    if (!p) continue;
-    const li = document.createElement("li");
-    const left = pl.due - campaign.day;
-    const what = pl.wants === "medicine" ? `${pl.amount} medicine (you have ${campaign.supplies.medicine})` : pl.wants === "bed" ? "a bed: living quarters working in a base" : "an alien dead or caught";
-    li.innerHTML = `<div><b></b><div class="meta"></div></div>`;
-    li.querySelector("b")!.textContent = p.name;
-    li.querySelector(".meta")!.textContent = `Promised ${what} · ${left > 0 ? `${left} day${left === 1 ? "" : "s"} left` : "due today"} · loyalty ${p.loyalty ?? 100}`;
-    pledges.appendChild(li);
-  }
-  if (!campaign.pledges.length) pledges.innerHTML = `<li class="dim">No promises to keep.</li>`;
-  const seg = $("recruitDays");
-  seg.replaceChildren();
-  for (let d = 1; d <= MAX_RUN_DAYS; d++) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = `${d} day${d === 1 ? "" : "s"}`;
-    b.setAttribute("aria-pressed", String(d === recruitDays));
-    b.addEventListener("click", () => {
-      recruitDays = d;
-      refreshRecruit();
-    });
-    seg.appendChild(b);
-  }
-  const team = $("recruiterList");
-  team.replaceChildren();
-  for (const p of campaign.staff) {
-    const note = dutyNote(p, "recruit");
-    const free = campaign.canScavenge(p) && !note.locked;
-    if (!free) recruiters.delete(p.id);
-    const li = document.createElement("li");
-    li.innerHTML = `<label><input type="checkbox" /><span><b></b> <span class="dim"></span><span class="meta"></span></span></label>`;
-    const box = li.querySelector("input")!;
-    box.checked = recruiters.has(p.id);
-    box.disabled = !free || (!box.checked && recruiters.size >= MAX_RECRUITERS);
-    li.querySelector("b")!.textContent = p.name;
-    li.querySelector(".dim")!.textContent = p.role;
-    li.querySelector(".meta")!.textContent = ` · ${p.away ? "already out" : !fitToWork(p) ? "too hurt" : `${JOB_NAMES[p.job].toLowerCase()} now`}${note.text}`;
-    box.addEventListener("change", () => {
-      if (box.checked) recruiters.add(p.id);
-      else recruiters.delete(p.id);
-      refreshRecruit();
-    });
-    team.appendChild(li);
-  }
-  const reason = campaign.checkRun("streets", [...recruiters], recruitDays);
-  sendState("sendRecruit", "recruitOdds", "Send them", reason, `${Math.round(cleanChance("streets", recruiters.size, recruitDays) * 100)}% chance of getting back without trouble`, campaign.dutyWarnings("streets", [...recruiters]));
-}
-
-$("openRecruit").addEventListener("click", () => {
-  refreshRecruit();
-  $("recruitModal").hidden = false;
-});
-$("closeRecruit").addEventListener("click", () => ($("recruitModal").hidden = true));
-$("recruitModal").addEventListener("click", (e) => {
-  if (e.target === $("recruitModal")) $("recruitModal").hidden = true;
-});
-$("sendRecruit").addEventListener("click", () => {
-  const run = campaign.startRecruiting([...recruiters], recruitDays);
-  recruiters.clear();
-  persist();
-  toast(`${run.team.length === 1 ? "A recruiter heads" : "Two recruiters head"} out into the streets`);
-  refreshRecruit();
-  refreshBases();
-});
-
-/** Puts a run that's met an alien in front of the player. The clock waits until they choose. */
-function checkAmbush() {
-  const run = campaign.ambush;
-  const box = $("ambushModal");
-  if (!run || screen.hidden) {
-    box.hidden = true;
-    return;
-  }
-  if (!box.hidden) return;
-  $("scavengeModal").hidden = true;
-  $("recruitModal").hidden = true;
-  $("staffModal").hidden = true;
-  $("allocModal").hidden = true;
-  $("sightingModal").hidden = true;
-  const team = run.team.map((id) => campaign.staff.find((p) => p.id === id)!);
-  if (run.fightSeed === undefined) {
-    run.fightSeed = Math.floor(Math.random() * 2 ** 31);
-    persist();
-  }
-  const force = rollForce(run.fightSeed, !!run.call);
-  const learned = campaign.learned[force.race];
-  adaptSquad(force.squad, learned);
-  const many = force.squad.members.length > 1;
-  const reads = [...readSquad(force.squad, campaign.knowledge(force.race)), ...adaptReads(learned)];
-  const intro = run.call
-    ? `The team answering the call got there, ${escape(run.call.place)}, and ${many ? "they're" : "it's"} still there.`
-    : `The run to ${escape(runWhere(run))} has run into an alien, alone and close.`;
-  const odds = run.call
-    ? `Fight and you might bring home ${many ? "bodies or prisoners" : "a body or a prisoner"}, and what's left of the kit. Pull back and someone may get hurt getting away.`
-    : "Fight it and you might bring home a body or a prisoner as well as the supplies. Run and you drop everything, and someone may get hurt getting away.";
-  const city = fightCity(run.team);
-  const light = daylightAt(city, campaign.time);
-  reads.unshift(`${solarTime(city.lon, campaign.time)} local in ${city.name}. ${lightRead(light)}`);
-  $("ambushBody").innerHTML = `<p>${intro}</p>
-    <ul class="reads">${reads.map((r) => `<li>${escape(r)}</li>`).join("")}</ul>
-    <ul>${team.map((p) => `<li><b>${escape(p.name)}</b> <span class="dim">${escape(p.role)}, ${p.health}/${p.stats.health} HP, ${escape(describeKit(p.kit ?? noKit()))}</span>${campaign.kitWarnings(p).length ? `<div class="warn">⚠ ${escape(campaign.kitWarnings(p).join("; "))}</div>` : ""}</li>`).join("")}</ul>
-    <p class="dim">${odds}</p>`;
-  box.hidden = false;
-}
-
-$("ambushFlee").addEventListener("click", () => {
-  campaign.fleeAmbush();
-  persist();
-  $("ambushModal").hidden = true;
-  completed([]);
-  refresh();
-});
-$("ambushFight").addEventListener("click", () => {
-  const run = campaign.ambush;
-  if (!run) return;
-  $("ambushModal").hidden = true;
-  const city = fightCity(run.team);
-  const team = run.team.map((id) => campaign.staff.find((p) => p.id === id)!);
-  screen.hidden = true;
-  view.enabled = false;
-  const sighting = run.call ? { caller: run.call.caller, place: run.call.place, hours: (run.arrive! - run.call.at) / HOUR_MS } : undefined;
-  const seed = run.fightSeed ?? Math.floor(Math.random() * 2 ** 31);
-  const race = rollForce(seed, !!run.call).race;
-  const knowledge = campaign.knowledge(race);
-  // The fight is fought in whatever light the globe shows there right now.
-  const light = daylightAt(city, campaign.time);
-  const fight = startAmbush(city, seed, team, SITES[run.site].name, sighting, knowledge, campaign.learned[race], light, solarTime(city.lon, campaign.time));
-  const back = () => {
-    closeCombat();
-    screen.hidden = false;
-    view.enabled = true;
-    resize();
-    persist();
-    completed([]);
-    refresh();
-  };
-  openCombat({
-    prologue: fight,
-    knowledge,
-    finish: (r) => {
-      campaign.resolveAmbush({
-        outcome: r.outcome,
-        recovered: r.recovered,
-        race,
-        people: r.people.map((p) => ({ id: p.id, health: p.health, kit: kitAfter(campaign.staff.find((s) => s.id === p.id)?.kit ?? noKit(), p.gear) })),
-        tally: r.tally,
-        commanderDown: r.commanderDown,
-      });
-      back();
-    },
-    retry: () => {},
-    skip: () => {},
-  });
-});
-
-/** Where a team's fight happens: the city their base hides under, or the nearest one. */
-function fightCity(team: number[]) {
-  const home = campaign.bases.find((b) => b.id === campaign.staff.find((p) => p.id === team[0])?.base) ?? campaign.bases[0];
-  return CITIES.find((c) => c.name === home?.city) ?? nearestCityTo(home);
-}
-
-/** The city a base hides under, or the nearest one to a remote base. */
-function nearestCityTo(b: BaseRecord | undefined) {
-  if (!b) return CITIES[0];
-  return CITIES.reduce((best, c) => (Math.hypot(c.lat - b.lat, c.lon - b.lon) < Math.hypot(best.lat - b.lat, best.lon - b.lon) ? c : best));
-}
-
-// ---------- Prologue ----------
-/** The opening battle: one night in a city, hunted by a single alien. */
-function playPrologue() {
-  const seed = Math.floor(Math.random() * 2 ** 31);
-  const city = prologueCity(seed);
-  screen.hidden = true;
-  view.enabled = false;
-  const back = () => {
-    persist();
-    closeCombat();
-    screen.hidden = false;
-    view.enabled = true;
-    // Suggest the city they just escaped from for the first base.
-    if (!campaign.bases.length) {
-      picked = { kind: "site", ll: { lat: city.lat, lon: city.lon } };
-      globe.placeMarker(city);
-      view.flyTo(city.lat, city.lon);
-    }
-    resize();
-    refresh();
-  };
-  const prologue = startPrologue(city, seed);
-  // Research aptitude is a coin toss, not their old job: anyone can learn anything. Their old job does make some handier with a shovel.
-  // They keep what they walked out with: whatever is left in their guns, and their medikit.
-  const enlist = (people: { name: string; role: string; stats: Stats; health: number; gear: Gear }[]) =>
-    campaign.enlist(
-      people.map((p) => ({
-        name: p.name, role: p.role, stats: { ...p.stats }, health: p.health, kit: kitAfter(noKit(), p.gear),
-        aptitude: Math.round((0.8 + Math.random() * 0.4) * 100) / 100, build: rollBuild(p.role, Math.random),
-      })),
-    );
-  openCombat({
-    prologue,
-    finish: (r) => {
-      campaign.recordPrologue({ city: city.name, outcome: r.outcome, recovered: r.recovered, survivors: r.survivors, turns: r.turns });
-      enlist(r.people);
-      if (r.recovered.length) toast(`Recovered: ${r.recovered.join(", ")}`);
-      back();
-    },
-    retry: () => {
-      closeCombat();
-      playPrologue();
-    },
-    skip: () => {
-      if (!campaign.prologue) campaign.recordPrologue({ city: city.name, outcome: "skipped", recovered: [], survivors: 0, turns: 0 });
-      enlist(prologue.battle.humans.map((u) => ({ ...u, gear: u })));
-      back();
-    },
-  });
-}
-$("replayPrologue").addEventListener("click", playPrologue);
+// ---------- Prologue and new campaigns ----------
+$("replayPrologue").addEventListener("click", () => playPrologue(host));
 
 // Two presses to scrap the campaign, since there's no undo.
 {
@@ -1255,19 +397,11 @@ $("replayPrologue").addEventListener("click", playPrologue);
     globe.hideMarker();
     persist();
     refresh();
-    playPrologue();
+    playPrologue(host);
   });
 }
 
-let toastTimer = 0;
-function toast(text: string) {
-  const t = $("toast");
-  t.textContent = text;
-  t.className = "show";
-  clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => (t.className = ""), 3200);
-}
-
+// ---------- Clock ----------
 let lastClock = "";
 let lastDay = campaign.day;
 function updateHud() {
@@ -1280,13 +414,7 @@ function updateHud() {
   if (campaign.day !== lastDay) {
     lastDay = campaign.day;
     persist();
-    refreshBases();
-    refreshSurvey();
-    if (!$("staffModal").hidden) refreshStaff();
-    if (!$("scavengeModal").hidden) refreshScavenge();
-    if (!$("recruitModal").hidden) refreshRecruit();
-    if (!$("allocModal").hidden) refreshAlloc();
-    checkAmbush();
+    refresh();
   }
 }
 window.addEventListener("pagehide", persist);
@@ -1323,7 +451,7 @@ function frame(now: number) {
     completed(campaign.advanceTo(clock.time));
     if (campaign.ambush) {
       clock.time = campaign.time;
-      checkAmbush();
+      ambush.check();
     }
   }
   view.update(dt, now);
@@ -1338,4 +466,4 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // A new war opens with the prologue.
-if (!campaign.bases.length && !campaign.prologue) playPrologue();
+if (!campaign.bases.length && !campaign.prologue) playPrologue(host);

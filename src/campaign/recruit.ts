@@ -1,5 +1,5 @@
 import { Kit, arrivalKit } from "./armoury";
-import type { Stats } from "./tactical/rules";
+import type { Stats } from "../tactical/rules";
 
 /**
  * Recruitment: someone walks the streets and talks people into joining. Most want something in

@@ -1,6 +1,6 @@
 import type { Duty } from "./allocation";
 import type { Kit, Request } from "./armoury";
-import type { Stats } from "./tactical/rules";
+import type { Stats } from "../tactical/rules";
 
 /**
  * The people who work for you between battles, and the first research they can do.

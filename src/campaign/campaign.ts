@@ -3,10 +3,10 @@ import {
   GEAR, GUNS, GearId, Kit, MEDIKIT_COST, MEDIKIT_RESTOCK, Quarters, Request, Stores, defaultRequest, arrivalKit, emptyStores, kitWarnings,
   legacyKit, noKit, outfit, rollArms, usable,
 } from "./armoury";
-import { BaseLayout, Builder, Item, SavedBase, Site } from "./base/layout";
-import { CITIES, City } from "./geoscape/cities";
-import { CAMPAIGN_START } from "./geoscape/clock";
-import { DEG, LatLon } from "./geoscape/geo";
+import { BaseLayout, Builder, Item, SavedBase, Site } from "../base/layout";
+import { CITIES, City } from "../geoscape/cities";
+import { CAMPAIGN_START } from "../geoscape/clock";
+import { DEG, LatLon } from "../geoscape/geo";
 import {
   BROKEN_PENALTY, CANDIDATE_CHANCE, Candidate, DRIFTER_CHANCE, DRIFTER_LOYALTY, FAMILY_HUNGER_PENALTY, KEPT_BONUS, LEAVE_BELOW, LONG_PROMISE_DAYS,
   MEDICINE_DAYS, Pledge, RECRUIT_LOYALTY, STEAL_BELOW, rollCandidate, rollDrifter,
@@ -15,15 +15,16 @@ import {
   MAX_RECRUITERS, MAX_SEARCHERS, DESERT_AFTER, DESERT_CHANCE, MAX_RUN_DAYS, MAX_TEAM, MEDICINE_HEAL, Place, RATION, Run, SEARCH_CHANCE,
   MARKET_EASE, MARKET_RISE, START_SUPPLIES, SiteId, Supplies, Traded, addSupplies, isEmpty, marketCost, placeless, rollPlace, runWhere, startPlaces, dayLoot, dayRisk, describeSupplies, emptySupplies,
 } from "./scavenge";
-import { ROOMS } from "./base/rooms";
+import { ROOMS } from "../base/rooms";
 import {
   CALL_CHANCE, CAR_SCRAP, CAR_SEATS, CAR_WORK, Call, HOUR_MS, MAX_MECHANICS, SIGHTING_LOYALTY, SIGHTING_SCRAP, TRAIL_HOURS, Travel, Vehicle,
   carName, freshness, rollCall, travelHours, tripFuel,
 } from "./sightings";
 import { Job, LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, workPace } from "./staff";
-import { Habits, adaptNews, learn, noHabits, observe } from "./tactical/adapt";
-import type { RaceId } from "./tactical/aliens";
-import type { Outcome, Tally } from "./tactical/battle";
+import { Habits, adaptNews, learn, noHabits, observe } from "../tactical/adapt";
+import type { RaceId } from "../tactical/aliens";
+import type { Outcome, Tally } from "../tactical/battle";
+import { hashText } from "../tactical/random";
 
 export const DAY_MS = 86_400_000;
 /** Nobody is paying you yet: the opening is built by hand. */
@@ -162,11 +163,10 @@ export function nearestCity(ll: LatLon): { city: City; km: number } {
   return best;
 }
 
-/** Same number for the same text, so a city block looks the same every time it's founded. */
-function hash(text: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
-  return h >>> 0;
+/** The city a base hides under, or the nearest one to a remote base. */
+function cityOf(b: BaseRecord | undefined): City {
+  if (!b) return CITIES[0];
+  return CITIES.find((c) => c.name === b.city) ?? CITIES.reduce((best, c) => (Math.hypot(c.lat - b.lat, c.lon - b.lon) < Math.hypot(best.lat - b.lat, best.lon - b.lon) ? c : best));
 }
 
 /** The war as a whole: one clock, one purse and every base on the globe. */
@@ -1005,7 +1005,7 @@ export class Campaign {
   found(ll: LatLon, land: boolean): BaseRecord {
     const s = this.survey(ll, land);
     if (s.reason) throw new Error(s.reason);
-    const seed = hash(s.city?.name ?? `${ll.lat.toFixed(1)},${ll.lon.toFixed(1)}`);
+    const seed = hashText(s.city?.name ?? `${ll.lat.toFixed(1)},${ll.lon.toFixed(1)}`);
     const layout = BaseLayout.starter(s.site!, seed);
     layout.day = this.day;
     this.funds -= s.cost;
@@ -1059,6 +1059,11 @@ export class Campaign {
     // Land just after the day boundary so a partial day already elapsed isn't lost or double counted.
     const target = CAMPAIGN_START + (this.day + days) * DAY_MS;
     return this.advanceTo(Math.max(target, this.time));
+  }
+
+  /** Where a team's fight happens: the city their base hides under, or the nearest one. */
+  fightCity(team: number[]): City {
+    return cityOf(this.bases.find((b) => b.id === this.person(team[0])?.base) ?? this.bases[0]);
   }
 
   /** Radar cover of each base, for drawing on the globe. */
