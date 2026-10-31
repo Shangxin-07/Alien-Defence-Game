@@ -2,7 +2,7 @@ import { kitAfter, describeKit, noKit } from "../campaign/armoury";
 import { SITES, runWhere } from "../campaign/scavenge";
 import { HOUR_MS } from "../campaign/sightings";
 import { rollBuild } from "../campaign/staff";
-import { Gear, closeCombat, openCombat } from "../combat";
+import { Gear, closeCombat, openCombat } from "../tactical/screen";
 import type { City } from "../geoscape/cities";
 import { daylightAt, solarTime } from "../geoscape/geo";
 import { adaptReads, adaptSquad } from "../tactical/adapt";

@@ -2,18 +2,22 @@
 
 export const $ = (id: string) => document.getElementById(id)!;
 
+const css = getComputedStyle(document.documentElement);
+/** A colour or other value from the CSS custom properties, such as `--amber`. */
+export const token = (name: string) => css.getPropertyValue(name).trim();
+
 export const escape = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
 export const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 
 let toastTimer = 0;
-/** A short message across the bottom of the screen. */
-export function toast(text: string) {
+/** A short message across the bottom of the screen, for `ms` milliseconds. `bad` shows it as a warning. */
+export function toast(text: string, bad = false, ms = 3200) {
   const t = $("toast");
   t.textContent = text;
-  t.className = "show";
+  t.className = bad ? "show bad" : "show";
   clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => (t.className = ""), 3200);
+  toastTimer = window.setTimeout(() => (t.className = ""), ms);
 }
 
 /** A button with a name and a line of detail, for pick lists. `pressed` marks the one picked. */

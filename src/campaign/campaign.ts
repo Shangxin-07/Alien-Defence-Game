@@ -3,10 +3,10 @@ import {
   GEAR, GUNS, GearId, Kit, MEDIKIT_COST, MEDIKIT_RESTOCK, Quarters, Request, Stores, defaultRequest, arrivalKit, emptyStores, kitWarnings,
   legacyKit, noKit, outfit, rollArms, usable,
 } from "./armoury";
-import { BaseLayout, Builder, Item, SavedBase, Site } from "../base/layout";
-import { CITIES, City } from "../geoscape/cities";
+import { BaseLayout, Builder, Item, Site } from "../base/layout";
+import { CITIES, City, nearestCity } from "../geoscape/cities";
 import { CAMPAIGN_START } from "../geoscape/clock";
-import { DEG, LatLon } from "../geoscape/geo";
+import { LatLon, distanceKm } from "../geoscape/geo";
 import {
   BROKEN_PENALTY, CANDIDATE_CHANCE, Candidate, DRIFTER_CHANCE, DRIFTER_LOYALTY, FAMILY_HUNGER_PENALTY, KEPT_BONUS, LEAVE_BELOW, LONG_PROMISE_DAYS,
   MEDICINE_DAYS, Pledge, RECRUIT_LOYALTY, STEAL_BELOW, rollCandidate, rollDrifter,
@@ -25,6 +25,7 @@ import { Habits, adaptNews, learn, noHabits, observe } from "../tactical/adapt";
 import type { RaceId } from "../tactical/aliens";
 import type { Outcome, Tally } from "../tactical/battle";
 import { hashText } from "../tactical/random";
+import { SavedCampaign, restore, toSave } from "./save";
 
 export const DAY_MS = 86_400_000;
 /** Nobody is paying you yet: the opening is built by hand. */
@@ -43,8 +44,6 @@ export const MIN_SPACING_KM = 400;
 /** Buying a city block through cut-outs costs more than claiming empty ground. The first base is paid for. */
 export const FOUNDING_COST: Record<Site, number> = { city: 900_000, remote: 600_000 };
 
-const EARTH_KM = 6371;
-const NMI_KM = 1.852;
 const CALLSIGNS = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel"];
 
 export interface BaseRecord {
@@ -106,62 +105,6 @@ const AMBUSH_SPOILS: Record<Outcome, { share: number; item?: string }> = {
   wiped: { share: 0 },
 };
 
-interface SavedCampaign {
-  version: 1;
-  /** Missing in saves from before scavenging existed. */
-  supplies?: Supplies;
-  runs?: Run[];
-  nextRun?: number;
-  /** Missing in saves from before places held a fixed stock. */
-  places?: Place[];
-  nextPlace?: number;
-  trophies?: string[];
-  candidates?: Candidate[];
-  pledges?: Pledge[];
-  kills?: number;
-  encounters?: Partial<Record<RaceId, number>>;
-  learned?: Partial<Record<RaceId, Habits>>;
-  nextCandidate?: number;
-  market?: Record<Traded, number>;
-  calls?: Call[];
-  vehicles?: Vehicle[];
-  nextCall?: number;
-  nextVehicle?: number;
-  crops?: Record<string, number>;
-  /** Missing in saves from before the armoury existed. */
-  armoury?: Partial<Stores>;
-  looseClips?: number;
-  /** Missing in saves from before the prologue existed. */
-  prologue?: PrologueRecord | null;
-  /** Missing in saves from before staff existed. */
-  staff?: Person[];
-  research?: ResearchState;
-  nextPerson?: number;
-  time: number;
-  funds: number;
-  nextId: number;
-  bases: (Omit<BaseRecord, "layout"> & { layout: SavedBase })[];
-}
-
-/** Great-circle distance in km. */
-export function distanceKm(a: LatLon, b: LatLon): number {
-  const dLat = (b.lat - a.lat) * DEG;
-  const dLon = (b.lon - a.lon) * DEG;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * DEG) * Math.cos(b.lat * DEG) * Math.sin(dLon / 2) ** 2;
-  return 2 * EARTH_KM * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
-/** Radar range in nautical miles as an angle at the Earth's centre, in radians. */
-export const nmiToRadians = (nmi: number) => (nmi * NMI_KM) / EARTH_KM;
-
-export function nearestCity(ll: LatLon): { city: City; km: number } {
-  let best = { city: CITIES[0], km: Infinity };
-  for (const city of CITIES) {
-    const km = distanceKm(ll, city);
-    if (km < best.km) best = { city, km };
-  }
-  return best;
-}
 
 /** The city a base hides under, or the nearest one to a remote base. */
 function cityOf(b: BaseRecord | undefined): City {
@@ -187,7 +130,8 @@ export class Campaign {
   readonly runs: Run[] = [];
   /** Places the survivors know about, and what's left in each. Empty ones are forgotten. */
   places: Place[] = startPlaces();
-  private nextPlace = this.places.length + 1;
+  /** The next free id for each kind of record. Kept in the save. */
+  readonly ids = { base: 1, person: 1, run: 1, place: this.places.length + 1, candidate: 1, call: 1, vehicle: 1 };
   /** Alien remains and prisoners brought back since the prologue. */
   readonly trophies: string[] = [];
   /** People recruiters have met, waiting for an answer. */
@@ -211,16 +155,10 @@ export class Campaign {
   /** Sightings people have called in, including ones not seen yet (they show from their `at`). */
   readonly calls: Call[] = [];
   readonly vehicles: Vehicle[] = [];
-  private nextCall = 1;
-  private nextVehicle = 1;
-  private nextCandidate = 1;
   /** The day being worked through, while the clock runs over several. */
   private today = 0;
   /** Dice for runs and hunger. Swappable so tests can fix them. */
   rand: () => number = Math.random;
-  private nextId = 1;
-  private nextPerson = 1;
-  private nextRun = 1;
 
   /** Records the prologue. A replay never throws away a better result. */
   recordPrologue(r: PrologueRecord): void {
@@ -346,7 +284,7 @@ export class Campaign {
     this.candidates.splice(this.candidates.indexOf(c), 1);
     const base = this.bases.some((b) => b.id === c.base) ? c.base : (this.bases[0]?.id ?? null);
     const p: Person = {
-      id: this.nextPerson++, name: c.name, role: c.role, stats: { ...c.stats }, health: c.stats.health, aptitude: c.aptitude, build: c.build,
+      id: this.ids.person++, name: c.name, role: c.role, stats: { ...c.stats }, health: c.stats.health, aptitude: c.aptitude, build: c.build,
       base, job: "construction", loyalty: c.wants === "none" ? DRIFTER_LOYALTY : RECRUIT_LOYALTY,
       kit: c.kit ? { ...c.kit } : arrivalKit(c.role, this.rand),
     };
@@ -410,8 +348,8 @@ export class Campaign {
   private recruitDay(run: Run) {
     const base = this.person(run.team[0])?.base ?? this.bases[0].id;
     for (let i = 0; i < run.team.length; i++) {
-      if (this.rand() < CANDIDATE_CHANCE) this.candidates.push(rollCandidate(this.nextCandidate++, base, this.today, this.rand));
-      if (this.rand() < DRIFTER_CHANCE) this.candidates.push(rollDrifter(this.nextCandidate++, base, this.today, this.rand));
+      if (this.rand() < CANDIDATE_CHANCE) this.candidates.push(rollCandidate(this.ids.candidate++, base, this.today, this.rand));
+      if (this.rand() < DRIFTER_CHANCE) this.candidates.push(rollDrifter(this.ids.candidate++, base, this.today, this.rand));
     }
   }
 
@@ -419,7 +357,7 @@ export class Campaign {
   private searchDay(run: Run) {
     for (let i = 0; i < run.team.length; i++) {
       if (this.rand() >= SEARCH_CHANCE) continue;
-      const place = rollPlace(this.nextPlace++, this.rand);
+      const place = rollPlace(this.ids.place++, this.rand);
       this.places.push(place);
       run.found = (run.found ?? 0) + 1;
     }
@@ -529,7 +467,6 @@ export class Campaign {
     return false;
   }
 
-  /** Who's free to go out: at a base, not already out, and not too hurt. */
   /** What the next lot of `n` costs on the black market. */
   buyCost(kind: Traded, n: number): number {
     return marketCost(kind, n, this.market[kind]);
@@ -561,6 +498,7 @@ export class Campaign {
     }
   }
 
+  /** Who's free to go out: at a base, not already out, and not too hurt. */
   canScavenge(p: Person): boolean {
     return p.base !== null && !p.away && fitToWork(p);
   }
@@ -638,7 +576,7 @@ export class Campaign {
     this.quartermaster();
     const place = placeless(where) ? undefined : this.findPlace(where)!;
     const site = place?.kind ?? (where as SiteId);
-    const run: Run = { id: this.nextRun++, site, team: [...new Set(team)], daysLeft: days, loot: emptySupplies() };
+    const run: Run = { id: this.ids.run++, site, team: [...new Set(team)], daysLeft: days, loot: emptySupplies() };
     if (place) {
       run.place = place.id;
       run.where = place.name;
@@ -744,8 +682,8 @@ export class Campaign {
     this.quartermaster();
     if (!run.team.length) return;
     if (run.repair) {
-      const name = carName(this.nextVehicle - 1);
-      this.vehicles.push({ id: this.nextVehicle++, name });
+      const name = carName(this.ids.vehicle - 1);
+      this.vehicles.push({ id: this.ids.vehicle++, name });
       this.news.push(`${name[0].toUpperCase()}${name.slice(1)} is running`);
       return;
     }
@@ -768,7 +706,7 @@ export class Campaign {
   /** If everyone is gone, the council sends someone: losing people is never the end. */
   private backfill() {
     if (this.staff.length) return;
-    this.staff.push({ ...LIAISON, stats: { ...LIAISON.stats }, id: this.nextPerson++, base: this.bases[0]?.id ?? null, job: "construction", kit: legacyKit(LIAISON.role) });
+    this.staff.push({ ...LIAISON, stats: { ...LIAISON.stats }, id: this.ids.person++, base: this.bases[0]?.id ?? null, job: "construction", kit: legacyKit(LIAISON.role) });
     this.quartermaster();
     this.news.push("With nobody left, the council sends a liaison");
   }
@@ -857,7 +795,7 @@ export class Campaign {
     const base = this.bases[0]?.id ?? null;
     // One keeps the notes, everyone else digs. The first job is getting underground.
     (people.length ? people : [LIAISON]).forEach((p, i) => {
-      this.staff.push({ ...p, stats: { ...p.stats }, id: this.nextPerson++, base, job: i === 0 ? "research" : "construction", kit: p.kit ? { ...p.kit } : legacyKit(p.role) });
+      this.staff.push({ ...p, stats: { ...p.stats }, id: this.ids.person++, base, job: i === 0 ? "research" : "construction", kit: p.kit ? { ...p.kit } : legacyKit(p.role) });
     });
     // The Hunter's gun, if it came home.
     if (this.prologue?.recovered.includes(GEAR.plasmaPistol.name)) this.stock(["plasmaPistol"]);
@@ -970,7 +908,7 @@ export class Campaign {
     this.harvest();
     if (this.bases.length && this.rand() < CALL_CHANCE) {
       const base = this.bases[Math.floor(this.rand() * this.bases.length)];
-      this.calls.push(rollCall(this.nextCall++, base.id, this.time + this.rand() * DAY_MS, this.rand));
+      this.calls.push(rollCall(this.ids.call++, base.id, this.time + this.rand() * DAY_MS, this.rand));
     }
     for (const k of Object.keys(this.market) as Traded[]) this.market[k] = 1 + (this.market[k] - 1) * MARKET_EASE;
     if (day > 0 && day % GRANT_DAYS === 0) {
@@ -1011,7 +949,7 @@ export class Campaign {
     this.funds -= s.cost;
     // A covert base sits under the city itself.
     if (s.city) ll = { lat: s.city.lat, lon: s.city.lon };
-    const id = this.nextId++;
+    const id = this.ids.base++;
     const base: BaseRecord = {
       id,
       name: `Base ${CALLSIGNS[(id - 1) % CALLSIGNS.length]}`,
@@ -1072,85 +1010,12 @@ export class Campaign {
   }
 
   save(): SavedCampaign {
-    return {
-      version: 1,
-      time: this.time,
-      funds: this.funds,
-      nextId: this.nextId,
-      prologue: this.prologue,
-      staff: this.staff,
-      research: this.research,
-      nextPerson: this.nextPerson,
-      supplies: this.supplies,
-      runs: this.runs,
-      nextRun: this.nextRun,
-      places: this.places,
-      nextPlace: this.nextPlace,
-      trophies: this.trophies,
-      candidates: this.candidates,
-      pledges: this.pledges,
-      kills: this.kills,
-      encounters: this.encounters,
-      learned: this.learned,
-      nextCandidate: this.nextCandidate,
-      market: this.market,
-      calls: this.calls,
-      vehicles: this.vehicles,
-      nextCall: this.nextCall,
-      nextVehicle: this.nextVehicle,
-      crops: this.crops,
-      armoury: this.armoury,
-      looseClips: this.looseClips,
-      bases: this.bases.map((b) => ({ ...b, layout: b.layout.save() })),
-    };
+    return toSave(this);
   }
 
   static load(data: SavedCampaign): Campaign {
-    if (data.version !== 1) throw new Error("Unknown save version");
     const c = new Campaign();
-    c.time = data.time;
-    c.funds = data.funds;
-    c.nextId = data.nextId;
-    c.prologue = data.prologue ?? null;
-    c.nextPerson = data.nextPerson ?? 1;
-    if (data.supplies) c.supplies = { ...START_SUPPLIES, ...data.supplies };
-    if (data.runs) c.runs.push(...data.runs);
-    c.nextRun = data.nextRun ?? 1;
-    if (data.places) {
-      c.places = data.places.map((p) => ({ ...p, stock: { ...emptySupplies(), ...p.stock } }));
-      c.nextPlace = data.nextPlace ?? c.places.reduce((n, p) => Math.max(n, p.id + 1), 1);
-    }
-    if (data.trophies) c.trophies.push(...data.trophies);
-    if (data.candidates) c.candidates.push(...data.candidates);
-    if (data.pledges) c.pledges.push(...data.pledges);
-    c.kills = data.kills ?? 0;
-    c.encounters = { ...data.encounters };
-    c.learned = { ...data.learned };
-    c.nextCandidate = data.nextCandidate ?? 1;
-    if (data.calls) c.calls.push(...data.calls);
-    if (data.vehicles) c.vehicles.push(...data.vehicles);
-    c.nextCall = data.nextCall ?? 1;
-    c.nextVehicle = data.nextVehicle ?? 1;
-    if (data.market) c.market = { ...c.market, ...data.market };
-    c.crops = { ...data.crops };
-    if (data.research) c.research = data.research;
-    if (data.staff) c.staff.push(...data.staff);
-    else if (c.prologue) {
-      // Saves from before staff existed: the survivors are there, but we never kept who they were.
-      const n = c.prologue.survivors;
-      c.enlist(Array.from({ length: n }, (_, i) => ({ ...LIAISON, name: `Survivor ${i + 1}`, role: "Survivor" })));
-    }
-    for (const b of data.bases) c.bases.push({ ...b, layout: BaseLayout.load(b.layout) });
-    for (const p of c.staff) if (p.base === null && c.bases[0]) p.base = c.bases[0].id;
-    c.armoury = { ...emptyStores(), ...data.armoury };
-    c.looseClips = data.looseClips ?? 0;
-    if (!data.armoury) {
-      // Saves from before the armoury: everyone keeps what their old job gave them, and someone remembers a police station.
-      for (const p of c.staff) p.kit ??= legacyKit(p.role);
-      if (data.prologue?.recovered.includes(GEAR.plasmaPistol.name)) c.stock(["plasmaPistol"]);
-      const station = startPlaces().find((p) => p.kind === "police")!;
-      c.places.push({ ...station, id: c.nextPlace++ });
-    }
+    restore(c, data);
     return c;
   }
 }

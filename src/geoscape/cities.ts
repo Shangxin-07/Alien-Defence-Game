@@ -1,3 +1,5 @@
+import { LatLon, distanceKm } from "./geo";
+
 export interface City {
   name: string;
   lat: number;
@@ -86,3 +88,12 @@ export const CITIES: City[] = [
   { name: "Melbourne", lat: -37.81, lon: 144.96, tier: 2 },
   { name: "Auckland", lat: -36.85, lon: 174.76, tier: 2 },
 ];
+
+export function nearestCity(ll: LatLon): { city: City; km: number } {
+  let best = { city: CITIES[0], km: Infinity };
+  for (const city of CITIES) {
+    const km = distanceKm(ll, city);
+    if (km < best.km) best = { city, km };
+  }
+  return best;
+}

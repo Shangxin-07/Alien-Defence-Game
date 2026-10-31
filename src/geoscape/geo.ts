@@ -1,11 +1,24 @@
 import { Vector3 } from "three";
 
 export const DEG = Math.PI / 180;
+const EARTH_KM = 6371;
+const NMI_KM = 1.852;
 
 export interface LatLon {
   lat: number;
   lon: number;
 }
+
+/** Great-circle distance in km. */
+export function distanceKm(a: LatLon, b: LatLon): number {
+  const dLat = (b.lat - a.lat) * DEG;
+  const dLon = (b.lon - a.lon) * DEG;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * DEG) * Math.cos(b.lat * DEG) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_KM * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Radar range in nautical miles as an angle at the Earth's centre, in radians. */
+export const nmiToRadians = (nmi: number) => (nmi * NMI_KM) / EARTH_KM;
 
 /**
  * Converts latitude/longitude in degrees to a point on a sphere.
