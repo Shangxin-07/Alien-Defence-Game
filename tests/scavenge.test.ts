@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { BaseLayout } from "../src/base/layout";
-import { CROP_DAYS, Campaign, DAY_MS } from "../src/campaign";
-import { ROOMS, RoomId } from "../src/base/rooms";
+import { CROP_DAYS, Campaign, DAY_MS } from "../src/campaign/campaign";
+import { ROOMS, RoomId, SCRAP_VALUE } from "../src/base/rooms";
 import { CAMPAIGN_START } from "../src/geoscape/clock";
-import { DESERT_AFTER, MARKET_PRICE, STOCK, rollPlace, MAX_TEAM, SCRAP_VALUE, START_SUPPLIES, cleanChance, dayLoot, dayRisk, marketCost } from "../src/scavenge";
+import { DESERT_AFTER, MARKET_PRICE, STOCK, rollPlace, MAX_TEAM, START_SUPPLIES, cleanChance, dayLoot, dayRisk, marketCost } from "../src/campaign/scavenge";
 import { startAmbush } from "../src/tactical/prologue";
 import { CITIES } from "../src/geoscape/cities";
 

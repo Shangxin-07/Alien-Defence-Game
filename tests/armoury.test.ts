@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Kit, Quarters, arrivalKit, defaultRequest, emptyStores, fightKit, kitAfter, kitWarnings, noKit, outfit } from "../src/armoury";
-import { Campaign } from "../src/campaign";
+import { Kit, Quarters, arrivalKit, defaultRequest, emptyStores, fightKit, kitAfter, kitWarnings, noKit, outfit } from "../src/campaign/armoury";
+import { Campaign } from "../src/campaign/campaign";
 import { CITIES } from "../src/geoscape/cities";
 import { Battle, Unit } from "../src/tactical/battle";
 import { TacMap } from "../src/tactical/map";

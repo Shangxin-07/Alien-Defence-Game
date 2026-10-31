@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Campaign } from "../src/campaign";
+import { Campaign } from "../src/campaign/campaign";
 import { AXES, AlienMind, RACES, RaceId, Rank, alienStats, readSquad, rollSquad } from "../src/tactical/aliens";
 import { Battle, Unit } from "../src/tactical/battle";
 import { TacMap } from "../src/tactical/map";
 import { HUNTER_NORMS, battleSpoils, prologueCity, rollForce, startPrologue } from "../src/tactical/prologue";
 import { mulberry32 } from "../src/tactical/random";
 import { WEAPONS } from "../src/tactical/rules";
-import { rollCall } from "../src/sightings";
+import { rollCall } from "../src/campaign/sightings";
 
 function mind(rank: Rank, race: RaceId = "strider", over: Partial<AlienMind["mind"]> = {}): AlienMind {
   const m = { aggression: 50, caution: 50, cohesion: 80, cunning: 50, ...over };

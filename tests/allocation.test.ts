@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { dutyClash, dutyOf, holdOf } from "../src/allocation";
-import { Campaign } from "../src/campaign";
-import { rollCall } from "../src/sightings";
+import { dutyClash, dutyOf, holdOf } from "../src/campaign/allocation";
+import { Campaign } from "../src/campaign/campaign";
+import { rollCall } from "../src/campaign/sightings";
 
 const LONDON = { lat: 51.51, lon: -0.13 };
 

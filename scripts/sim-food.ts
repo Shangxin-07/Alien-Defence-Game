@@ -12,26 +12,15 @@
  * The bot always runs from ambushes rather than fighting, puts everyone on construction (nobody on
  * research) and ignores sighting calls, so it shows what a careful player can do with food alone.
  */
-import { Campaign } from "../src/campaign";
-import type { RoomId } from "../src/base/rooms";
-import { rollBuild } from "../src/staff";
-import { SITES, Place, ScavengeKind, MAX_TEAM, MAX_SEARCHERS, Supply } from "../src/scavenge";
+import { Campaign } from "../src/campaign/campaign";
+import { SCRAP_VALUE, type RoomId } from "../src/base/rooms";
+import { rollBuild } from "../src/campaign/staff";
+import { SITES, Place, ScavengeKind, MAX_TEAM, MAX_SEARCHERS, Supply } from "../src/campaign/scavenge";
+import { mulberry32 } from "../src/tactical/random";
 import type { Stats } from "../src/tactical/rules";
 
 const LONDON = { lat: 51.51, lon: -0.13 };
 const HORIZON = 365;
-
-/** Seeded dice, so runs can be repeated. */
-function mulberry(seed: number) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const SURVIVORS: { role: string; stats: Stats }[] = [
   { role: "Army reservist", stats: { tu: 60, health: 38, bravery: 60, reactions: 55, accuracy: 68, melee: 50, armour: 0 } },
@@ -118,7 +107,7 @@ function farmsOnline(c: Campaign): { online: number; producing: number } {
 }
 
 export function simulate(n: number, seed: number, policy: Policy): Result {
-  const rand = mulberry(seed);
+  const rand = mulberry32(seed);
   const c = new Campaign();
   c.rand = rand;
   const base = c.found(LONDON, true);
@@ -153,7 +142,7 @@ export function simulate(n: number, seed: number, policy: Policy): Result {
   const shortfall = () => {
     let cost = 0;
     for (const s of plan()) if (!placed.includes(s)) cost += base.layout.cost(s.type, s.level);
-    return Math.max(0, cost - c.funds - c.supplies.scrap * 10_000);
+    return Math.max(0, cost - c.funds - c.supplies.scrap * SCRAP_VALUE);
   };
 
   for (let day = 0; day < HORIZON; day++) {
@@ -169,7 +158,7 @@ export function simulate(n: number, seed: number, policy: Policy): Result {
     const income = producing * 5;
     const net = c.mouths - income;
     if (net > 0 && c.supplies.food < net * policy.buyBelow) {
-      const spare = c.funds - Math.max(0, plan().filter((s) => !placed.includes(s)).reduce((t, s) => t + base.layout.cost(s.type, s.level), 0) - c.supplies.scrap * 10_000);
+      const spare = c.funds - Math.max(0, plan().filter((s) => !placed.includes(s)).reduce((t, s) => t + base.layout.cost(s.type, s.level), 0) - c.supplies.scrap * SCRAP_VALUE);
       while (c.supplies.food < net * policy.buyBelow && c.buyCost("food", 10) <= spare && c.buyCost("food", 10) <= c.funds) {
         c.buy("food", 10);
         bought += 10;

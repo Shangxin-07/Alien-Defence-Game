@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Campaign, DAY_MS } from "../src/campaign";
-import { CAR_KMH, CAR_SCRAP, CAR_WORK, FOOT_KMH, HOUR_MS, SIGHTING_SCRAP, TRAIL_HOURS, freshness, rollCall, travelHours, tripFuel } from "../src/sightings";
-import { START_SUPPLIES } from "../src/scavenge";
+import { Campaign, DAY_MS } from "../src/campaign/campaign";
+import { CAR_KMH, CAR_SCRAP, CAR_WORK, FOOT_KMH, HOUR_MS, SIGHTING_SCRAP, TRAIL_HOURS, freshness, rollCall, travelHours, tripFuel } from "../src/campaign/sightings";
+import { START_SUPPLIES } from "../src/campaign/scavenge";
 
 const LONDON = { lat: 51.51, lon: -0.13 };
 

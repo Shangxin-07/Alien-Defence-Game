@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { BaseLayout } from "../src/base/layout";
 import { ROOMS } from "../src/base/rooms";
-import { CITY_RADIUS_KM, Campaign, DAY_MS, FOUNDING_COST, GRANT, GRANT_DAYS, MAX_BASES, START_FUNDS, distanceKm, nearestCity } from "../src/campaign";
+import { CITY_RADIUS_KM, Campaign, DAY_MS, FOUNDING_COST, GRANT, GRANT_DAYS, MAX_BASES, START_FUNDS, distanceKm, nearestCity } from "../src/campaign/campaign";
 import { CITIES } from "../src/geoscape/cities";
-import { LIAISON, buildSkill } from "../src/staff";
+import { LIAISON, buildSkill } from "../src/campaign/staff";
 import { CAMPAIGN_START } from "../src/geoscape/clock";
 
 const LONDON = { lat: 51.51, lon: -0.13 };

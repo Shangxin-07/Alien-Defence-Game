@@ -1,5 +1,4 @@
-import { SCRAP_VALUE } from "../scavenge";
-import { Capacity, DEPTH_COST, ROOMS, Role, RoomDef, RoomId, TIER_RANK, Tier, powerSupply } from "./rooms";
+import { Capacity, DEPTH_COST, ROOMS, SCRAP_VALUE, Role, RoomDef, RoomId, TIER_RANK, Tier, powerSupply } from "./rooms";
 
 /** Cells along each side of a level. */
 export const GRID = 8;

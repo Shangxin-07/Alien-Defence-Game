@@ -23,8 +23,6 @@ export const DESERT_AFTER = 5;
 export const DESERT_CHANCE = 0.2;
 /** Extra health a day for someone wounded who gets a dose of medicine. */
 export const MEDICINE_HEAL = 2;
-/** Scrap stands in for money on rooms: what one unit is worth. */
-export const SCRAP_VALUE = 10_000;
 /** Most people on one run: more than this and the whole street hears you. */
 export const MAX_TEAM = 4;
 export const MAX_RUN_DAYS = 3;

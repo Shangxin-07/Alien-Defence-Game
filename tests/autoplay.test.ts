@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Campaign } from "../src/campaign";
+import { Campaign } from "../src/campaign/campaign";
 import { HABITS, Habits, NOTICED, adaptNews, adaptReads, adaptSquad, learn, noHabits, observe } from "../src/tactical/adapt";
 import { rollSquad } from "../src/tactical/aliens";
 import { MAX_ROUNDS, REWIND_WINDOW, Timeline, estimateRisk, lockoutFor, moraleFor, oddsText, playOut, playRound } from "../src/tactical/autoplay";

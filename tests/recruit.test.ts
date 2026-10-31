@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Campaign } from "../src/campaign";
-import { BROKEN_PENALTY, CANDIDATE_WAIT, Candidate, KEPT_BONUS, LONG_PROMISE_DAYS, MEDICINE_DAYS, RECRUIT_LOYALTY, rollCandidate, rollDrifter } from "../src/recruit";
+import { Campaign } from "../src/campaign/campaign";
+import { BROKEN_PENALTY, CANDIDATE_WAIT, Candidate, KEPT_BONUS, LONG_PROMISE_DAYS, MEDICINE_DAYS, RECRUIT_LOYALTY, rollCandidate, rollDrifter } from "../src/campaign/recruit";
 
 const LONDON = { lat: 51.51, lon: -0.13 };
 

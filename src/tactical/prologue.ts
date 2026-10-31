@@ -6,7 +6,7 @@ import { Battle, Outcome, Unit, alive, conscious } from "./battle";
 import { CITY_STYLES, CityStyle, buildCity } from "./cityMap";
 import { Point, dist, facingTo, lvl } from "./map";
 import { hashText, mulberry32 } from "./random";
-import { ALIEN_GUN_INTACT, Kit, fightKit } from "../armoury";
+import { ALIEN_GUN_INTACT, Kit, fightKit } from "../campaign/armoury";
 import { Daylight, Stats, TOOLS, Tool, WEAPONS, Weapon } from "./rules";
 
 /**

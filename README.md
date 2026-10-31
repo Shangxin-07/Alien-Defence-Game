@@ -133,6 +133,9 @@ a spot and again to build.
 
 ## Layout
 
+How the code fits together, and where to put a new feature, is in
+[docs/architecture.md](docs/architecture.md).
+
 - `src/geoscape/geo.ts`: lat/lon maths and sun position
 - `src/geoscape/clock.ts`: game clock and time speeds
 - `src/geoscape/biomes.ts`: biome types and the rules that place them
@@ -141,10 +144,14 @@ a spot and again to build.
 - `src/geoscape/mapTextures.ts`: draws the map, night lights and border textures
 - `src/geoscape/globe.ts`, `labels.ts`, `baseMarks.ts`, `orbitView.ts`: rendering, labels, base
   markers and camera controls
-- `src/campaign.ts`: the campaign: shared clock and funds, site surveys, founding bases, staff, research, saving
-- `src/staff.ts`: people, jobs and the research projects
-- `src/armoury.ts`: guns, armour and kit, loadout requests, the quartermaster and kit warnings
-- `src/main.ts`, `src/base.ts`, `src/combat.ts`: the geoscape, base and combat screens
+- `src/campaign/campaign.ts`: the campaign: shared clock and funds, site surveys, founding bases, staff, research, saving
+- `src/campaign/staff.ts`: people, jobs and the research projects
+- `src/campaign/allocation.ts`: duties and how firmly someone is held to them
+- `src/campaign/armoury.ts`: guns, armour and kit, loadout requests, the quartermaster and kit warnings
+- `src/campaign/scavenge.ts`, `recruit.ts`, `sightings.ts`: supplies and runs, recruits and promises, sighting calls and cars
+- `src/main.ts`, `src/base/screen.ts`, `src/combat.ts`: the geoscape, base and combat screens
+- `src/ui/panels/*.ts`: the panels opened from the geoscape (staff, allocation, armoury, scavenging, sightings, recruitment)
+- `src/ui/fights.ts`: starting the prologue and ambush fights from the geoscape
 - `src/tactical/rules.ts`: stats, weapons, TU costs, accuracy and damage
 - `src/tactical/map.ts`: the battlefield grid and its levels, stairs and lifts, line of sight and pathfinding
 - `src/tactical/battle.ts`: turns, actions, reaction fire, bleeding, morale and the alien's AI

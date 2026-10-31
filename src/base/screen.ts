@@ -1,9 +1,9 @@
-import "./base/base.css";
+import "./base.css";
 import { Color, PerspectiveCamera, Plane, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
-import { BaseCamera } from "./base/baseCamera";
-import { BaseView, levelY } from "./base/baseView";
-import { BaseLayout, CREW_PER_CELL, GRID, Item, ItemStatus, LEVELS, LEVEL_NAMES, surfaceExposure } from "./base/layout";
-import { ROLE_BONUS, ROLE_NAMES, ROOMS, ROOM_ORDER, RoomId, powerSupply } from "./base/rooms";
+import { BaseCamera } from "./baseCamera";
+import { BaseView, levelY } from "./baseView";
+import { BaseLayout, CREW_PER_CELL, GRID, Item, ItemStatus, LEVELS, LEVEL_NAMES, surfaceExposure } from "./layout";
+import { ROLE_BONUS, ROLE_NAMES, ROOMS, ROOM_ORDER, RoomId, powerSupply } from "./rooms";
 
 /** What the base screen needs from the campaign around it. */
 export interface BaseHost {

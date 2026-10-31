@@ -1,4 +1,4 @@
-import { TOOLS, Tool, WEAPONS, Weapon } from "./tactical/rules";
+import { TOOLS, Tool, WEAPONS, Weapon } from "../tactical/rules";
 
 /**
  * The armoury: guns, armour and kit held in the stores, and what each person carries.
