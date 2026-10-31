@@ -4,7 +4,7 @@ import { Habits, adaptReads, adaptSquad } from "./adapt";
 import { AlienMind, Personality, RACES, RaceId, Squad, alienName, alienStats, readSquad, rollSquad } from "./aliens";
 import { Battle, Outcome, Unit, alive, conscious } from "./battle";
 import { CITY_STYLES, CityStyle, buildCity } from "./cityMap";
-import { Point, facingTo } from "./map";
+import { Point, dist, facingTo, lvl } from "./map";
 import { hashText, mulberry32 } from "./random";
 import { ALIEN_GUN_INTACT, Kit, fightKit } from "../armoury";
 import { Daylight, Stats, TOOLS, Tool, WEAPONS, Weapon } from "./rules";
@@ -163,8 +163,8 @@ function squadSpots(map: Prologue["battle"]["map"], start: Point, n: number): Po
   const spots: Point[] = [start];
   for (const i of tiles) {
     if (spots.length >= n) break;
-    const p = { x: i % map.w, y: Math.floor(i / map.w) };
-    if (spots.every((q) => Math.max(Math.abs(q.x - p.x), Math.abs(q.y - p.y)) >= 2)) spots.push(p);
+    const p = map.at(i);
+    if (spots.every((q) => dist(q, p) >= 2)) spots.push(p);
   }
   return spots;
 }
@@ -178,6 +178,7 @@ function alienUnit(id: number, name: string, stats: Stats, at: Point, facing: nu
     stats,
     x: at.x,
     y: at.y,
+    z: lvl(at),
     facing,
     tu: stats.tu,
     health: stats.health,
@@ -238,6 +239,7 @@ export function startPrologue(city: City, seed: number): Prologue {
       stats,
       x: p.x,
       y: p.y,
+      z: lvl(p),
       facing: facingTo(p, centre),
       tu: stats.tu,
       health: stats.health,
@@ -322,6 +324,7 @@ export function startAmbush(
       stats: { ...m.stats, armour: m.stats.armour + (carried?.armour ?? 0) },
       x: p.x,
       y: p.y,
+      z: lvl(p),
       facing: facingTo(p, centre),
       tu: m.stats.tu,
       health: Math.max(1, m.health),

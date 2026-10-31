@@ -3,11 +3,11 @@ import { Color, PerspectiveCamera, Plane, Raycaster, Scene, Vector2, Vector3, We
 import { DOCTRINES, Doctrine, MAX_ROUNDS, REWIND_WINDOW, RISK_SPREAD, RoundRecord, Timeline, oddsText, playRound, simulate } from "./tactical/autoplay";
 import { Battle, BattleEvent, Outcome, Tally, Unit, alive, canFire, conscious, usesHeat } from "./tactical/battle";
 import { TacticalCamera } from "./tactical/camera";
-import { Point } from "./tactical/map";
+import { Point, levelName, lvl, samePoint } from "./tactical/map";
 import { mulberry32 } from "./tactical/random";
 import { OUTCOME_TEXT, Prologue, SPOILS, battleSpoils, briefing, lightRead, unitLook, unitShape } from "./tactical/prologue";
-import { FireMode, KNEEL_TU, STAND_TU, Stats, tuCost } from "./tactical/rules";
-import { TacticalView } from "./tactical/view";
+import { FireMode, KNEEL_TU, LIFT_TU, STAIRS_TU, STAND_TU, Stats, tuCost } from "./tactical/rules";
+import { LEVEL_Y, TacticalView } from "./tactical/view";
 
 /** What someone came out of a fight carrying. */
 export type Gear = Pick<Unit, "weapon" | "ammo" | "clips" | "tools">;
@@ -80,28 +80,59 @@ const ray = new Raycaster();
 const ndc = new Vector2();
 const ground = new Plane(new Vector3(0, 1, 0), 0);
 const hit = new Vector3();
+/** The tile under the pointer, on the level being looked at. */
 function pickTile(e: PointerEvent): Point | null {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
+  ground.constant = -view.level * LEVEL_Y;
   if (!ray.ray.intersectPlane(ground, hit)) return null;
   return view.tileAt(hit.x, hit.z);
 }
 
-const same = (a: Point | null, b: Point | null) => !!a && !!b && a.x === b.x && a.y === b.y;
+const same = (a: Point | null, b: Point | null) => !!a && !!b && samePoint(a, b);
 const busy = () => playing || !!auto || !battle || !!battle.outcome || battle.side !== "human" || !$("combatModal").hidden;
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const escape = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const visibleAlienAt = (p: Point) => {
-  const u = battle?.unitAt(p.x, p.y);
+  const u = battle?.unitAt(p);
   return u && u.side === "alien" && battle!.isSeen(u) ? u : undefined;
 };
+
+// ---------- Levels ----------
+/** Looks at one level of the map: it and everything below it show, the floors above are lifted off. */
+function showLevel(z: number) {
+  if (!battle) return;
+  view.setLevel(z);
+  cam.setHeight(view.level * LEVEL_Y);
+  refreshLevels();
+  // While a move plays out, the units are mid-animation: only the floors change.
+  if (playing) return;
+  view.sync(battle);
+  view.select(selected);
+  hover = null;
+  refreshReach();
+  preview();
+}
+
+/** The level name, and which way there are aliens in view that this level hides. */
+function refreshLevels() {
+  if (!battle) return;
+  const z = view.level;
+  $("lvName").textContent = levelName(z);
+  ($("lvDown") as HTMLButtonElement).disabled = z <= battle.map.bottom;
+  ($("lvUp") as HTMLButtonElement).disabled = z >= battle.map.top;
+  const seen = battle.aliens.filter((a) => conscious(a) && battle!.isSeen(a));
+  $("lvUp").classList.toggle("alert", seen.some((a) => lvl(a) > z));
+  $("lvDown").classList.toggle("alert", seen.some((a) => lvl(a) < z));
+}
 
 // ---------- Selecting and previewing ----------
 function select(u: Unit | null) {
   selected = u && conscious(u) ? u : null;
   mode = "move";
   refreshReach();
+  if (selected && lvl(selected) !== view.level) showLevel(lvl(selected));
   view.select(selected);
   if (selected) cam.lookAt(view.world(selected).x, view.world(selected).z);
   refreshHud();
@@ -145,10 +176,10 @@ function preview() {
   if (mode === "move") {
     const alien = visibleAlienAt(hover);
     if (alien) return hint(`<b>${escape(alien.name)}</b> ${lastPointer === "mouse" ? "Click" : "Tap"} it to line up your best shot.`);
-    const own = battle.unitAt(hover.x, hover.y);
+    const own = battle.unitAt(hover);
     if (own && own.side === "human") return hint(`<b>${escape(own.name)}</b> <span class="dim">${escape(own.role)}</span>`);
     if (!reach) return hint(defaultHint());
-    const i = battle.map.idx(hover.x, hover.y);
+    const i = battle.map.idx(hover.x, hover.y, lvl(hover));
     const c = reach.cost[i];
     if (!Number.isFinite(c)) return hint(`<span class="bad">Can't get there this turn.</span>`);
     // With a mouse the route waits until the pointer has rested on a tile a while; a tap shows it at once.
@@ -156,7 +187,9 @@ function preview() {
     const path = battle.map.route(reach.prev, hover);
     view.showPath(path, true);
     const stand = selected.kneeling ? STAND_TU : 0;
-    return hint(`<b>Move</b> ${c + stand} TU <span class="dim">(${selected.tu - c - stand} left)${stand ? ", stands up first" : ""}. ${tap} to go.</span>`);
+    const via = battle.map.thing[i];
+    const climb = via === "stairs" ? ` Stairs: ${STAIRS_TU} TU a storey.` : via === "lift" ? ` Lift: ${LIFT_TU} TU a storey.` : "";
+    return hint(`<b>Move</b> ${c + stand} TU <span class="dim">(${selected.tu - c - stand} left)${stand ? ", stands up first" : ""}.${climb} ${tap} to go.</span>`);
   }
   if (mode === "face") return hint(`<b>Turn</b> to face here, 1 TU per 45°. ${tap} to turn.`);
   if (mode === "stun") {
@@ -166,7 +199,7 @@ function preview() {
     return hint(p.reason ? `<span class="bad">${p.reason}</span>` : `<b>Stun</b> ${pct(p.chance)} to hit · ${p.tu} TU. ${tap} to swing.`);
   }
   if (mode === "heal") {
-    const t = battle.unitAt(hover.x, hover.y);
+    const t = battle.unitAt(hover);
     if (!t || t.side !== "human") return hint(`<span class="dim">Medikit: pick yourself or someone next to you.</span>`);
     const p = battle.previewHeal(selected.id, t);
     return hint(p.reason ? `<span class="bad">${p.reason}</span>` : `<b>Medikit</b> on ${escape(t.name)} · ${p.tu} TU. ${tap} to treat.`);
@@ -254,7 +287,7 @@ cam.onClick = (e) => {
   const confirmed = lastPointer === "mouse" || same(t, hover);
   hover = t;
   if (!t) return preview();
-  const there = battle.unitAt(t.x, t.y);
+  const there = battle.unitAt(t);
   if (there && there.side === "human" && conscious(there) && mode !== "heal" && there !== selected) {
     select(there);
     return preview();
@@ -269,7 +302,7 @@ cam.onClick = (e) => {
   if (!confirmed) return preview();
   const id = selected.id;
   if (mode === "move") {
-    if (!reach || !Number.isFinite(reach.cost[battle.map.idx(t.x, t.y)])) return toast("Can't get there this turn", true);
+    if (!reach || !Number.isFinite(reach.cost[battle.map.idx(t.x, t.y, lvl(t))])) return toast("Can't get there this turn", true);
     act(battle.move(id, t));
   } else if (mode === "face") {
     act(battle.face(id, t));
@@ -279,7 +312,7 @@ cam.onClick = (e) => {
     if (!a || !p || p.reason) return toast(p?.reason ?? "Pick the alien", true);
     act(battle.stun(id, a.id));
   } else if (mode === "heal") {
-    const u = battle.unitAt(t.x, t.y);
+    const u = battle.unitAt(t);
     const p = u && battle.previewHeal(id, u);
     if (!u || !p || p.reason) return toast(p?.reason ?? "Pick someone to treat", true);
     act(battle.heal(id, u.id));
@@ -313,7 +346,9 @@ function apply(e: BattleEvent): number {
         view.setVisible(e.unit, e.seen);
         if (!e.seen) return 0.01;
       }
-      if (u === selected) view.select({ ...u, x: e.to.x, y: e.to.y });
+      // Follow your own people up and down the stairs.
+      if (u === selected && lvl(e.to) !== view.level) showLevel(lvl(e.to));
+      if (u === selected) view.select({ ...u, x: e.to.x, y: e.to.y, z: e.to.z });
       const w = view.world(e.to);
       cam.lookAt(w.x, w.z);
       return 0.15;
@@ -345,6 +380,9 @@ function apply(e: BattleEvent): number {
       log(e.text, e.tone);
       return 0;
     case "spot": {
+      // Show where it is, whichever floor that is.
+      const a = b.unit(e.unit);
+      if (lvl(a) !== view.level) showLevel(lvl(a));
       view.setVisible(e.unit, true);
       const pos = view.unitPos(e.unit);
       if (pos) cam.lookAt(pos.x, pos.z);
@@ -377,6 +415,7 @@ function pump(dt: number) {
 function settle() {
   const b = battle!;
   view.sync(b);
+  refreshLevels();
   if (b.outcome) return results(b.outcome);
   if (auto) return autoRound();
   if (!selected || !conscious(selected)) {
@@ -404,7 +443,7 @@ function refreshHud() {
     btn.innerHTML = `<span class="swatch"></span><span class="nm"></span><span class="meta"></span>`;
     (btn.querySelector(".swatch") as HTMLElement).style.background = unitLook(u);
     btn.querySelector(".nm")!.textContent = u.id === b.humanLeader ? `★ ${u.name}` : u.name;
-    btn.querySelector(".meta")!.textContent = alive(u) ? `TU ${u.tu} · HP ${u.health}${u.wounds ? " · bleeding" : ""}${u.kneeling ? " · kneeling" : ""}` : "Killed";
+    btn.querySelector(".meta")!.textContent = alive(u) ? `TU ${u.tu} · HP ${u.health}${u.wounds ? " · bleeding" : ""}${u.kneeling ? " · kneeling" : ""}${lvl(u) ? ` · ${levelName(lvl(u)).toLowerCase()}` : ""}` : "Killed";
     btn.addEventListener("click", () => !busy() && select(u));
     roster.appendChild(btn);
   }
@@ -968,6 +1007,8 @@ $("camLeft").addEventListener("click", () => cam.turn(-45));
 $("camRight").addEventListener("click", () => cam.turn(45));
 $("camIn").addEventListener("click", () => cam.zoomBy(1 / 1.25));
 $("camOut").addEventListener("click", () => cam.zoomBy(1.25));
+$("lvUp").addEventListener("click", () => showLevel(view.level + 1));
+$("lvDown").addEventListener("click", () => showLevel(view.level - 1));
 
 // Two presses to run, since there's no undo.
 {
@@ -1028,6 +1069,9 @@ window.addEventListener("keydown", (e) => {
   else if (k === "e") cam.turn(45);
   else if (k === "+" || k === "=") cam.zoomBy(1 / 1.2);
   else if (k === "-") cam.zoomBy(1.2);
+  // Same keys as the base view, where "]" and Page Down go deeper.
+  else if (k === "pageup" || k === "[") showLevel(view.level + 1);
+  else if (k === "pagedown" || k === "]") showLevel(view.level - 1);
   else return;
   e.preventDefault();
 });
@@ -1072,7 +1116,10 @@ export function openCombat(h: CombatHost): void {
   view.clearUnits();
   buildScene();
   for (const u of battle.units) view.addUnit(u, unitLook(u), unitShape(u));
+  view.setLevel(0);
+  cam.setHeight(0);
   view.sync(battle);
+  refreshLevels();
   cam.bounds = battle.map.w / 2;
   // Portrait screens get closer in, or the people are specks.
   cam.distance = cam.targetDistance = canvas.clientWidth < canvas.clientHeight ? 15 : 22;

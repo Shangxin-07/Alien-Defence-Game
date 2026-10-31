@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Battle, Unit, alive, conscious } from "../src/tactical/battle";
-import { CITY_SIZE, CITY_STYLES, buildCity } from "../src/tactical/cityMap";
-import { TacMap, facingTo } from "../src/tactical/map";
+import { CITY_BOTTOM, CITY_LEVELS, CITY_SIZE, CITY_STYLES, buildCity, connect } from "../src/tactical/cityMap";
+import { TacMap, dist, facingTo, lvl } from "../src/tactical/map";
 import { SPOILS, prologueCity, startPrologue } from "../src/tactical/prologue";
-import { DIAGONAL_TU, STEP_TU, WEAPONS, baseHitChance, tuCost } from "../src/tactical/rules";
+import { DIAGONAL_TU, STAIRS_TU, STEP_TU, TOOLS, WEAPONS, baseHitChance, tuCost } from "../src/tactical/rules";
 
 function unit(id: number, side: "human" | "alien", x: number, y: number, facing = 2): Unit {
   const stats = { tu: 60, health: 40, bravery: 50, reactions: 50, accuracy: 60, melee: 70, armour: 0 };
@@ -55,20 +55,145 @@ describe("tactical map", () => {
 
 describe("city battlefield", () => {
   for (const biome of Object.keys(CITY_STYLES) as (keyof typeof CITY_STYLES)[]) {
-    it(`connects every open tile in a ${biome} city`, () => {
+    it(`connects every open tile on every level in a ${biome} city`, () => {
       for (const seed of [1, 2, 3, 42, 1234]) {
         const { map, humanStart, alienStart } = buildCity(seed, CITY_STYLES[biome]);
         expect(map.w).toBe(CITY_SIZE);
         expect(humanStart).toHaveLength(4);
         const { cost } = map.reach(alienStart, Infinity, new Set());
-        for (const p of humanStart) expect(cost[map.idx(p.x, p.y)]).toBeLessThan(Infinity);
-        // Every floor tile inside a building can be walked to: no sealed rooms.
-        for (let i = 0; i < cost.length; i++) {
-          if (map.building[i] !== -1 && map.walkable(i % map.w, Math.floor(i / map.w))) expect(cost[i], `seed ${seed} tile ${i % map.w},${Math.floor(i / map.w)}`).toBeLessThan(Infinity);
-        }
+        for (const p of humanStart) expect(cost[map.idx(p.x, p.y, p.z)]).toBeLessThan(Infinity);
+        // No sealed rooms, no floor nobody can get up to, no cellar nobody can get down to.
+        const lost = map.cutOff(alienStart);
+        expect(lost, `seed ${seed}: ${lost.slice(0, 3).map((p) => `${p.x},${p.y},${p.z}`).join(" ")}`).toHaveLength(0);
       }
     });
   }
+
+  it("never locks anyone out of a level, across hundreds of cities", () => {
+    for (let seed = 1; seed <= 300; seed++) {
+      const biome = (Object.keys(CITY_STYLES) as (keyof typeof CITY_STYLES)[])[seed % 9];
+      const { map, alienStart } = buildCity(seed * 7919, CITY_STYLES[biome]);
+      expect(map.cutOff(alienStart), `seed ${seed * 7919}`).toHaveLength(0);
+    }
+  });
+
+  it("builds four levels: a cellar, the street and two floors, joined by stairs and a lift", () => {
+    for (const seed of [1, 2, 3, 42, 1234]) {
+      const { map } = buildCity(seed, CITY_STYLES.temperate);
+      expect([map.bottom, map.top]).toEqual([CITY_BOTTOM, CITY_BOTTOM + CITY_LEVELS - 1]);
+      expect(map.levels).toBe(4);
+      for (let z = map.bottom; z <= map.top; z++) {
+        let floor = 0;
+        for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) if (map.walkable(x, y, z)) floor++;
+        expect(floor, `level ${z}`).toBeGreaterThan(20);
+      }
+      // Off the street, there's only somewhere to stand inside a building or on its roof.
+      for (let i = 0; i < map.thing.length; i++) {
+        const p = map.at(i);
+        if (p.z !== 0 && map.walkable(p.x, p.y, p.z)) expect(map.building[i], `${p.x},${p.y},${p.z}`).not.toBe(-1);
+      }
+      expect(map.thing.filter((t) => t === "stairs").length).toBeGreaterThan(6);
+      expect(map.thing.filter((t) => t === "lift").length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("puts stairs and lifts straight above one another", () => {
+    const { map } = buildCity(42, CITY_STYLES.temperate);
+    for (let i = 0; i < map.thing.length; i++) {
+      const t = map.thing[i];
+      if (t !== "stairs" && t !== "lift") continue;
+      const p = map.at(i);
+      // Every flight leads somewhere.
+      expect(map.linked(p.x, p.y, p.z!, 1) || map.linked(p.x, p.y, p.z!, -1), `${t} at ${p.x},${p.y},${p.z}`).toBeTruthy();
+    }
+  });
+
+  it("puts stairs in when a floor would be cut off", () => {
+    const m = new TacMap(10, 10, 2, 0);
+    m.lit.fill(1);
+    // A room upstairs with no way up.
+    for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) m.ground[m.idx(x, y, 1)] = "floor";
+    expect(m.cutOff({ x: 0, y: 0 }).length).toBe(16);
+    connect(m, { x: 0, y: 0 });
+    expect(m.cutOff({ x: 0, y: 0 })).toHaveLength(0);
+    expect(m.thing.filter((t) => t === "stairs")).toHaveLength(2);
+  });
+});
+
+describe("levels", () => {
+  /** Street with a two-storey building: ground floor room, stairs, upstairs room with a window on the street. */
+  function house(): TacMap {
+    const m = new TacMap(20, 20, 3, -1);
+    m.lit.fill(1);
+    for (let y = 2; y <= 8; y++) {
+      for (let x = 2; x <= 8; x++) {
+        const edge = x === 2 || y === 2 || x === 8 || y === 8;
+        for (const z of [-1, 0, 1]) {
+          m.ground[m.idx(x, y, z)] = "floor";
+          m.thing[m.idx(x, y, z)] = edge ? "wall" : "none";
+        }
+      }
+    }
+    m.thing[m.idx(5, 8, 0)] = "door";
+    m.thing[m.idx(5, 8, 1)] = "window";
+    for (const z of [-1, 0, 1]) m.thing[m.idx(4, 4, z)] = "stairs";
+    return m;
+  }
+
+  it("climbs stairs at 8 TU a storey and walks the floors", () => {
+    const m = house();
+    expect(m.stepCost({ x: 4, y: 4, z: 0 }, { x: 4, y: 4, z: 1 })).toBe(STAIRS_TU);
+    expect(m.stepCost({ x: 4, y: 4, z: 0 }, { x: 4, y: 4, z: -1 })).toBe(STAIRS_TU);
+    expect(m.stepCost({ x: 5, y: 5, z: 0 }, { x: 5, y: 5, z: 1 })).toBe(Infinity);
+    const { cost, prev } = m.reach({ x: 5, y: 12 }, Infinity, new Set());
+    expect(Number.isFinite(cost[m.idx(6, 6, 1)])).toBe(true);
+    expect(Number.isFinite(cost[m.idx(6, 6, -1)])).toBe(true);
+    // Nothing to stand on in the air over the street.
+    expect(cost[m.idx(5, 12, 1)]).toBe(Infinity);
+    const route = m.route(prev, { x: 6, y: 6, z: 1 });
+    expect(route.some((p) => p.x === 4 && p.y === 4 && p.z === 1)).toBe(true);
+    expect(m.cutOff({ x: 5, y: 12 })).toHaveLength(0);
+  });
+
+  it("sees out of an upstairs window to the street, but not through the floor", () => {
+    const m = house();
+    // From the window, down into the street.
+    expect(m.clearLine({ x: 5, y: 7, z: 1 }, { x: 5, y: 16, z: 0 })).toBe(true);
+    // Straight down through the floor to the room below.
+    expect(m.clearLine({ x: 6, y: 6, z: 1 }, { x: 6, y: 7, z: 0 })).toBe(false);
+    // Nobody sees the cellar from the street.
+    expect(m.clearLine({ x: 5, y: 16, z: 0 }, { x: 5, y: 6, z: -1 })).toBe(false);
+    // Up the stairwell.
+    expect(m.clearLine({ x: 4, y: 4, z: 0 }, { x: 4, y: 4, z: 1 })).toBe(true);
+  });
+
+  it("goes upstairs to shoot, and the alien comes up after you", () => {
+    const m = house();
+    const h = unit(1, "human", 5, 5, 4);
+    h.z = 1;
+    const a = unit(2, "alien", 5, 17, 0);
+    const b = new Battle(m, [h, a], 4);
+    // Your rifle reaches it from the window.
+    const p = b.previewShot(1, a, "snap");
+    expect(p.reason).toBeNull();
+    // The alien hunts up the stairs: after a few turns it is never stuck on the street below.
+    for (let t = 0; t < 8 && !b.outcome; t++) {
+      h.tu = 0;
+      b.endTurn();
+    }
+    expect(b.outcome === "wiped" || lvl(a) !== 0 || dist(a, h) < 6).toBe(true);
+  });
+
+  it("can't stun or patch up through a floor", () => {
+    const m = house();
+    const h = { ...unit(1, "human", 6, 6), tools: [{ tool: TOOLS.stunBaton, uses: 99 }, { tool: TOOLS.medkit, uses: 2 }], wounds: 1 };
+    const a = { ...unit(2, "alien", 6, 6), z: 1 };
+    const b = new Battle(m, [h, a], 1);
+    expect(b.previewStun(1, a).reason).toMatch(/another level/);
+    a.z = 0;
+    a.x = 7;
+    expect(b.previewStun(1, a).reason).toBeNull();
+  });
 });
 
 describe("rules", () => {

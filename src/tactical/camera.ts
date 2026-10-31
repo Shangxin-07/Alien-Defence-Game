@@ -47,8 +47,15 @@ export class TacticalCamera {
   }
 
   lookAt(x: number, z: number, snap = false): void {
-    this.targetFocus.set(x, 0, z);
+    this.targetFocus.set(x, this.height, z);
     if (snap) this.focus.copy(this.targetFocus);
+  }
+
+  /** How high the level being looked at is: the view rises and sinks with it. */
+  height = 0;
+  setHeight(y: number): void {
+    this.height = y;
+    this.targetFocus.y = y;
   }
 
   update(dt: number): void {
