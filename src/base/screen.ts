@@ -4,6 +4,7 @@ import { BaseCamera } from "./baseCamera";
 import { BaseView, levelY } from "./baseView";
 import { BaseLayout, CREW_PER_CELL, GRID, Item, ItemStatus, LEVELS, LEVEL_NAMES, surfaceExposure } from "./layout";
 import { ROLE_BONUS, ROLE_NAMES, ROOMS, ROOM_ORDER, RoomId, powerSupply } from "./rooms";
+import { $, toast as showToast, token } from "../ui/dom";
 
 /** What the base screen needs from the campaign around it. */
 export interface BaseHost {
@@ -20,9 +21,6 @@ export interface BaseHost {
   leave(): void;
 }
 
-const css = getComputedStyle(document.documentElement);
-const token = (name: string) => css.getPropertyValue(name).trim();
-const $ = (id: string) => document.getElementById(id)!;
 const root = $("baseScreen");
 
 // ---------- State ----------
@@ -411,14 +409,7 @@ function placeTags() {
   });
 }
 
-let toastTimer = 0;
-function toast(text: string, bad = false) {
-  const t = $("toast");
-  t.textContent = text;
-  t.className = bad ? "show bad" : "show";
-  clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => (t.className = ""), 2600);
-}
+const toast = (text: string, bad = false) => showToast(text, bad, 2600);
 
 function refresh() {
   view.rebuild(layout, active);

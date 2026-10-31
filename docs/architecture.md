@@ -11,8 +11,8 @@ src/
   campaign/          campaign rules: the war, its people and its stores (no DOM)
   geoscape/          the world: geography, sun, biomes, blocs, cities; globe rendering
   base/              base rules (rooms.ts, layout.ts) and the base screen (screen.ts, baseView.ts)
-  tactical/          battle rules (rules, map, battle, aliens, autoplay...) and battle rendering
-  combat.ts          the combat screen
+  tactical/          battle rules (rules, map, battle, aliens, autoplay...), battle rendering and
+                     the combat screen (screen.ts)
   ui/                shared screen code: DOM helpers, panels, fights started from the globe
   data/              generated map data (npm run build:geo)
 tests/               vitest, one file per system
@@ -22,7 +22,7 @@ scripts/             headless sims that play the real rules (sim-food, sim-autop
 ## Which layer imports which
 
 ```
-ui/, main.ts, combat.ts, base/screen.ts   screens
+ui/, main.ts, base/screen.ts, tactical/screen.ts   screens
         │
 campaign/                                 the campaign as a whole
         │
@@ -36,7 +36,7 @@ modules need the same constant, it lives in the lower one.
 ## The campaign
 
 `campaign/campaign.ts` holds the `Campaign` class: one clock, one purse, every base, person, run
-and call, and the save format. The rules for each system live in their own module beside it, as
+and call. `campaign/save.ts` turns it into a save and back. The rules for each system live in their own module beside it, as
 plain functions and tables the class calls:
 
 | Module | What it holds |
@@ -48,8 +48,8 @@ plain functions and tables the class calls:
 | `recruit.ts` | candidates, what they want, promises and loyalty |
 | `sightings.ts` | sighting calls, travel, cars and fuel |
 
-The save is versioned (`SavedCampaign` in campaign.ts). New fields are optional and `Campaign.load`
-fills them in for older saves, so a player's war is never thrown away.
+The save format is `SavedCampaign` in save.ts. New fields are optional and `restore` fills them in
+for older saves, so a player's war is never thrown away.
 
 ## Adding a feature
 
@@ -60,7 +60,9 @@ A new campaign system (say, interceptions):
 2. Give `Campaign` the state and the actions the player can take (`checkX` returning a reason it
    can't be done or `null`, then `x` to do it). Advance it from `advanceTo`/`workDay` if it moves
    with the clock.
-3. Add the state to `SavedCampaign` as an optional field and load it with a default.
+3. Add the state to `SavedCampaign` in save.ts as an optional field, write it in `toSave` and read
+   it in `restore` with a default for older saves. A new kind of record takes its ids from
+   `Campaign.ids`.
 4. Write `tests/<system>.test.ts`.
 5. Add a panel for it (below).
 
@@ -77,7 +79,11 @@ After any change to the campaign, a panel calls `ui.persist()` and then `ui.refr
 redraws the command panel and whichever panel is open.
 
 A new kind of fight: the battle setups live in `tactical/prologue.ts` (`startPrologue`,
-`startAmbush`); `ui/fights.ts` starts them from the globe and hands the result back to the campaign.
+`startAmbush`); `ui/fights.ts` starts them from the globe, the combat screen in
+`tactical/screen.ts` plays them, and the result goes back to the campaign.
+
+Each screen (geoscape, base, combat) takes over the page while it's open and hands back through a
+small host interface (`BaseHost`, `CombatHost`), so a screen never reaches into another's state.
 
 ## Checks
 

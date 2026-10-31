@@ -144,12 +144,13 @@ How the code fits together, and where to put a new feature, is in
 - `src/geoscape/mapTextures.ts`: draws the map, night lights and border textures
 - `src/geoscape/globe.ts`, `labels.ts`, `baseMarks.ts`, `orbitView.ts`: rendering, labels, base
   markers and camera controls
-- `src/campaign/campaign.ts`: the campaign: shared clock and funds, site surveys, founding bases, staff, research, saving
+- `src/campaign/campaign.ts`: the campaign: shared clock and funds, site surveys, founding bases, staff, research
+- `src/campaign/save.ts`: the save format, and upgrading saves from older versions
 - `src/campaign/staff.ts`: people, jobs and the research projects
 - `src/campaign/allocation.ts`: duties and how firmly someone is held to them
 - `src/campaign/armoury.ts`: guns, armour and kit, loadout requests, the quartermaster and kit warnings
 - `src/campaign/scavenge.ts`, `recruit.ts`, `sightings.ts`: supplies and runs, recruits and promises, sighting calls and cars
-- `src/main.ts`, `src/base/screen.ts`, `src/combat.ts`: the geoscape, base and combat screens
+- `src/main.ts`, `src/base/screen.ts`, `src/tactical/screen.ts`: the geoscape, base and combat screens
 - `src/ui/panels/*.ts`: the panels opened from the geoscape (staff, allocation, armoury, scavenging, sightings, recruitment)
 - `src/ui/fights.ts`: starting the prologue and ambush fights from the geoscape
 - `src/tactical/rules.ts`: stats, weapons, TU costs, accuracy and damage

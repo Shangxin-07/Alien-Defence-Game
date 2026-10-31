@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { BaseLayout } from "../src/base/layout";
 import { ROOMS } from "../src/base/rooms";
-import { CITY_RADIUS_KM, Campaign, DAY_MS, FOUNDING_COST, GRANT, GRANT_DAYS, MAX_BASES, START_FUNDS, distanceKm, nearestCity } from "../src/campaign/campaign";
+import { CITY_RADIUS_KM, Campaign, DAY_MS, FOUNDING_COST, GRANT, GRANT_DAYS, MAX_BASES, START_FUNDS } from "../src/campaign/campaign";
+import { nearestCity } from "../src/geoscape/cities";
+import { distanceKm } from "../src/geoscape/geo";
 import { CITIES } from "../src/geoscape/cities";
 import { LIAISON, buildSkill } from "../src/campaign/staff";
 import { CAMPAIGN_START } from "../src/geoscape/clock";

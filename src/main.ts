@@ -2,18 +2,18 @@ import "./styles.css";
 import { Color, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
 import { ROOMS } from "./base/rooms";
 import { closeBase, openBase } from "./base/screen";
-import { BaseRecord, Campaign, Completion, GRANT, nmiToRadians } from "./campaign/campaign";
+import { BaseRecord, Campaign, Completion, GRANT } from "./campaign/campaign";
 import { BaseMarks } from "./geoscape/baseMarks";
 import { BIOMES, BIOME_ORDER, biomeAt } from "./geoscape/biomes";
 import { blocAt } from "./geoscape/blocs";
 import { CITIES, City } from "./geoscape/cities";
 import { GameClock, TIME_SPEEDS, formatClock } from "./geoscape/clock";
-import { DEG, LatLon, formatLatLon, latLonToVector, lightingAt, subsolarPoint, sunElevation, vectorToLatLon } from "./geoscape/geo";
+import { DEG, LatLon, formatLatLon, nmiToRadians, latLonToVector, lightingAt, subsolarPoint, sunElevation, vectorToLatLon } from "./geoscape/geo";
 import { Globe } from "./geoscape/globe";
 import { GlobeLabels } from "./geoscape/labels";
 import { buildMapTextures } from "./geoscape/mapTextures";
 import { OrbitView } from "./geoscape/orbitView";
-import { $, addItem, choiceButton, escape, money, toast } from "./ui/dom";
+import { $, addItem, choiceButton, escape, money, toast, token } from "./ui/dom";
 import { FightHost, ambushDialog, playPrologue } from "./ui/fights";
 import { Panel } from "./ui/panel";
 import { allocationPanel } from "./ui/panels/allocation";
@@ -24,10 +24,8 @@ import { sightingsPanel } from "./ui/panels/sightings";
 import { staffPanel } from "./ui/panels/staff";
 
 // The geoscape screen: the globe, the command panel and the clock. The panels it opens live in
-// ui/panels/, the fights in ui/fights.ts and the base screen in base/screen.ts.
-
-const css = getComputedStyle(document.documentElement);
-const token = (name: string) => css.getPropertyValue(name).trim();
+// ui/panels/, the fights in ui/fights.ts, and the base and battle screens in base/screen.ts and
+// tactical/screen.ts.
 
 const SAVE_KEY = "alien-defence.campaign.v1";
 
@@ -72,7 +70,7 @@ const host: FightHost = {
   },
   persist,
   refresh,
-  toast,
+  toast: (text) => toast(text),
   get onGlobe() {
     return !screen.hidden;
   },

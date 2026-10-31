@@ -1,13 +1,14 @@
-import "./tactical/tactical.css";
+import "./tactical.css";
 import { Color, PerspectiveCamera, Plane, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
-import { DOCTRINES, Doctrine, MAX_ROUNDS, REWIND_WINDOW, RISK_SPREAD, RoundRecord, Timeline, oddsText, playRound, simulate } from "./tactical/autoplay";
-import { Battle, BattleEvent, Outcome, Tally, Unit, alive, canFire, conscious, usesHeat } from "./tactical/battle";
-import { TacticalCamera } from "./tactical/camera";
-import { Point, levelName, lvl, samePoint } from "./tactical/map";
-import { mulberry32 } from "./tactical/random";
-import { OUTCOME_TEXT, Prologue, SPOILS, battleSpoils, briefing, lightRead, unitLook, unitShape } from "./tactical/prologue";
-import { FireMode, KNEEL_TU, LIFT_TU, STAIRS_TU, STAND_TU, Stats, tuCost } from "./tactical/rules";
-import { LEVEL_Y, TacticalView } from "./tactical/view";
+import { DOCTRINES, Doctrine, MAX_ROUNDS, REWIND_WINDOW, RISK_SPREAD, RoundRecord, Timeline, oddsText, playRound, simulate } from "./autoplay";
+import { Battle, BattleEvent, Outcome, Tally, Unit, alive, canFire, conscious, usesHeat } from "./battle";
+import { TacticalCamera } from "./camera";
+import { Point, levelName, lvl, samePoint } from "./map";
+import { mulberry32 } from "./random";
+import { OUTCOME_TEXT, Prologue, SPOILS, battleSpoils, briefing, lightRead, unitLook, unitShape } from "./prologue";
+import { FireMode, KNEEL_TU, LIFT_TU, STAIRS_TU, STAND_TU, Stats, tuCost } from "./rules";
+import { LEVEL_Y, TacticalView } from "./view";
+import { $, escape, toast as showToast, token } from "../ui/dom";
 
 /** What someone came out of a fight carrying. */
 export type Gear = Pick<Unit, "weapon" | "ammo" | "clips" | "tools">;
@@ -40,9 +41,6 @@ export interface CombatHost {
 
 type Mode = "move" | FireMode | "stun" | "heal" | "face";
 
-const css = getComputedStyle(document.documentElement);
-const token = (name: string) => css.getPropertyValue(name).trim();
-const $ = (id: string) => document.getElementById(id)!;
 const root = $("combatScreen");
 
 // ---------- Scene ----------
@@ -93,7 +91,6 @@ function pickTile(e: PointerEvent): Point | null {
 const same = (a: Point | null, b: Point | null) => !!a && !!b && samePoint(a, b);
 const busy = () => playing || !!auto || !battle || !!battle.outcome || battle.side !== "human" || !$("combatModal").hidden;
 const pct = (n: number) => `${Math.round(n * 100)}%`;
-const escape = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const visibleAlienAt = (p: Point) => {
   const u = battle?.unitAt(p);
   return u && u.side === "alien" && battle!.isSeen(u) ? u : undefined;
@@ -517,14 +514,7 @@ function banner(text: string) {
   bannerTimer = window.setTimeout(() => (b.hidden = true), 1100);
 }
 
-let toastTimer = 0;
-function toast(text: string, bad = false) {
-  const t = $("toast");
-  t.textContent = text;
-  t.className = bad ? "show bad" : "show";
-  clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => (t.className = ""), 2200);
-}
+const toast = (text: string, bad = false) => showToast(text, bad, 2200);
 
 // Floating damage numbers.
 const floaters: { el: HTMLDivElement; pos: Vector3; life: number }[] = [];
