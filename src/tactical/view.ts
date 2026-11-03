@@ -455,6 +455,11 @@ export class TacticalView {
     this.fog(b);
   }
 
+  /** Whether a unit is showing on screen now: not hidden from your people, and not under a lifted floor. */
+  isShown(id: number): boolean {
+    return !!this.units.get(id)?.g.visible;
+  }
+
   unitPos(id: number): Vector3 | null {
     return this.units.get(id)?.g.position ?? null;
   }

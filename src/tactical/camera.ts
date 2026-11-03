@@ -20,6 +20,8 @@ export class TacticalCamera {
   bounds = 20;
   /** Panning from held keys: forward and right, each −1, 0 or 1. */
   readonly drive = { forward: 0, right: 0 };
+  /** Goes up whenever the player moves the view themselves, so the action camera can back off. */
+  touched = 0;
 
   private readonly pointers = new Map<number, { x: number; y: number }>();
   private dragMoved = 0;
@@ -39,16 +41,24 @@ export class TacticalCamera {
   }
 
   zoomBy(factor: number): void {
+    this.touched++;
     this.targetDistance = MathUtils.clamp(this.targetDistance * factor, MIN_DISTANCE, MAX_DISTANCE);
   }
 
   turn(degrees: number): void {
+    this.touched++;
     this.targetYaw += degrees;
   }
 
   lookAt(x: number, z: number, snap = false): void {
     this.targetFocus.set(x, this.height, z);
     if (snap) this.focus.copy(this.targetFocus);
+  }
+
+  /** Swings over to look at a point from this far away, without counting as the player's doing. */
+  frame(x: number, z: number, distance: number): void {
+    this.targetFocus.set(MathUtils.clamp(x, -this.bounds, this.bounds), this.height, MathUtils.clamp(z, -this.bounds, this.bounds));
+    this.targetDistance = MathUtils.clamp(distance, MIN_DISTANCE, MAX_DISTANCE);
   }
 
   /** How high the level being looked at is: the view rises and sinks with it. */
@@ -60,6 +70,7 @@ export class TacticalCamera {
 
   update(dt: number): void {
     if (this.drive.forward || this.drive.right) {
+      this.touched++;
       // Relative to the view: forward is away from the camera. Faster when zoomed out.
       const step = dt * this.distance * 0.9;
       const yw = this.yaw * MathUtils.DEG2RAD;
@@ -117,10 +128,12 @@ export class TacticalCamera {
       const span = Math.hypot(a.x - b.x, a.y - b.y);
       this.targetDistance = MathUtils.clamp(this.pinch.distance * (this.pinch.span / Math.max(1, span)), MIN_DISTANCE, MAX_DISTANCE);
       this.dragMoved += 99;
+      this.touched++;
       return;
     }
     this.dragMoved += Math.abs(dx) + Math.abs(dy);
     if (this.dragMoved < 6) return;
+    this.touched++;
     this.el.classList.add("dragging");
     // Right button turns the view; anything else pans.
     if (e.buttons & 2) this.targetYaw = this.yaw = this.yaw - dx * 0.35;

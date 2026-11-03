@@ -251,6 +251,7 @@
     <div id="combatScreen" class="combat" hidden>
       <canvas id="battlefield" class="stage" aria-label="Tactical battlefield"></canvas>
       <div id="combatLabels" class="labels" aria-hidden="true"></div>
+      <div class="cinema" id="cinema" aria-hidden="true"></div>
 
       <section class="hud tl mission" aria-label="Mission">
         <h1 id="missionName">Prologue</h1>
@@ -350,6 +351,7 @@
         <button id="camRight" type="button" aria-label="Turn view right" title="Turn view (E)">⟳</button>
         <button id="camOut" type="button" aria-label="Zoom out">−</button>
         <button id="camIn" type="button" aria-label="Zoom in">+</button>
+        <button id="camAction" class="camaction" type="button" aria-label="Action camera" title="Action camera (C): swing over to kills, contact and shots as they happen">All</button>
         <span class="levels" role="group" aria-label="Level">
           <button id="lvDown" type="button" aria-label="Look at the level below" title="Level down (Page Down or ])">▼</button>
           <span id="lvName">Street</span>
@@ -357,6 +359,7 @@
         </span>
       </section>
 
+      <div class="momentcap" id="momentCap" role="status" hidden></div>
       <div class="turnbanner" id="turnBanner" hidden></div>
 
       <div class="modal" id="combatModal" hidden>

@@ -485,3 +485,23 @@ Mike asked for levels in the combatscape, four like the base, with stairs and li
 - Baton and medikit only work on the same level. The aliens' tracker senses you through floors as through walls; they path up and down stairs to hunt you and flank on your level.
 - Screen: ▲/▼ by the view buttons, `[`/`]` or Page Up/Down. Everything above the level you look at is lifted off; units under a floor are hidden. Selecting someone, following them up stairs, or an alien coming into view switches to that level. A level button turns red when an alien is in view up or down there.
 - Balance (autoplay sims, 300 prologue seeds and 100 sightings, cautious doctrine): disasters 199–201 of 300 before and after, sightings 70 → 73 of 100. Within noise. No defaults eased.
+
+## Action camera as built
+
+Mike (2026-11-03): it was hard to see when the aliens hit or killed someone, especially off screen.
+The fight never pauses for it, but the camera now swings over and zooms in on what matters as the
+events play back, for about two seconds on a death.
+
+- **Deaths and people dropping** (killed, stunned, knocked out): close in on the body, bars close in
+  top and bottom, and a line says who and by whom ("Okafor killed by Strider", or "from the dark" if
+  the shooter wasn't seen). Lingers 1.6 s on top of the usual pause.
+- **Contact**: close in on an alien the first time it's seen, with "Contact: Strider". 0.7 s.
+- **Shots**: frames both ends of the shot, or only where it lands if the shooter is in the dark (the
+  camera never gives away an unseen alien). Hits linger a quarter second.
+- The camera takes about half a second to get there before the event plays. In hand play it then
+  goes back to where you left it; watching autoplay it stays on the action but zooms back out. Grab
+  the camera yourself and it leaves you alone until the next action or round.
+- The ◉ button in the view controls (or C) cycles **All** / **Kills** (deaths, contact, and shots
+  that hit) / **Off**, saved in this browser (`alien-defence.actionCam`).
+- Code: `tactical/moments.ts` decides what deserves a moment (pure, tested in
+  `tests/moments.test.ts`); `tactical/screen.ts` moves the camera. The rules are untouched.

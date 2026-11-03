@@ -4,6 +4,7 @@ import { DOCTRINES, Doctrine, MAX_ROUNDS, REWIND_WINDOW, RISK_SPREAD, RoundRecor
 import { Battle, BattleEvent, Outcome, Tally, Unit, alive, canFire, conscious, usesHeat } from "./battle";
 import { TacticalCamera } from "./camera";
 import { Point, levelName, lvl, samePoint } from "./map";
+import { ACTION_CAMS, ACTION_CAM_LABEL, ActionCam, Moment, MomentContext, momentFor } from "./moments";
 import { mulberry32 } from "./random";
 import { OUTCOME_TEXT, Prologue, SPOILS, battleSpoils, briefing, lightRead, unitLook, unitShape } from "./prologue";
 import { FireMode, KNEEL_TU, LIFT_TU, STAIRS_TU, STAND_TU, Stats, tuCost } from "./rules";
@@ -324,6 +325,8 @@ cam.onClick = (e) => {
 // ---------- Playing out what happened ----------
 function act(events: BattleEvent[]) {
   if (!events.length) return;
+  // The player's hands are off the camera as this starts; if they grab it, it's theirs again.
+  if (!queue.length) camTouch = cam.touched;
   queue.push(...events);
   playing = true;
   view.showPath([], true);
@@ -400,7 +403,25 @@ function pump(dt: number) {
     return;
   }
   while (queue.length) {
-    wait = apply(queue.shift()!);
+    const e = queue[0];
+    // First swing the camera over, if this is worth seeing, and let it get there.
+    if (!staged) {
+      const lead = stage(e);
+      if (lead > 0) {
+        wait = lead;
+        return;
+      }
+    }
+    queue.shift();
+    const m = staged!.moment;
+    staged = null;
+    wait = apply(e);
+    if (e.kind === "shot") lastShot = e;
+    else if (e.kind === "move" || e.kind === "turn") lastShot = null;
+    if (m) {
+      wait += m.hold;
+      if (m.caption) cinema(m.caption, m.tone, wait);
+    }
     if (wait > 0) return;
   }
   if (!playing) return;
@@ -408,13 +429,125 @@ function pump(dt: number) {
   settle();
 }
 
+// ---------- The action camera ----------
+const ACTION_KEY = "alien-defence.actionCam";
+let actionCam: ActionCam = "all";
+try {
+  const saved = localStorage.getItem(ACTION_KEY) as ActionCam | null;
+  if (saved && ACTION_CAMS.includes(saved)) actionCam = saved;
+} catch {
+  // Settings are a convenience only.
+}
+/** The event at the front of the queue once the camera has been sent to it, and what it deserved. */
+let staged: { moment: Moment | null } | null = null;
+let lastShot: Extract<BattleEvent, { kind: "shot" }> | null = null;
+/** Where the view was before the action camera took it, to hand it back afterwards. */
+let camBefore: { x: number; z: number; distance: number; level: number } | null = null;
+/** The camera's touch count when this playback started. */
+let camTouch = 0;
+/** How close the camera comes in for a death or contact. */
+const CLOSE_DISTANCE = 10;
+
+const momentCtx: MomentContext = {
+  side: (id) => battle!.unit(id).side,
+  name: (id) => battle!.unit(id).name,
+  // What the screen is showing now: the rules may already be a round ahead.
+  seen: (id) => battle!.unit(id).side === "human" || view.isShown(id),
+};
+
+/** Sends the camera to an event if it deserves it; returns how long to give it to get there. */
+function stage(e: BattleEvent): number {
+  const moment = momentFor(e, momentCtx, actionCam, lastShot);
+  staged = { moment };
+  if (!moment || cam.touched !== camTouch) return 0;
+  const pts: Vector3[] = [];
+  for (const a of moment.at) {
+    const p = typeof a === "number" ? view.unitPos(a) : view.world(a);
+    if (p) pts.push(p.clone());
+  }
+  if (!pts.length) return 0;
+  camBefore ??= { x: cam.targetFocus.x, z: cam.targetFocus.z, distance: cam.targetDistance, level: view.level };
+  // Look at the floor where it ends: where the shot lands, or who fell.
+  const level = Math.round(pts[pts.length - 1].y / LEVEL_Y);
+  if (level !== view.level) showLevel(level);
+  const xs = pts.map((p) => p.x);
+  const zs = pts.map((p) => p.z);
+  const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+  const span = Math.max(x1 - x0, z1 - z0);
+  const distance = moment.close ? CLOSE_DISTANCE : Math.min(40, Math.max(12, span * 1.25 + 8));
+  const x = (x0 + x1) / 2;
+  const z = (z0 + z1) / 2;
+  const far = Math.hypot(x - cam.focus.x, z - cam.focus.z) > 2 || Math.abs(distance - cam.distance) > 4;
+  cam.frame(x, z, distance);
+  return far ? 0.45 : 0;
+}
+
+/** Gives the view back as the player left it, unless they took it themselves meanwhile. */
+function restoreCamera() {
+  const was = camBefore;
+  camBefore = null;
+  if (!was || cam.touched !== camTouch) return;
+  cam.frame(was.x, was.z, was.distance);
+  if (was.level !== view.level) showLevel(was.level);
+}
+
+let cinemaTimer = 0;
+/** Bars across the screen and a line of text while the camera lingers on something. */
+function cinema(text: string, tone: "good" | "bad" | undefined, seconds: number) {
+  const cap = $("momentCap");
+  cap.textContent = text;
+  cap.className = `momentcap${tone ? ` ${tone}` : ""}`;
+  cap.hidden = false;
+  $("cinema").classList.add("on");
+  clearTimeout(cinemaTimer);
+  cinemaTimer = window.setTimeout(endCinema, (seconds / (auto ? speed : 1)) * 1000);
+}
+/** Drops whatever was still to be shown, and the action camera's hold on the view. */
+function clearQueue() {
+  queue.length = 0;
+  staged = null;
+  lastShot = null;
+  camBefore = null;
+  endCinema();
+}
+function endCinema() {
+  clearTimeout(cinemaTimer);
+  $("momentCap").hidden = true;
+  $("cinema").classList.remove("on");
+}
+
+function showActionCam() {
+  const btn = $("camAction");
+  btn.textContent = ACTION_CAM_LABEL[actionCam].split(" ")[0];
+  btn.classList.toggle("off", actionCam === "off");
+  btn.title = `Action camera: ${ACTION_CAM_LABEL[actionCam].toLowerCase()} (C to change). Swings over to kills, contact and shots as they happen.`;
+}
+function cycleActionCam() {
+  actionCam = ACTION_CAMS[(ACTION_CAMS.indexOf(actionCam) + 1) % ACTION_CAMS.length];
+  showActionCam();
+  toast(`Action camera: ${ACTION_CAM_LABEL[actionCam].toLowerCase()}`);
+  try {
+    localStorage.setItem(ACTION_KEY, actionCam);
+  } catch {
+    // Not saved; fine.
+  }
+}
+showActionCam();
+$("camAction").addEventListener("click", cycleActionCam);
+
 /** After the dust settles: snap the view to the rules and pick up where you were. */
 function settle() {
   const b = battle!;
   view.sync(b);
   refreshLevels();
   if (b.outcome) return results(b.outcome);
-  if (auto) return autoRound();
+  if (auto) {
+    // Watching autoplay, the view stays where the action was, but pulls back out again.
+    if (camBefore && cam.touched === camTouch) cam.frame(cam.targetFocus.x, cam.targetFocus.z, camBefore.distance);
+    camBefore = null;
+    return autoRound();
+  }
+  restoreCamera();
   if (!selected || !conscious(selected)) {
     selected = null;
     nextUnit();
@@ -801,7 +934,7 @@ function autoRound() {
 /** Plays the rest out without showing it. */
 function skipToEnd() {
   const b = battle!;
-  queue.length = 0;
+  clearQueue();
   wait = 0;
   playing = false;
   while (auto && !b.outcome) {
@@ -850,7 +983,7 @@ function rewindTo(round: number) {
   if (p.reason) return toast(p.reason, true);
   if (p.undone === 0) return takeOver();
   auto = null;
-  queue.length = 0;
+  clearQueue();
   playing = false;
   wait = 0;
   estimating++;
@@ -1055,6 +1188,7 @@ window.addEventListener("keydown", (e) => {
   else if (k === "r") $("reload").click();
   else if (k === "n" || k === "tab") $("nextUnit").click();
   else if (k === "escape") !busy() && setMode("move");
+  else if (k === "c") cycleActionCam();
   else if (k === "q") cam.turn(-45);
   else if (k === "e") cam.turn(45);
   else if (k === "+" || k === "=") cam.zoomBy(1 / 1.2);
@@ -1083,7 +1217,7 @@ export function openCombat(h: CombatHost): void {
   battle = h.prologue.battle;
   root.hidden = false;
   resize();
-  queue.length = 0;
+  clearQueue();
   playing = false;
   wait = 0;
   auto = null;
@@ -1126,6 +1260,7 @@ export function openCombat(h: CombatHost): void {
 
 export function closeCombat(): void {
   root.hidden = true;
+  clearQueue();
   auto = null;
   estimating++;
   host = null;
