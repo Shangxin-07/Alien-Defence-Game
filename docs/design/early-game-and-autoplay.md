@@ -517,7 +517,11 @@ events play back, for about two seconds on a death.
 - The camera takes about half a second to get there before the event plays. In hand play it then
   goes back to where you left it; watching autoplay it stays on the action but zooms back out. Grab
   the camera yourself and it leaves you alone until the next action or round.
-- The ◉ button in the view controls (or C) cycles **All** / **Kills** (deaths, contact, and shots
-  that hit) / **Off**, saved in this browser (`alien-defence.actionCam`).
+- **Walls coming down** (2026-11-03): close in on a wall, barrier, planter, parapet or sill your
+  people saw break, with "Wall breached" (or "Concrete barrier destroyed"), lingering 0.8 s. Glass,
+  crates, doors, trees and cars breaking get a quick look on All only. A break out of sight gets no
+  moment: you only hear it.
+- The ◉ button in the view controls (or C) cycles **All** / **Kills** (deaths, contact, shots
+  that hit, and walls coming down) / **Off**, saved in this browser (`alien-defence.actionCam`).
 - Code: `tactical/moments.ts` decides what deserves a moment (pure, tested in
   `tests/moments.test.ts`); `tactical/screen.ts` moves the camera. The rules are untouched.

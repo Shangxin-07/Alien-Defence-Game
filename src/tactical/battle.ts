@@ -78,7 +78,7 @@ export type BattleEvent =
    * A shot hit something solid: `amount` came off it (0 if the gun couldn't hurt it), and if it
    * broke, the tile is now `thing`/`look` on `ground`. `seen` if your people saw it happen.
    */
-  | { kind: "wreck"; at: Point; amount: number; broke: boolean; thing: Thing; look: CoverLook | null; ground: Ground; seen: boolean }
+  | { kind: "wreck"; at: Point; amount: number; broke: boolean; thing: Thing; look: CoverLook | null; ground: Ground; seen: boolean; was: string; tough: number }
   | { kind: "shot"; unit: number; from: Point; to: Point; hit: number | null; plasma: boolean; seen: boolean }
   | { kind: "damage"; unit: number; amount: number; stun: boolean; dead: boolean; out: boolean }
   | { kind: "say"; text: string; tone?: "bad" | "good" }
@@ -901,7 +901,7 @@ export class Battle {
     const r = strike(m, i, damage, w.breach);
     if (!r) return;
     const seen = by.side === "human" || !!this.visible[i];
-    this.events.push({ kind: "wreck", at: { x: at.x, y: at.y, z }, amount: r.amount, broke: !!r.broke, thing: m.thing[i], look: m.look[i], ground: m.ground[i], seen });
+    this.events.push({ kind: "wreck", at: { x: at.x, y: at.y, z }, amount: r.amount, broke: !!r.broke, thing: m.thing[i], look: m.look[i], ground: m.ground[i], seen, was: r.was.name, tough: r.was.tough });
     if (!r.broke) return;
     // A gap where a wall was: what everyone can see has changed.
     this.sightKey = "";
