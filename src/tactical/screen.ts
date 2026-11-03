@@ -7,6 +7,7 @@ import { Point, levelName, lvl, samePoint } from "./map";
 import { mulberry32 } from "./random";
 import { OUTCOME_TEXT, Prologue, SPOILS, battleSpoils, briefing, lightRead, unitLook, unitShape } from "./prologue";
 import { FireMode, KNEEL_TU, LIFT_TU, STAIRS_TU, STAND_TU, Stats, tuCost } from "./rules";
+import { TOUGH_NAMES, hpLeft, materialAt } from "./terrain";
 import { LEVEL_Y, TacticalView } from "./view";
 import { $, escape, toast as showToast, token } from "../ui/dom";
 
@@ -178,7 +179,8 @@ function preview() {
     if (!reach) return hint(defaultHint());
     const i = battle.map.idx(hover.x, hover.y, lvl(hover));
     const c = reach.cost[i];
-    if (!Number.isFinite(c)) return hint(`<span class="bad">Can't get there this turn.</span>`);
+    const solid = structure(i);
+    if (!Number.isFinite(c)) return hint(solid ? `${solid} <span class="dim">· pick a fire mode to shoot at it.</span>` : `<span class="bad">Can't get there this turn.</span>`);
     // With a mouse the route waits until the pointer has rested on a tile a while; a tap shows it at once.
     if (lastPointer === "mouse" && !routeReady) return hint(`<b>Move</b> <span class="dim">${routeDelay ? "Hold still to plot the route." : ""} Click to go.</span>`);
     const path = battle.map.route(reach.prev, hover);
@@ -204,9 +206,22 @@ function preview() {
   const p = battle.previewShot(selected.id, hover, mode);
   const label = mode === "auto" ? "Auto fire" : mode === "aimed" ? "Aimed shot" : "Snap shot";
   if (p.reason) return hint(`<b>${label}</b> <span class="bad">${p.reason}</span>`);
-  const target = visibleAlienAt(hover) ? "" : ` <span class="dim">at empty ground</span>`;
+  const solid = !battle.unitAt(hover) && structure(battle.map.idx(hover.x, hover.y, lvl(hover)), selected.weapon?.breach);
+  const target = visibleAlienAt(hover) ? "" : solid ? ` at ${solid} ·` : ` <span class="dim">at empty ground</span>`;
   const per = mode === "auto" ? " per round" : "";
   hint(`<b>${label}</b>${target} ${pct(p.chance)}${per} · ${p.tu} TU${p.cover ? ` <span class="dim">· cover in the way</span>` : ""}. ${tap} to fire.`);
+}
+
+/**
+ * What stands on a tile and how much of it is left, for the hint line: "Wall 64/100, masonry". With a
+ * weapon's breach, says whether that gun can hurt it at all.
+ */
+function structure(i: number, breach?: number): string {
+  const m = materialAt(battle!.map, i);
+  if (!m) return "";
+  const left = hpLeft(battle!.map, i)!;
+  const note = breach === undefined ? "" : breach < m.tough ? ` <span class="bad">too tough for this gun</span>` : ` <span class="dim">can break it</span>`;
+  return `<b>${m.name}</b> ${left}/${m.hp} <span class="dim">${TOUGH_NAMES[m.tough]}</span>${note}`;
 }
 
 function defaultHint(): string {
@@ -359,6 +374,17 @@ function apply(e: BattleEvent): number {
     case "door":
       view.openDoor(e.at);
       return 0;
+    case "wreck": {
+      if (!e.seen) {
+        // You hear it come down, and find the gap when you get there.
+        if (e.broke) view.wreck(e.at, e.broke, e.thing, e.look, e.ground);
+        return 0;
+      }
+      view.wreck(e.at, e.broke, e.thing, e.look, e.ground);
+      if (e.broke) view.fog(b);
+      floater(view.world(e.at), e.amount ? `−${e.amount}` : "no effect", "terrain");
+      return e.broke ? 0.3 : 0.1;
+    }
     case "shot": {
       view.tracer(e.from, e.to, e.plasma, !e.seen);
       if (e.seen) view.setVisible(e.unit, true);
@@ -523,7 +549,8 @@ function floater(pos: Vector3, text: string, kind: string) {
   el.className = `floater ${kind}`;
   el.textContent = text;
   $("combatLabels").appendChild(el);
-  floaters.push({ el, pos: pos.clone().setY(1.8), life: 1.3 });
+  // Above whoever it's about, on whichever floor they're on.
+  floaters.push({ el, pos: pos.clone().setY(pos.y + 1.8), life: 1.3 });
 }
 const proj = new Vector3();
 function placeFloaters(dt: number) {
@@ -594,6 +621,7 @@ function brief(p: Prologue) {
          <li>TU you don't spend stay with you through the alien's turn. Anyone who sees it move and is quicker on the draw (reactions × TU left) fires on reflex. So does it.</li>
          <li>${escape(lightRead(p.light))}</li>
          <li>Kneeling steadies your aim. Cover between you and a target soaks up shots; so does cover between it and you.</li>
+         <li>Shots break things. Pistols only smash glass and crates; rifles and shotguns get through doors, trees and cars; only plasma brings down a wall. Aim at a wall or car to see what's left of it. Stairs, lifts and floors never break.</li>
          <li>Big hits leave you bleeding until a medikit stops it. Seeing friends die drains morale; frightened people freeze.</li>
          <li>It heals slowly, and it can sense anyone within ${12} tiles, walls or not.</li>
        </ul>

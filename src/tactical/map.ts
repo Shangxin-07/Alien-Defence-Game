@@ -7,9 +7,10 @@ import { DIAGONAL_TU, DOOR_TU, LIFT_TU, STAIRS_TU, STEP_TU } from "./rules";
 export type Ground = "road" | "pavement" | "verge" | "floor" | "rubble" | "yard" | "roof" | "air" | "earth";
 /**
  * What stands on a tile. Walls and closed doors block sight; cover and windows soak up shots.
- * Stairs and lifts link a tile to the same tile on the level above or below.
+ * Stairs and lifts link a tile to the same tile on the level above or below. A "frame" is a window
+ * with its glass shot out: the sill is still there to hide behind.
  */
-export type Thing = "none" | "wall" | "window" | "door" | "open" | "cover" | "tree" | "stairs" | "lift";
+export type Thing = "none" | "wall" | "window" | "frame" | "door" | "open" | "cover" | "tree" | "stairs" | "lift";
 /** How a piece of cover looks; it plays the same whatever it is. */
 export type CoverLook = "car" | "crate" | "bin" | "planter" | "bench" | "barrier" | "wreck" | "parapet";
 
@@ -97,6 +98,8 @@ export class TacMap {
   readonly lit: Uint8Array;
   /** Which building a tile belongs to, or −1 outdoors. */
   readonly building: Int16Array;
+  /** Damage the thing on each tile has taken, against its hit points in terrain.ts. */
+  readonly wear: Int16Array;
   /** Tiles on one level. */
   readonly plane: number;
 
@@ -113,6 +116,7 @@ export class TacMap {
     this.look = new Array<CoverLook | null>(n).fill(null);
     this.lit = new Uint8Array(n);
     this.building = new Int16Array(n).fill(-1);
+    this.wear = new Int16Array(n);
     // Off the street level, it's sky above and earth below until something is built there.
     for (let z = bottom; z < bottom + levels; z++) {
       if (!z) continue;
@@ -127,7 +131,7 @@ export class TacMap {
     return this.bottom + this.levels - 1;
   }
 
-  /** A copy with its own doors to open. */
+  /** A copy with its own doors to open and walls to knock down. */
   clone(): TacMap {
     const m = new TacMap(this.w, this.h, this.levels, this.bottom);
     this.ground.forEach((g, i) => (m.ground[i] = g));
@@ -135,6 +139,7 @@ export class TacMap {
     this.look.forEach((l, i) => (m.look[i] = l));
     m.lit.set(this.lit);
     m.building.set(this.building);
+    m.wear.set(this.wear);
     return m;
   }
 
@@ -176,7 +181,7 @@ export class TacMap {
   /** Low obstacles that stop some shots passing over them. */
   isCover(x: number, y: number, z = 0): boolean {
     const t = this.thingAt(x, y, z);
-    return t === "cover" || t === "window" || t === "tree";
+    return t === "cover" || t === "window" || t === "frame" || t === "tree";
   }
 
   /** Stairs or a lift here that also run to the level `dz` away. */

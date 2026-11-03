@@ -1,7 +1,8 @@
 import { batonGrudge } from "./adapt";
 import { AlienMind, Personality, RACES, firstLook } from "./aliens";
-import { DIRS, LinePoint, Point, TacMap, Thing, adjacent, dist, facingTo, lvl, pt, samePoint, turnSteps } from "./map";
+import { CoverLook, DIRS, Ground, LinePoint, Point, TacMap, Thing, adjacent, dist, facingTo, lvl, pt, samePoint, turnSteps } from "./map";
 import { mulberry32 } from "./random";
+import { Tough, canBreach, strike } from "./terrain";
 import {
   ALIEN_FOV,
   FireMode,
@@ -73,6 +74,11 @@ export type BattleEvent =
   | { kind: "face"; unit: number; facing: number }
   | { kind: "kneel"; unit: number; kneeling: boolean }
   | { kind: "door"; at: Point }
+  /**
+   * A shot hit something solid: `amount` came off it (0 if the gun couldn't hurt it), and if it
+   * broke, the tile is now `thing`/`look` on `ground`. `seen` if your people saw it happen.
+   */
+  | { kind: "wreck"; at: Point; amount: number; broke: boolean; thing: Thing; look: CoverLook | null; ground: Ground; seen: boolean }
   | { kind: "shot"; unit: number; from: Point; to: Point; hit: number | null; plasma: boolean; seen: boolean }
   | { kind: "damage"; unit: number; amount: number; stun: boolean; dead: boolean; out: boolean }
   | { kind: "say"; text: string; tone?: "bad" | "good" }
@@ -124,6 +130,10 @@ export interface BattleSnapshot {
   remarked: number[];
   focus: number[];
   things: Thing[];
+  /** What's been knocked down: the floor and look of every tile, and the damage things have taken. */
+  ground: Ground[];
+  looks: (CoverLook | null)[];
+  wear: Int16Array;
   tally: Tally;
 }
 
@@ -279,6 +289,9 @@ export class Battle {
       remarked: [...this.remarked],
       focus: [...this.focus],
       things: [...this.map.thing],
+      ground: [...this.map.ground],
+      looks: [...this.map.look],
+      wear: this.map.wear.slice(),
       tally: { ...this.tally },
     };
   }
@@ -316,6 +329,9 @@ export class Battle {
     reset(this.remarked, s.remarked);
     reset(this.focus, s.focus);
     s.things.forEach((t, i) => (this.map.thing[i] = t));
+    s.ground.forEach((g, i) => (this.map.ground[i] = g));
+    s.looks.forEach((l, i) => (this.map.look[i] = l));
+    this.map.wear.set(s.wear);
     this.sightKey = "";
     this.tally = { ...s.tally };
     this.events = [];
@@ -830,9 +846,12 @@ export class Battle {
       const path = this.map.line(u, onTarget ? target : far);
       let impact: LinePoint = path[path.length - 1];
       let hit: Unit | null = null;
+      // Whether it ended on whatever stands at the impact tile, rather than flying out of reach.
+      let struck = false;
       for (const p of path.slice(1)) {
         if (!this.map.inside(p.x, p.y, p.z) || this.map.stops(p)) {
           impact = p;
+          struck = !p.slab;
           break;
         }
         const there = this.unitAt(p);
@@ -851,18 +870,48 @@ export class Battle {
         }
         if (this.rand() < this.interceptChance(u, p, aimedAt)) {
           impact = p;
+          struck = true;
           break;
         }
         impact = p;
-        if (onTarget && samePoint(p, target)) break;
+        if (onTarget && samePoint(p, target)) {
+          struck = true;
+          break;
+        }
       }
       const seen = u.side === "human" || this.spotted(u);
       this.events.push({ kind: "shot", unit: u.id, from: pt(u), to: { x: impact.x, y: impact.y, z: impact.z }, hit: hit?.id ?? null, plasma: !!w.alien, seen });
       if (hit) this.damage(hit, w.power, u);
+      else if (struck) this.wreck(u, impact);
       if (this.outcome) return;
     }
     if (hot && u.overheated) this.events.push({ kind: "say", text: `${u.name}'s ${w.name.toLowerCase()} overheats and shuts down.`, tone: "bad" });
     else if (!hot && u.ammo <= 0) this.events.push({ kind: "say", text: u.clips ? `${u.name}'s clip is empty.` : `${u.name} is out of ammo.`, tone: "bad" });
+  }
+
+  /** A shot that hit something solid instead of someone: it may chip it, or bring it down. */
+  private wreck(by: Unit, at: Point) {
+    const m = this.map;
+    const z = lvl(at);
+    if (!m.inside(at.x, at.y, z)) return;
+    const i = m.idx(at.x, at.y, z);
+    const w = by.weapon!;
+    // Only roll for damage that can count, so shots into stairs and floors don't use up dice.
+    const damage = canBreach(m, i, w.breach) ? rollDamage(w.power, 0, this.rand) : 0;
+    const r = strike(m, i, damage, w.breach);
+    if (!r) return;
+    const seen = by.side === "human" || !!this.visible[i];
+    this.events.push({ kind: "wreck", at: { x: at.x, y: at.y, z }, amount: r.amount, broke: !!r.broke, thing: m.thing[i], look: m.look[i], ground: m.ground[i], seen });
+    if (!r.broke) return;
+    // A gap where a wall was: what everyone can see has changed.
+    this.sightKey = "";
+    if (seen) {
+      const what = r.was.name.toLowerCase();
+      const text = m.thing[i] === "frame" ? "Glass shatters." : m.look[i] === "wreck" ? `The ${what} goes up. It's a burnt-out shell now.` : `The ${what} gives way.`;
+      this.events.push({ kind: "say", text });
+    } else if (r.was.tough >= Tough.Masonry) this.events.push({ kind: "say", text: `Somewhere out of sight, ${r.was.name === "Wall" ? "a wall comes down" : "something heavy gives way"}.` });
+    const fresh = this.updateVision();
+    if (fresh.length) this.announce(fresh);
   }
 
   private damage(t: Unit, power: number, by: Unit) {
