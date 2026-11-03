@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { playRound } from "../src/tactical/autoplay";
 import { BattleEvent } from "../src/tactical/battle";
-import { DEATH_HOLD, MomentContext, momentFor } from "../src/tactical/moments";
+import { BREACH_HOLD, DEATH_HOLD, MomentContext, momentFor } from "../src/tactical/moments";
 import { CITIES } from "../src/geoscape/cities";
 import { prologueCity, startAmbush, startPrologue } from "../src/tactical/prologue";
 import { mulberry32 } from "../src/tactical/random";
@@ -24,6 +24,23 @@ const shot = (unit: number, hit: number | null, seen = true): Extract<BattleEven
 const death = (unit: number): BattleEvent => ({ kind: "damage", unit, amount: 30, stun: false, dead: true, out: false });
 
 describe("the action camera", () => {
+  it("goes in close when a wall comes down, on 'key' too; lighter breaks only on 'all'; never one it didn't see", () => {
+    const wreck = (was: string, tough: number, seen = true, broke = true): BattleEvent => ({
+      kind: "wreck", at: { x: 5, y: 5, z: 0 }, amount: 120, broke, thing: "none", look: null, ground: "rubble", seen, was, tough,
+    });
+    const m = momentFor(wreck("Wall", 2), ctx, "key")!;
+    expect(m.close).toBe(true);
+    expect(m.hold).toBe(BREACH_HOLD);
+    expect(m.at).toEqual([{ x: 5, y: 5, z: 0 }]);
+    expect(m.caption).toBe("Wall breached");
+    expect(momentFor(wreck("Concrete barrier", 2), ctx, "key")!.caption).toBe("Concrete barrier destroyed");
+    expect(momentFor(wreck("Crate", 0), ctx, "key")).toBeNull();
+    expect(momentFor(wreck("Crate", 0), ctx, "all")!.caption).toBeUndefined();
+    expect(momentFor(wreck("Wall", 2, false), ctx, "all")).toBeNull();
+    expect(momentFor(wreck("Wall", 2, true, false), ctx, "all")).toBeNull();
+    expect(momentFor(wreck("Wall", 2), ctx, "off")).toBeNull();
+  });
+
   it("lingers close on every death, saying who did it", () => {
     const m = momentFor(death(1), ctx, "key", shot(2, 1))!;
     expect(m.close).toBe(true);
