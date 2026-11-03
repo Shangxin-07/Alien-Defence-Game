@@ -26,7 +26,7 @@ import {
 } from "three";
 import { Battle, Unit, alive, conscious } from "./battle";
 import { CityStyle } from "./cityMap";
-import { CoverLook, Point, TacMap, lvl } from "./map";
+import { CoverLook, Ground, Point, TacMap, Thing, lvl } from "./map";
 import { Daylight } from "./rules";
 
 /** Sky and sun for each light: hemisphere sky and ground colours, the main light, and where it shines from. */
@@ -81,6 +81,8 @@ export class TacticalView {
   /** The moon at night, the sun by day. */
   private readonly sun = new DirectionalLight(0xb8c8ff, 1.1);
   private fogLevels = FOG;
+  /** What the scene was last built with, to build it again when something is knocked down. */
+  private built: { style: CityStyle; lamps: Point[]; light: Daylight } | null = null;
 
   constructor(scene: Scene) {
     scene.add(this.root);
@@ -139,7 +141,11 @@ export class TacticalView {
    * Returns the colour to clear the screen to, or "" for the usual night void.
    */
   build(map: TacMap, style: CityStyle, lamps: Point[], light: Daylight = "night"): string {
-    this.map = map;
+    // The view keeps its own copy, so it shows walls coming down as each shot plays out, not all at
+    // once when the rules have already moved on.
+    this.map = map.clone();
+    map = this.map;
+    this.built = { style, lamps, light };
     const sky = SKY[light];
     this.sky.color.set(sky.sky);
     this.sky.groundColor.set(sky.ground);
@@ -150,12 +156,21 @@ export class TacticalView {
     // By day the street lights are off and nobody has a lamp on.
     const dark = light !== "day";
     this.fogLevels = dark ? FOG : DAY_FOG;
+    // Rebuilt every time a wall falls, so free what the last build made.
+    const free = (o: Object3D) => {
+      if (o instanceof InstancedMesh) o.dispose();
+      if (o instanceof Mesh) {
+        o.geometry.dispose();
+        (o.material as MeshBasicMaterial).dispose();
+      }
+    };
     for (const g of this.levels) {
       this.root.remove(g);
-      g.traverse((o) => o instanceof InstancedMesh && o.dispose());
+      g.traverse(free);
     }
     this.levels = [];
     this.things = [];
+    this.lights.traverse((o) => o !== this.lights && free(o));
     this.lights.clear();
 
     const n = map.plane * map.levels;
@@ -214,9 +229,9 @@ export class TacticalView {
         const p = map.at(i);
         if (map.linked(p.x, p.y, p.z!, 1) || map.linked(p.x, p.y, p.z!, -1)) add("liftframe", () => new BoxGeometry(0.94, WALL_H, 0.06), WALL_H / 2, i, metal.clone().multiplyScalar(0.7));
       } else if (t === "wall") add("wall", () => new BoxGeometry(1, WALL_H, 1), WALL_H / 2, i, wall.clone().offsetHSL(0, 0, ((i * 31) % 3) * 0.01));
-      else if (t === "window") {
+      else if (t === "window" || t === "frame") {
         add("sill", () => new BoxGeometry(1, 0.55, 1), 0.275, i, wall.clone());
-        add("glass", () => new BoxGeometry(0.9, WALL_H - 0.55, 0.25), 0.55 + (WALL_H - 0.55) / 2, i, dark && map.lit[i] ? new Color("#d8c08a") : glass.clone());
+        if (t === "window") add("glass", () => new BoxGeometry(0.9, WALL_H - 0.55, 0.25), 0.55 + (WALL_H - 0.55) / 2, i, dark && map.lit[i] ? new Color("#d8c08a") : glass.clone());
         add("lintel", () => new BoxGeometry(1, 0.12, 1), WALL_H - 0.06, i, wall.clone());
       } else if (t === "door") add("door", () => new BoxGeometry(0.9, WALL_H * 0.9, 0.9), (WALL_H * 0.9) / 2, i, door.clone());
       else if (t === "open") add("open", () => new BoxGeometry(1, 0.06, 1), 0.03, i, door.clone().multiplyScalar(0.7));
@@ -324,6 +339,7 @@ export class TacticalView {
   /** Doors swing open when someone walks through: swap the closed slab for an open one. */
   openDoor(at: Point): void {
     const i = this.map.idx(at.x, at.y, lvl(at));
+    this.map.thing[i] = "open";
     for (const t of this.things) {
       const k = t.tiles.indexOf(i);
       if (k < 0) continue;
@@ -334,6 +350,23 @@ export class TacticalView {
       t.mesh.setMatrixAt(k, this.tmp);
       t.mesh.instanceMatrix.needsUpdate = true;
     }
+  }
+
+  /**
+   * Something on a tile took a hit or was knocked down. A break redraws the battlefield from the
+   * view's copy with the tile as it is now, and throws up dust either way.
+   */
+  wreck(at: Point, broke: boolean, thing: Thing, look: CoverLook | null, ground: Ground): void {
+    const i = this.map.idx(at.x, at.y, lvl(at));
+    const dust = new Mesh(new SphereGeometry(broke ? 0.75 : 0.3, 8, 6), new MeshBasicMaterial({ color: 0x9a8a74, transparent: true, depthWrite: false }));
+    this.world(at, 0.5, dust.position);
+    this.root.add(dust);
+    this.fx.push({ obj: dust, life: broke ? 0.9 : 0.4, max: broke ? 0.9 : 0.4 });
+    if (!broke || !this.built) return;
+    this.map.thing[i] = thing;
+    this.map.look[i] = look;
+    this.map.ground[i] = ground;
+    this.build(this.map, this.built.style, this.built.lamps, this.built.light);
   }
 
   // ---------- Units ----------
@@ -527,6 +560,8 @@ export class TacticalView {
       (o.material as MeshBasicMaterial).opacity = Math.max(0, f.life / f.max);
       if (f.life <= 0) {
         this.root.remove(f.obj);
+        o.geometry.dispose();
+        (o.material as MeshBasicMaterial).dispose();
         this.fx.splice(k, 1);
       }
     }

@@ -486,6 +486,22 @@ Mike asked for levels in the combatscape, four like the base, with stairs and li
 - Screen: ▲/▼ by the view buttons, `[`/`]` or Page Up/Down. Everything above the level you look at is lifted off; units under a floor are hidden. Selecting someone, following them up stairs, or an alien coming into view switches to that level. A level button turns red when an alien is in view up or down there.
 - Balance (autoplay sims, 300 prologue seeds and 100 sightings, cautious doctrine): disasters 199–201 of 300 before and after, sightings 70 → 73 of 100. Within noise. No defaults eased.
 
+## Destructible terrain as built
+
+Mike asked for hit points on the combatscape so the scenery can be destroyed, with weapons that differ in what they can break: a pistol round shouldn't knock down a wall (2026-11-03). Code: `src/tactical/terrain.ts` (materials, `strike`), `TacMap.wear`, `Battle.wreck` in `battle.ts`, `TacticalView.wreck` in `view.ts`. Numbers chosen by Claude; Mike can overrule.
+
+- Every breakable thing has hit points and a toughness. Every weapon has a breach level. Below the toughness a shot does nothing at all, however many you fire; at or above it the weapon's normal damage roll (0–200% of power, no armour) comes off the hit points.
+- Breach: service pistol 0; assault rifle, pump shotgun and needle rifle 1; plasma pistol and plasma scattergun 2. Captured plasma is the only way your people can hole a wall until there are explosives (breach 3 is free for them).
+- Flimsy (0): window glass 8, bin 12, crate 15, bench 18. Solid (1): door 30, tree 45, car 45, burnt-out wreck 70. Masonry (2): wall 100, window sill (glass gone) 60, planter 60, parapet 60, concrete barrier 80.
+- What's left: a window loses its glass first and stays low cover as a sill; a car burns out into a wreck, still cover; everything else leaves rubble (+2 TU to cross), except a parapet or an open door, which just leaves a gap.
+- Unbreakable: stairs, lifts, floors and ceilings, and the earth round the cellars. So nothing falls through, and nobody is ever stranded on a floor.
+- Nothing is locked out: breaking only turns solid tiles into open ones, so it can only add routes. Tests knock down a random 10%, 50% and then all of everything in 60 cities and check every tile reachable before still is. The only tiles that can end up out of reach are pockets inside what used to be solid wall corners, never anywhere someone could have stood.
+- Any shot that ends on something solid hits it: one aimed at it, a miss that flies on into a wall, or cover that soaks up a shot. Alien plasma misses chew through the walls you hide behind. Neither side aims at walls on purpose yet; you can, by aiming at the tile.
+- Screen: hover something solid to see its hit points and toughness; in a fire mode it says whether your gun can break it. Hits show a number (or "no effect"), and a break throws up dust and redraws the tile. Breaks out of your sight are heard, not seen: "Somewhere out of sight, a wall comes down."
+- Rewind and the odds forecasts keep the broken scenery: snapshots carry each tile's floor, look and wear.
+- Balance (sim-autoplay, 200 seeds, before and after): every row within noise, for example lone cautious 75% → 77%, sighting cautious 55% → 54%, they know you cautious 35% → 39%. No defaults eased.
+- Not yet: floors collapsing when walls under them go, explosives, aliens blasting through walls on purpose.
+
 ## Action camera as built
 
 Mike (2026-11-03): it was hard to see when the aliens hit or killed someone, especially off screen.

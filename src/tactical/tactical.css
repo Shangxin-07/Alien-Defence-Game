@@ -158,6 +158,7 @@
 .floater.human { color: var(--alert); }
 .floater.alien { color: #b5e655; }
 .floater.stun { color: #7aa4d8; }
+.floater.terrain { color: #c9b89a; font-size: 13px; }
 
 .modal {
   position: fixed;

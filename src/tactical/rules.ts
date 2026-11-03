@@ -38,6 +38,11 @@ export interface Weapon {
   name: string;
   /** Damage before the 0–200% roll and armour. */
   power: number;
+  /**
+   * What it can break, against a thing's toughness in terrain.ts: 0 glass and crates, 1 doors, trees
+   * and cars, 2 brick and concrete. A pistol round never brings down a wall.
+   */
+  breach: number;
   modes: Partial<Record<FireMode, ShotMode>>;
   /** Tiles before accuracy starts to fall off. */
   range: number;
@@ -73,6 +78,7 @@ export const WEAPONS: Record<string, Weapon> = {
     id: "pistol",
     name: "Service pistol",
     power: 26,
+    breach: 0,
     modes: { snap: { tuPct: 18, acc: 60, shots: 1 }, aimed: { tuPct: 30, acc: 78, shots: 1 } },
     range: 10,
     falloff: 3,
@@ -82,6 +88,7 @@ export const WEAPONS: Record<string, Weapon> = {
     id: "rifle",
     name: "Assault rifle",
     power: 30,
+    breach: 1,
     modes: { snap: { tuPct: 25, acc: 60, shots: 1 }, aimed: { tuPct: 80, acc: 110, shots: 1 }, auto: { tuPct: 35, acc: 35, shots: 3 } },
     range: 18,
     falloff: 2,
@@ -91,6 +98,7 @@ export const WEAPONS: Record<string, Weapon> = {
     id: "shotgun",
     name: "Pump shotgun",
     power: 44,
+    breach: 1,
     modes: { snap: { tuPct: 25, acc: 70, shots: 1 }, aimed: { tuPct: 45, acc: 90, shots: 1 } },
     range: 5,
     falloff: 9,
@@ -100,6 +108,7 @@ export const WEAPONS: Record<string, Weapon> = {
     id: "plasmaPistol",
     name: "Plasma pistol",
     power: 52,
+    breach: 2,
     modes: { snap: { tuPct: 30, acc: 65, shots: 1 }, aimed: { tuPct: 60, acc: 85, shots: 1 } },
     range: 16,
     falloff: 2,
@@ -112,6 +121,7 @@ export const WEAPONS: Record<string, Weapon> = {
     id: "plasmaScatter",
     name: "Plasma scattergun",
     power: 48,
+    breach: 2,
     modes: { snap: { tuPct: 30, acc: 80, shots: 1 }, aimed: { tuPct: 50, acc: 95, shots: 1 } },
     range: 6,
     falloff: 7,
@@ -124,6 +134,7 @@ export const WEAPONS: Record<string, Weapon> = {
     id: "needleRifle",
     name: "Needle rifle",
     power: 40,
+    breach: 1,
     modes: { snap: { tuPct: 28, acc: 70, shots: 1 }, aimed: { tuPct: 55, acc: 115, shots: 1 } },
     range: 22,
     falloff: 1,
