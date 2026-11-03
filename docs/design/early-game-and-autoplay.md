@@ -501,3 +501,23 @@ Mike asked for hit points on the combatscape so the scenery can be destroyed, wi
 - Rewind and the odds forecasts keep the broken scenery: snapshots carry each tile's floor, look and wear.
 - Balance (sim-autoplay, 200 seeds, before and after): every row within noise, for example lone cautious 75% → 77%, sighting cautious 55% → 54%, they know you cautious 35% → 39%. No defaults eased.
 - Not yet: floors collapsing when walls under them go, explosives, aliens blasting through walls on purpose.
+
+## Action camera as built
+
+Mike (2026-11-03): it was hard to see when the aliens hit or killed someone, especially off screen.
+The fight never pauses for it, but the camera now swings over and zooms in on what matters as the
+events play back, for about two seconds on a death.
+
+- **Deaths and people dropping** (killed, stunned, knocked out): close in on the body, bars close in
+  top and bottom, and a line says who and by whom ("Okafor killed by Strider", or "from the dark" if
+  the shooter wasn't seen). Lingers 1.6 s on top of the usual pause.
+- **Contact**: close in on an alien the first time it's seen, with "Contact: Strider". 0.7 s.
+- **Shots**: frames both ends of the shot, or only where it lands if the shooter is in the dark (the
+  camera never gives away an unseen alien). Hits linger a quarter second.
+- The camera takes about half a second to get there before the event plays. In hand play it then
+  goes back to where you left it; watching autoplay it stays on the action but zooms back out. Grab
+  the camera yourself and it leaves you alone until the next action or round.
+- The ◉ button in the view controls (or C) cycles **All** / **Kills** (deaths, contact, and shots
+  that hit) / **Off**, saved in this browser (`alien-defence.actionCam`).
+- Code: `tactical/moments.ts` decides what deserves a moment (pure, tested in
+  `tests/moments.test.ts`); `tactical/screen.ts` moves the camera. The rules are untouched.
