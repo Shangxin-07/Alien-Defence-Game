@@ -20,13 +20,14 @@ import {
   CALL_CHANCE, CAR_SCRAP, CAR_SEATS, CAR_WORK, Call, HOUR_MS, MAX_MECHANICS, SIGHTING_LOYALTY, SIGHTING_SCRAP, TRAIL_HOURS, Travel, Vehicle,
   carName, freshness, rollCall, travelHours, tripFuel,
 } from "./sightings";
-import { Job, LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, settle, workPace } from "./staff";
+import { Job, LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, profileOf, project, settle, workPace } from "./staff";
 import { Habits, adaptNews, learn, noHabits, observe } from "../tactical/adapt";
 import type { RaceId } from "../tactical/aliens";
 import type { Outcome, Tally } from "../tactical/battle";
 import { hashText } from "../tactical/random";
 import { SavedCampaign, restore, toSave } from "./save";
 import { Departed, ServiceRecord, newRecord } from "./record";
+import { CAR_FIXED, Change, DAY_PRACTICE, MET, PLACE_FOUND, Practice, RECRUITED, RUN_DAY, describeChanges, fightPractice, grow, growthDice, rollCeiling, scars } from "./growth";
 import { Deeds, addDeeds } from "../tactical/deeds";
 
 export const DAY_MS = 86_400_000;
@@ -109,6 +110,9 @@ const AMBUSH_SPOILS: Record<Outcome, { share: number; item?: string }> = {
   wiped: { share: 0 },
 };
 
+
+/** Practice scaled down, for someone working at half pace. */
+const scale = (p: Practice, by: number): Practice => (by === 1 ? p : Object.fromEntries(Object.entries(p).map(([k, v]) => [k, v * by])));
 
 /** The city a base hides under, or the nearest one to a remote base. */
 function cityOf(b: BaseRecord | undefined): City {
@@ -296,7 +300,10 @@ export class Campaign {
       record: newRecord(this.day, c.wants === "none" ? "Drifted in off the streets" : `Talked into joining (${c.role.toLowerCase()})`),
     };
     const recruiter = c.by === undefined ? undefined : this.person(c.by);
-    if (recruiter) this.rec(recruiter).recruited++;
+    if (recruiter) {
+      this.rec(recruiter).recruited++;
+      this.improve(recruiter, RECRUITED, `recruited:${c.id}`);
+    }
     if (c.wants === "food") this.supplies.food -= c.amount;
     if (c.wants === "family") p.dependants = c.amount;
     if (c.wants === "medicine") this.pledges.push({ person: p.id, wants: "medicine", amount: c.amount, due: this.day + MEDICINE_DAYS });
@@ -365,7 +372,9 @@ export class Campaign {
         c.by = by;
         this.candidates.push(c);
         const p = this.person(by);
-        if (p) this.rec(p).met++;
+        if (!p) return;
+        this.rec(p).met++;
+        this.improve(p, MET, `met:${c.id}`);
       };
       if (this.rand() < CANDIDATE_CHANCE) met(rollCandidate(this.ids.candidate++, base, this.today, this.rand));
       if (this.rand() < DRIFTER_CHANCE) met(rollDrifter(this.ids.candidate++, base, this.today, this.rand));
@@ -380,7 +389,9 @@ export class Campaign {
       this.places.push(place);
       run.found = (run.found ?? 0) + 1;
       const p = this.person(run.team[i]);
-      if (p) this.rec(p).placesFound++;
+      if (!p) continue;
+      this.rec(p).placesFound++;
+      this.improve(p, PLACE_FOUND, `place:${place.id}`);
     }
   }
 
@@ -626,6 +637,8 @@ export class Campaign {
       if (result.outcome === "fled") r.fled++;
       const d = deeds.get(id);
       if (d) addDeeds(r.deeds, d);
+      const walked = alive.get(id);
+      if (d && walked) this.afterFight(p, d, walked.health / p.stats.health);
     }
     for (const p of dead) {
       this.depart(p, true, `Killed ${run.call ? run.call.place : `on a run to ${runWhere(run)}`}`);
@@ -716,6 +729,34 @@ export class Campaign {
     else if (p.kit.armour !== item) this.stock([item]);
   }
 
+  /**
+   * Lets practice teach someone: rolls growth, works out their numbers again, and notes it on their
+   * record. `why` keeps each chance's dice its own. Returns what changed.
+   */
+  private improve(p: Person, practice: Practice, why: string): Change[] {
+    if (!p.attributes) settle(p);
+    p.ceiling ??= rollCeiling(p.attributes!, growthDice(p.id, -1, "ceiling"));
+    return this.changed(p, grow(profileOf(p), p.ceiling, practice, growthDice(p.id, this.day, why)));
+  }
+
+  /** Works their numbers out again after a change, and keeps it on their record. */
+  private changed(p: Person, cs: Change[]): Change[] {
+    if (!cs.length) return cs;
+    settle(p);
+    const r = this.rec(p);
+    r.grown ??= {};
+    for (const c of cs) r.grown[c.trait] = (r.grown[c.trait] ?? 0) + c.by;
+    return cs;
+  }
+
+  /** What a fight taught someone who walked away from it, and what it cost them. Tells the player. */
+  private afterFight(p: Person, d: Deeds, healthLeft: number) {
+    const learned = this.improve(p, fightPractice(d), "fight");
+    const lost = this.changed(p, scars(profileOf(p), d, healthLeft, growthDice(p.id, this.day, "scars")));
+    if (learned.length) this.news.push(`${p.name} learned from it: ${describeChanges(learned)}`);
+    if (lost.length) this.news.push(`${p.name} isn't the same after that: ${describeChanges(lost)}`);
+  }
+
   /** Someone's service record, started now for anyone who somehow has none. */
   rec(p: Person): ServiceRecord {
     return (p.record ??= newRecord(this.day, "With you before records were kept"));
@@ -741,7 +782,10 @@ export class Campaign {
       delete p.away;
       const r = this.rec(p);
       r.runs++;
-      if (run.repair) r.carsFixed++;
+      if (run.repair) {
+        r.carsFixed++;
+        this.improve(p, CAR_FIXED, `car:${run.id}`);
+      }
     }
     const car = this.vehicles.find((v) => v.id === run.vehicle);
     if (car) delete car.away;
@@ -785,7 +829,9 @@ export class Campaign {
     const size = run.team.length;
     for (const id of run.team) {
       const p = this.person(id);
-      if (p) this.rec(p).daysOut++;
+      if (!p) continue;
+      this.rec(p).daysOut++;
+      if (!run.recruit && !run.repair) this.improve(p, RUN_DAY, `run:${run.id}`);
     }
     if (this.rand() < dayRisk(run.site, size)) {
       if (this.rand() < 0.5) {
@@ -891,7 +937,10 @@ export class Campaign {
     (people.length ? people : [LIAISON]).forEach((p, i) => {
       const { deeds, ...person } = p as typeof p & { deeds?: Deeds };
       const record = people.length ? firstNight(deeds) : newRecord(this.day, "Sent by the council");
-      this.join({ ...person, stats: { ...p.stats }, id: this.ids.person++, base, job: i === 0 ? "research" : "construction", kit: p.kit ? { ...p.kit } : legacyKit(p.role), record });
+      const joined: Person = { ...person, stats: { ...p.stats }, id: this.ids.person++, base, job: i === 0 ? "research" : "construction", kit: p.kit ? { ...p.kit } : legacyKit(p.role), record };
+      this.join(joined);
+      // The first night taught them something too, and may have cost them.
+      if (deeds) this.afterFight(joined, deeds, joined.health / joined.stats.health);
     });
     // The ones who didn't make it out are remembered too.
     for (const f of fallen) {
@@ -976,6 +1025,7 @@ export class Campaign {
       const r = this.rec(p);
       const job: Job = fitToWork(p) ? p.job : "rest";
       r.days[job] = (r.days[job] ?? 0) + 1;
+      if (job === "construction" && p.base !== null) this.improve(p, scale(DAY_PRACTICE.construction, workPace(p)), "construction");
     }
     this.eat();
     for (const p of this.staff) {
@@ -1004,7 +1054,9 @@ export class Campaign {
     if (id) {
       for (const p of this.staff) {
         const by = this.researchBy(p);
-        if (by) this.rec(p).research += by;
+        if (!by) continue;
+        this.rec(p).research += by;
+        this.improve(p, scale(DAY_PRACTICE.research, workPace(p)), "research");
       }
       const done = (this.research.progress[id] ?? 0) + this.researchRate();
       this.research.progress[id] = done;

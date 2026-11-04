@@ -1,5 +1,6 @@
 import { Deeds, addDeeds, emptyDeeds } from "../tactical/deeds";
 import type { Job } from "./staff";
+import { Trait, traitName } from "./growth";
 
 /**
  * Everything a person has done for you, kept for as long as they're with you and after. Nothing in
@@ -40,6 +41,8 @@ export interface ServiceRecord {
   /** Promises made to them, kept and broken. */
   kept: number;
   broken: number;
+  /** What they've learned by doing, and lost to scars, by trait. Missing in records from before learning. */
+  grown?: Partial<Record<Trait, number>>;
 }
 
 export function newRecord(day: number, how: string): ServiceRecord {
@@ -117,6 +120,11 @@ export function recordLines(r: ServiceRecord, today: number): string[] {
     r.injuries && `hurt ${r.injuries} time${r.injuries === 1 ? "" : "s"} out there`,
   ].filter(Boolean);
   if (out.length) lines.push(`${out.join(", ")}.`);
+  const grown = Object.entries(r.grown ?? {}).filter(([, n]) => n);
+  const up = grown.filter(([, n]) => n! > 0).map(([t, n]) => `${traitName(t as Trait)} +${n}`);
+  const down = grown.filter(([, n]) => n! < 0).map(([t, n]) => `${traitName(t as Trait)} −${-n!}`);
+  if (up.length) lines.push(`Learned by doing: ${up.join(", ")}.`);
+  if (down.length) lines.push(`Scarred: ${down.join(", ")}.`);
   const life = [r.hungryDays && `${r.hungryDays} day${r.hungryDays === 1 ? "" : "s"} hungry`, (r.kept || r.broken) && `promises kept ${r.kept}, broken ${r.broken}`].filter(Boolean);
   if (life.length) lines.push(`${life.join(", ")}.`);
   return lines;

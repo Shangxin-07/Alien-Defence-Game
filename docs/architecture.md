@@ -48,6 +48,7 @@ plain functions and tables the class calls:
 | `recruit.ts` | candidates, what they want, promises and loyalty |
 | `sightings.ts` | sighting calls, travel, cars and fuel |
 | `record.ts` | service records: what each person has done, and the roll of the dead and departed |
+| `growth.ts` | learning by doing: what fights, jobs and runs teach, attribute ceilings, scars |
 
 People's attributes and skills, and the formulas that turn them into every number about a person, are in `tactical/attributes.ts`, so the battle setups and the campaign share them. See `docs/design/attributes.md`.
 
