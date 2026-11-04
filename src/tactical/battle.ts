@@ -1,6 +1,6 @@
 import { batonGrudge } from "./adapt";
 import { Deeds, emptyDeeds } from "./deeds";
-import type { Profile } from "./attributes";
+import { Profile, batonWeight, fieldMedicine } from "./attributes";
 import { AlienMind, Personality, RACES, firstLook } from "./aliens";
 import { CoverLook, DIRS, Ground, LinePoint, Point, TacMap, Thing, adjacent, dist, facingTo, lvl, pt, samePoint, turnSteps } from "./map";
 import { mulberry32 } from "./random";
@@ -654,7 +654,7 @@ export class Battle {
     this.turnToward(u, t);
     u.tu -= tuCost(u.stats.tu, tool.tool.tuPct);
     if (this.rand() < p.chance) {
-      const amount = Math.max(1, Math.round(tool.tool.power * (0.5 + this.rand())) - Math.round(t.stats.armour / 2));
+      const amount = Math.max(1, Math.round(tool.tool.power * (0.5 + this.rand())) + (u.profile ? batonWeight(u.profile) : 0) - Math.round(t.stats.armour / 2));
       t.stun += amount;
       const out = t.stun >= t.health;
       if (u.deeds) {
@@ -700,7 +700,7 @@ export class Battle {
       u.deeds.bleedsStopped += t.wounds;
     }
     t.wounds = 0;
-    t.health = Math.min(t.stats.health, t.health + kit.tool.power);
+    t.health = Math.min(t.stats.health, t.health + kit.tool.power + (u.profile ? fieldMedicine(u.profile) : 0));
     t.stun = Math.max(0, t.stun - 10);
     if (u.deeds) u.deeds.healed += t.health - before;
     this.events.push({ kind: "say", text: `${u.name} patches up ${t === u ? "their own wounds" : t.name}: bleeding stopped${t.health > before ? `, +${t.health - before} health` : ""}.`, tone: "good" });

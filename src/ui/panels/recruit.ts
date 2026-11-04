@@ -78,7 +78,7 @@ export function recruitPanel(ui: Ui): PanelSpec {
     });
     fillTeam($("recruiterList"), campaign, { team: recruiters, duty: "recruit", max: MAX_RECRUITERS, showKit: false, changed: draw });
     const reason = campaign.checkRun("streets", [...recruiters], recruitDays);
-    sendState("sendRecruit", "recruitOdds", "Send them", reason, `${Math.round(cleanChance("streets", recruiters.size, recruitDays) * 100)}% chance of getting back without trouble`, campaign.dutyWarnings("streets", [...recruiters]));
+    sendState("sendRecruit", "recruitOdds", "Send them", reason, `${Math.round(cleanChance("streets", recruiters.size, recruitDays, campaign.watch([...recruiters])) * 100)}% chance of getting back without trouble`, campaign.dutyWarnings("streets", [...recruiters]));
   }
 
   $("sendRecruit").addEventListener("click", () => {

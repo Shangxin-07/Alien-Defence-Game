@@ -21,7 +21,7 @@ export const RATION = 1;
 export const DESERT_AFTER = 5;
 /** Chance each day that someone who has gone hungry too long leaves. */
 export const DESERT_CHANCE = 0.2;
-/** Extra health a day for someone wounded who gets a dose of medicine. */
+/** Extra health a day for someone wounded who gets a dose of medicine, looked after by someone with a little training (see `nursing`). */
 export const MEDICINE_HEAL = 2;
 /** Most people on one run: more than this and the whole street hears you. */
 export const MAX_TEAM = 4;
@@ -170,11 +170,11 @@ export const isEmpty = (p: Place) => !Object.values(p.stock).some((n) => n > 0);
 /** Small teams are quieter; big teams are noticed. */
 export const teamRisk = (size: number) => 0.55 + 0.15 * size;
 
-/** Chance something goes wrong on one day of a run. */
-export const dayRisk = (site: SiteId, size: number) => Math.min(0.9, SITES[site].danger * teamRisk(size));
+/** Chance a day that a run goes wrong. `watch` is the team's best lookout's share (see `riskShare`). */
+export const dayRisk = (site: SiteId, size: number, watch = 1) => Math.min(0.9, SITES[site].danger * teamRisk(size) * watch);
 
 /** Chance a whole run gets home without trouble. */
-export const cleanChance = (site: SiteId, size: number, days: number) => (1 - dayRisk(site, size)) ** days;
+export const cleanChance = (site: SiteId, size: number, days: number, watch = 1) => (1 - dayRisk(site, size, watch)) ** days;
 
 export interface Run {
   id: number;
@@ -213,11 +213,19 @@ export const runWhere = (run: Run) => run.where ?? `the ${SITES[run.site].name.t
 
 export const emptySupplies = (): Supplies => ({ food: 0, medicine: 0, scrap: 0, fuel: 0, ammo: 0, arms: 0 });
 
-/** One day of finds for a team of `size`, taken out of what's left at the place. */
-export function dayLoot(place: Place, size: number, rand: () => number): Supplies {
+/**
+ * One day of finds for a team, taken out of what's left at the place. `team` is how many went, or
+ * how much each of them finds next to an ordinary person (see `findShare`).
+ */
+export function dayLoot(place: Place, team: number | number[], rand: () => number): Supplies {
   const out = emptySupplies();
+  const shares = typeof team === "number" ? new Array<number>(team).fill(1) : team;
   for (const [k, [lo, hi]] of Object.entries(SITES[place.kind].yields) as [Supply, [number, number]][]) {
-    for (let i = 0; i < size; i++) out[k] += Math.floor(lo + rand() * (hi - lo + 1));
+    for (const share of shares) {
+      const n = Math.floor(lo + rand() * (hi - lo + 1)) * share;
+      // A good scrounger's extra is a chance at one more; an ordinary person rolls nothing extra.
+      out[k] += Math.floor(n) + (n % 1 > 0 && rand() < n % 1 ? 1 : 0);
+    }
     out[k] = Math.min(out[k], place.stock[k]);
     place.stock[k] -= out[k];
   }

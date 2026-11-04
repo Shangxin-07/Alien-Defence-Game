@@ -72,6 +72,9 @@ export const MET: Practice = { persuasion: 0.5, cha: 0.1 };
 export const RECRUITED: Practice = { persuasion: 1, cha: 0.2 };
 export const PLACE_FOUND: Practice = { scrounging: 1, per: 0.1 };
 export const CAR_FIXED: Practice = { engineering: 1 };
+/** A deal done on the black market, and a day looking after someone wounded with a dose of medicine. */
+export const HAGGLED: Practice = { persuasion: 0.3, cha: 0.03 };
+export const NURSED: Practice = { medicine: 0.15 };
 
 /** Whole chances, and maybe one more for what's left over. */
 const attempts = (n: number, rand: () => number) => Math.floor(n) + (rand() < n - Math.floor(n) ? 1 : 0);

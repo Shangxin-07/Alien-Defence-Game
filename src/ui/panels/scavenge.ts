@@ -1,3 +1,5 @@
+import { priceShare } from "../../tactical/attributes";
+import { profileOf } from "../../campaign/staff";
 import { SCRAP_VALUE } from "../../base/rooms";
 import { Duty, dutyOf } from "../../campaign/allocation";
 import { MARKET_LOT, MARKET_PRICE, MAX_RUN_DAYS, MAX_SEARCHERS, MAX_TEAM, Run, SEARCH_CHANCE, SITES, Traded, cleanChance, describeSupplies, runWhere } from "../../campaign/scavenge";
@@ -37,6 +39,14 @@ export function scavengePanel(ui: Ui): PanelSpec {
 
     const market = $("marketRows");
     market.replaceChildren();
+    const dealer = campaign.haggler();
+    if (dealer) {
+      const note = document.createElement("div");
+      note.className = "dim";
+      const share = Math.round(priceShare(profileOf(dealer)) * 100);
+      note.textContent = `${dealer.name} does the dealing: ${share === 100 ? "the going rate" : `${Math.abs(share - 100)}% ${share < 100 ? "under" : "over"} what others would pay`}.`;
+      market.append(note);
+    }
     for (const kind of ["food", "medicine", "fuel", "ammo"] as Traded[]) {
       const n = MARKET_LOT[kind];
       const cost = campaign.buyCost(kind, n);
@@ -104,7 +114,7 @@ export function scavengePanel(ui: Ui): PanelSpec {
     fillTeam($("teamList"), campaign, { team: runTeam, duty, max: searching ? MAX_SEARCHERS : MAX_TEAM, showKit: true, changed: draw });
     const reason = searching && runTeam.size > MAX_SEARCHERS ? `No more than ${MAX_SEARCHERS} searching at once` : campaign.checkRun(runSite, [...runTeam], runDays);
     const kind = searching ? "search" : campaign.findPlace(runSite)!.kind;
-    sendState("sendRun", "runOdds", "Send them", reason, `${Math.round(cleanChance(kind, runTeam.size, runDays) * 100)}% chance of getting back without trouble`, campaign.dutyWarnings(runSite, [...runTeam]));
+    sendState("sendRun", "runOdds", "Send them", reason, `${Math.round(cleanChance(kind, runTeam.size, runDays, campaign.watch([...runTeam])) * 100)}% chance of getting back without trouble`, campaign.dutyWarnings(runSite, [...runTeam]));
   }
 
   $("sendRun").addEventListener("click", () => {

@@ -1,3 +1,5 @@
+import { nursing } from "../src/tactical/attributes";
+import { profileOf } from "../src/campaign/staff";
 import { describe, expect, it } from "vitest";
 import { BaseLayout } from "../src/base/layout";
 import { CROP_DAYS, Campaign, DAY_MS } from "../src/campaign/campaign";
@@ -66,7 +68,8 @@ describe("medicine", () => {
     c.staff[0].health = 5;
     c.staff[1].health = 25;
     c.advanceDays(1);
-    expect(c.staff[0].health).toBe(8);
+    // Rest heals 1; the dose heals more the better the one looking after them knows medicine.
+    expect(c.staff[0].health).toBe(5 + 1 + nursing(profileOf(c.staff[1])));
     expect(c.staff[1].health).toBe(26);
     expect(c.supplies.medicine).toBe(START_SUPPLIES.medicine - 1);
   });
