@@ -1,4 +1,5 @@
 import { Deeds, emptyDeeds, fightLine } from "./deeds";
+import type { Profile } from "./attributes";
 import "./tactical.css";
 import { Color, PerspectiveCamera, Plane, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
 import { DOCTRINES, Doctrine, MAX_ROUNDS, REWIND_WINDOW, RISK_SPREAD, RoundRecord, Timeline, oddsText, playRound, simulate } from "./autoplay";
@@ -21,7 +22,7 @@ export interface CombatResult {
   recovered: string[];
   survivors: number;
   /** Who walked out, as they are now. */
-  people: { id: number; name: string; role: string; stats: Stats; health: number; gear: Gear; deeds: Deeds }[];
+  people: { id: number; name: string; role: string; profile?: Profile; stats: Stats; health: number; gear: Gear; deeds: Deeds }[];
   /** Who didn't, and what they'd done before they fell. */
   fallen: { id: number; name: string; role: string; deeds: Deeds }[];
   turns: number;
@@ -786,7 +787,7 @@ function results(o: Outcome) {
   }
   const { recovered, lost } = settled;
   const people = survivors.map((u) => ({
-    id: u.id, name: u.name, role: u.role, stats: { ...u.stats }, health: Math.max(1, u.health),
+    id: u.id, name: u.name, role: u.role, profile: u.profile, stats: { ...u.stats }, health: Math.max(1, u.health),
     gear: { weapon: u.weapon, ammo: u.ammo, clips: u.clips ?? 0, tools: u.tools.map((t) => ({ ...t })) },
     deeds: { ...(u.deeds ?? emptyDeeds()) },
   }));

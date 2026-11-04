@@ -9,7 +9,7 @@ import { TOOLS, Tool, WEAPONS, Weapon } from "../tactical/rules";
  */
 
 export type GunId = "pistol" | "shotgun" | "rifle" | "plasmaPistol" | "plasmaScatter" | "needleRifle";
-export type ArmourId = "stabVest" | "bodyArmour";
+export type ArmourId = "paddedJacket" | "stabVest" | "bodyArmour";
 export type GearId = GunId | ArmourId | "stunBaton" | "medkit";
 export type Stores = Record<GearId, number>;
 
@@ -32,14 +32,15 @@ export const GEAR: Record<GearId, GearInfo> = {
   plasmaScatter: { name: "Plasma scattergun", kind: "gun", rank: 4, weapon: WEAPONS.plasmaScatter, research: "plasmaScatter" },
   plasmaPistol: { name: "Plasma pistol", kind: "gun", rank: 5, weapon: WEAPONS.plasmaPistol, research: "plasmaPistol" },
   needleRifle: { name: "Needle rifle", kind: "gun", rank: 6, weapon: WEAPONS.needleRifle, research: "needleRifle" },
-  stabVest: { name: "Stab vest", kind: "armour", rank: 1, armour: 4 },
-  bodyArmour: { name: "Body armour", kind: "armour", rank: 2, armour: 8 },
+  paddedJacket: { name: "Padded jacket", kind: "armour", rank: 1, armour: 2 },
+  stabVest: { name: "Stab vest", kind: "armour", rank: 2, armour: 4 },
+  bodyArmour: { name: "Body armour", kind: "armour", rank: 3, armour: 8 },
   stunBaton: { name: "Stun baton", kind: "tool", rank: 1, tool: TOOLS.stunBaton },
   medkit: { name: "Medikit", kind: "tool", rank: 1, tool: TOOLS.medkit },
 };
 
 export const GUNS: GunId[] = ["pistol", "shotgun", "rifle", "plasmaScatter", "plasmaPistol", "needleRifle"];
-export const ARMOURS: ArmourId[] = ["stabVest", "bodyArmour"];
+export const ARMOURS: ArmourId[] = ["paddedJacket", "stabVest", "bodyArmour"];
 export const GEAR_ORDER: GearId[] = [...GUNS, ...ARMOURS, "stunBaton", "medkit"];
 
 /** The gear a weapon in a fight belongs to, by the weapon's id. */
@@ -128,7 +129,11 @@ export function legacyKit(role: string): Kit {
   const k = noKit();
   const gun: GunId = role === "Army reservist" ? "rifle" : role === "Security guard" ? "shotgun" : "pistol";
   Object.assign(k, { gun, loaded: fullMag(gun), clips: 1 });
-  if (role === "Police officer") k.baton = true;
+  if (role === "Police officer") {
+    k.baton = true;
+    k.armour = "stabVest";
+  }
+  if (role === "Security guard") k.armour = "paddedJacket";
   if (role === "Paramedic") k.medkit = TOOLS.medkit.uses;
   return k;
 }

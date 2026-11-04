@@ -49,6 +49,8 @@ plain functions and tables the class calls:
 | `sightings.ts` | sighting calls, travel, cars and fuel |
 | `record.ts` | service records: what each person has done, and the roll of the dead and departed |
 
+People's attributes and skills, and the formulas that turn them into every number about a person, are in `tactical/attributes.ts`, so the battle setups and the campaign share them. See `docs/design/attributes.md`.
+
 The save format is `SavedCampaign` in save.ts. New fields are optional and `restore` fills them in
 for older saves, so a player's war is never thrown away.
 

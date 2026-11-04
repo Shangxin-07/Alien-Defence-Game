@@ -6,7 +6,8 @@ import type { BaseRecord, Campaign, PrologueRecord } from "./campaign";
 import type { Candidate, Pledge } from "./recruit";
 import { Place, Run, START_SUPPLIES, Supplies, Traded, emptySupplies, startPlaces } from "./scavenge";
 import type { Call, Vehicle } from "./sightings";
-import { LIAISON, Person, ResearchState } from "./staff";
+import { LIAISON, Person, ResearchState, settle } from "./staff";
+import { buildRate, deriveStats, inferProfile, researchAptitude } from "../tactical/attributes";
 import { Departed, fillRecord } from "./record";
 
 /**
@@ -136,5 +137,13 @@ export function restore(c: Campaign, data: SavedCampaign): void {
     if (data.prologue?.recovered.includes(GEAR.plasmaPistol.name)) c.stock(["plasmaPistol"]);
     const station = startPlaces().find((p) => p.kind === "police")!;
     c.places.push({ ...station, id: c.ids.place++ });
+  }
+  // Saves from before attributes: everyone gets attributes that fit the numbers they had, and any
+  // armour that was part of them becomes something they wear.
+  for (const p of c.staff) c.wearInnate(p, settle(p));
+  for (const k of c.candidates) {
+    if (k.attributes && k.skills) continue;
+    const p = inferProfile(k.stats, k.aptitude, k.build, k.role);
+    Object.assign(k, p, { stats: deriveStats(p), aptitude: researchAptitude(p), build: buildRate(p) });
   }
 }

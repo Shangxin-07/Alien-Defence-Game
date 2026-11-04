@@ -14,7 +14,10 @@
  */
 import { Campaign } from "../src/campaign/campaign";
 import { SCRAP_VALUE, type RoomId } from "../src/base/rooms";
-import { rollBuild } from "../src/campaign/staff";
+import { BUILD_BY_ROLE } from "../src/campaign/staff";
+
+/** Construction skill as it was rolled before attributes: their old job, give or take 15%. The campaign fits attributes to it. */
+const rollBuild = (role: string, rand: () => number) => Math.round((BUILD_BY_ROLE[role] ?? 1) * (0.85 + rand() * 0.3) * 100) / 100;
 import { SITES, Place, ScavengeKind, MAX_TEAM, MAX_SEARCHERS, Supply } from "../src/campaign/scavenge";
 import { mulberry32 } from "../src/tactical/random";
 import type { Stats } from "../src/tactical/rules";

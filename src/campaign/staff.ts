@@ -1,6 +1,7 @@
 import type { Duty } from "./allocation";
 import type { Kit, Request } from "./armoury";
 import type { Stats } from "../tactical/rules";
+import { Attributes, Profile, ROLE_TEMPLATES, Skills, buildRate, deriveStats, inferProfile, noSkills, researchAptitude } from "../tactical/attributes";
 import type { ServiceRecord } from "./record";
 
 /**
@@ -21,13 +22,17 @@ export interface Person {
   id: number;
   name: string;
   role: string;
+  /** Who they are and what they've learned. Missing in saves from before attributes; see `settle`. */
+  attributes?: Attributes;
+  skills?: Skills;
+  /** Their fight numbers, worked out from attributes and skills by `settle`. Armour is always 0: it's worn. */
   stats: Stats;
   health: number;
-  /** How quickly they pick up research, 0.8–1.2. Random, not tied to their old job. */
+  /** Research points a day, worked out from Intelligence and Science. */
   aptitude: number;
   /**
-   * Person-days of construction they get done in a day, around 0.6–1.4. Missing in saves from
-   * before construction took work; see `buildSkill`.
+   * Person-days of construction they get done in a day, worked out from Strength, Endurance and
+   * Engineering. Missing in saves from before construction took work; see `buildSkill`.
    */
   build?: number;
   /** Base they live and work at, or null while there's no base yet. */
@@ -70,22 +75,49 @@ export const BUILD_BY_ROLE: Record<string, number> = {
   Liaison: 0.8,
 };
 
-/** A new recruit's construction skill: their old job, give or take 15%. */
-export const rollBuild = (role: string, rand: () => number) => Math.round((BUILD_BY_ROLE[role] ?? 1) * (0.85 + rand() * 0.3) * 100) / 100;
-
 /** Construction skill, falling back on their old job for people from older saves. */
 export const buildSkill = (p: Person) => p.build ?? BUILD_BY_ROLE[p.role] ?? 1;
 /** Labs multiply research done at their base. */
 export const LAB_BONUS = 0.5;
 
+/** Someone's attributes and skills together. Only for people `settle` has seen to. */
+export const profileOf = (p: Person): Profile => ({ attributes: p.attributes!, skills: p.skills! });
+
+/**
+ * Makes sure someone has attributes, then works out everything that comes from them: fight
+ * numbers, research and building. People from before attributes get ones that fit the numbers
+ * they had. Returns the armour they had as part of themselves, which from now on has to be worn.
+ */
+export function settle(p: Person): number {
+  const innate = p.stats.armour;
+  if (!p.attributes || !p.skills) {
+    const inferred = inferProfile(p.stats, p.aptitude, buildSkill(p), p.role);
+    p.attributes = inferred.attributes;
+    p.skills = inferred.skills;
+  }
+  // Their own copies: nobody shares a mind with whoever they were copied from.
+  p.attributes = { ...p.attributes };
+  p.skills = { ...noSkills(), ...p.skills };
+  const wasFull = p.health >= p.stats.health;
+  const profile = profileOf(p);
+  p.stats = deriveStats(profile);
+  p.aptitude = researchAptitude(profile);
+  p.build = buildRate(profile);
+  p.health = wasFull ? p.stats.health : Math.max(1, Math.min(p.health, p.stats.health));
+  return innate;
+}
+
+const LIAISON_PROFILE: Profile = { attributes: { ...ROLE_TEMPLATES.Liaison.attributes }, skills: { ...noSkills(), ...ROLE_TEMPLATES.Liaison.skills } };
+
 /** Stands in for nobody: the council sends one person if no one walked out of the city. */
 export const LIAISON: Omit<Person, "id" | "base" | "job"> = {
   name: "Council liaison",
   role: "Liaison",
-  stats: { tu: 50, health: 30, bravery: 40, reactions: 40, accuracy: 40, melee: 30, armour: 0 },
-  health: 30,
-  aptitude: 1,
-  build: 0.8,
+  ...LIAISON_PROFILE,
+  stats: deriveStats(LIAISON_PROFILE),
+  health: deriveStats(LIAISON_PROFILE).health,
+  aptitude: researchAptitude(LIAISON_PROFILE),
+  build: buildRate(LIAISON_PROFILE),
 };
 
 export interface Project {
