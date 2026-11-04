@@ -170,3 +170,42 @@ export function skillLine(s: Skills): string {
     .map((k) => `${SKILL_NAMES[k]} ${s[k]}`)
     .join(" · ");
 }
+
+// ---------- Off the field, and the hands-on bits of a fight ----------
+//
+// Each of these is pinned so the first night's people come out about where everyone was before
+// skills counted here: a liaison or a medic is better than that, an ordinary civilian a little
+// worse. The defaults never get easier; the right person for the job is how you claw it back.
+
+/** How well someone talks people round: half their Charisma plus their Persuasion. A civilian is 20, a police officer about 40, the liaison about 57. */
+export const talk = ({ attributes: a, skills: s }: Profile) => Math.round(a.cha / 2 + s.persuasion);
+/** The talk that gets the same deals as before. */
+export const TALK_PIVOT = 40;
+
+/** How many people a recruiter turns up next to before. */
+export const recruitOdds = (p: Profile) => clamp(1 + (talk(p) - TALK_PIVOT) / 100, 0.5, 1.6);
+
+/** Share of what a candidate first asks for that they settle on with this recruiter. */
+export const askShare = (p: Profile) => clamp(1 + (TALK_PIVOT - talk(p)) / 200, 0.6, 1.2);
+
+/** What the black market charges this haggler, as a share of the going rate. */
+export const priceShare = (p: Profile) => clamp(1 + (TALK_PIVOT - talk(p)) / 400, 0.85, 1.1);
+
+/** How well someone keeps a team out of trouble: half their Perception plus their Scrounging. A civilian is 20, a reservist about 34. */
+export const lookout = ({ attributes: a, skills: s }: Profile) => Math.round(a.per / 2 + s.scrounging);
+export const LOOKOUT_PIVOT = 30;
+
+/** How much trouble a run gets into with this lookout, as a share of before. */
+export const riskShare = (lookoutScore: number) => clamp(1 + (LOOKOUT_PIVOT - lookoutScore) / 200, 0.7, 1.2);
+
+/** How much someone finds next to before: a little less with no Scrounging, more with a lot. */
+export const findShare = ({ skills: s }: Profile) => 1 + (s.scrounging - 10) / 200;
+
+/** Health a dose of medicine adds at home with this person looking after the wounded (before, always 2). */
+export const nursing = ({ skills: s }: Profile) => Math.max(1, 2 + Math.round((s.medicine - 20) / 20));
+
+/** Health one medikit use adds in this person's hands, on top of or off the kit's own (a medic about +3, nobody trained −2). */
+export const fieldMedicine = ({ skills: s }: Profile) => Math.round((s.medicine - 20) / 8);
+
+/** Extra stun a baton blow does with this much muscle behind it: none for a police officer, less for anyone weaker. */
+export const batonWeight = ({ attributes: a }: Profile) => Math.round((a.str - 60) / 3);

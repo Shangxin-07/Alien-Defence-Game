@@ -9,7 +9,7 @@ fitted so the old numbers come out of the new ones.
 - **Attributes**, 1–100: Strength, Dexterity, Endurance, Perception, Intelligence, Willpower,
   Charisma. An ordinary adult is about 40.
 - **Skills**, 0–100: Firearms, Close combat, Medicine, Persuasion, Engineering, Science, Scrounging.
-  Medicine, Persuasion and Scrounging don't drive anything yet (step 4).
+  What Medicine, Persuasion, Scrounging, Charisma and Perception do off the field: `docs/design/talkers.md`.
 
 `Person.attributes`/`skills` are the truth. `Person.stats`, `aptitude` and `build` are worked out
 from them by `settle` (campaign/staff.ts) whenever someone joins or a save loads.

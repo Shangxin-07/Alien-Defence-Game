@@ -27,7 +27,8 @@ import type { Outcome, Tally } from "../tactical/battle";
 import { hashText } from "../tactical/random";
 import { SavedCampaign, restore, toSave } from "./save";
 import { Departed, ServiceRecord, newRecord } from "./record";
-import { CAR_FIXED, Change, DAY_PRACTICE, MET, PLACE_FOUND, Practice, RECRUITED, RUN_DAY, describeChanges, fightPractice, grow, growthDice, rollCeiling, scars } from "./growth";
+import { askShare, findShare, lookout, nursing, priceShare, recruitOdds, riskShare, talk } from "../tactical/attributes";
+import { CAR_FIXED, Change, DAY_PRACTICE, HAGGLED, MET, NURSED, PLACE_FOUND, Practice, RECRUITED, RUN_DAY, describeChanges, fightPractice, grow, growthDice, rollCeiling, scars } from "./growth";
 import { Deeds, addDeeds } from "../tactical/deeds";
 
 export const DAY_MS = 86_400_000;
@@ -376,8 +377,15 @@ export class Campaign {
         this.rec(p).met++;
         this.improve(p, MET, `met:${c.id}`);
       };
-      if (this.rand() < CANDIDATE_CHANCE) met(rollCandidate(this.ids.candidate++, base, this.today, this.rand));
-      if (this.rand() < DRIFTER_CHANCE) met(rollDrifter(this.ids.candidate++, base, this.today, this.rand));
+      // A good talker turns up more people, and talks them down from what they first ask.
+      const p = this.person(by);
+      const odds = p?.attributes ? recruitOdds(profileOf(p)) : 1;
+      if (this.rand() < Math.min(0.9, CANDIDATE_CHANCE * odds)) {
+        const c = rollCandidate(this.ids.candidate++, base, this.today, this.rand);
+        if (p?.attributes && (c.wants === "food" || c.wants === "medicine")) c.amount = Math.max(1, Math.round(c.amount * askShare(profileOf(p))));
+        met(c);
+      }
+      if (this.rand() < Math.min(0.9, DRIFTER_CHANCE * odds)) met(rollDrifter(this.ids.candidate++, base, this.today, this.rand));
     }
   }
 
@@ -502,7 +510,15 @@ export class Campaign {
 
   /** What the next lot of `n` costs on the black market. */
   buyCost(kind: Traded, n: number): number {
-    return marketCost(kind, n, this.market[kind]);
+    const by = this.haggler();
+    return Math.round((marketCost(kind, n, this.market[kind]) * (by ? priceShare(profileOf(by)) : 1)) / 1000) * 1000;
+  }
+
+  /** Whoever at home is best at talking a price down: they do the dealing. */
+  haggler(): Person | null {
+    let best: Person | null = null;
+    for (const p of this.staff) if (!p.away && p.attributes && (!best || talk(profileOf(p)) > talk(profileOf(best)))) best = p;
+    return best;
   }
 
   checkBuy(kind: Traded, n: number): string | null {
@@ -514,6 +530,8 @@ export class Campaign {
     if (reason) throw new Error(reason);
     this.funds -= this.buyCost(kind, n);
     this.supplies[kind] += n;
+    const by = this.haggler();
+    if (by) this.improve(by, HAGGLED, `haggle:${kind}:${this.market[kind].toFixed(4)}`);
     this.market[kind] *= MARKET_RISE ** n;
   }
 
@@ -822,6 +840,21 @@ export class Campaign {
     this.news.push("With nobody left, the council sends a liaison");
   }
 
+  /** How much trouble a team gets into next to an ordinary one, from its best lookout. */
+  watch(team: number[]): number {
+    let best = -1;
+    for (const id of team) {
+      const p = this.person(id);
+      if (p?.attributes) best = Math.max(best, lookout(profileOf(p)));
+    }
+    return best < 0 ? 1 : riskShare(best);
+  }
+
+  private findShareOf(id: number): number {
+    const p = this.person(id);
+    return p?.attributes ? findShare(profileOf(p)) : 1;
+  }
+
   /** One day of a run: finds, or trouble. */
   private runDay(run: Run) {
     // Answering a call runs by the hour, not the day; see `travel`.
@@ -833,7 +866,7 @@ export class Campaign {
       this.rec(p).daysOut++;
       if (!run.recruit && !run.repair) this.improve(p, RUN_DAY, `run:${run.id}`);
     }
-    if (this.rand() < dayRisk(run.site, size)) {
+    if (this.rand() < dayRisk(run.site, size, this.watch(run.team))) {
       if (this.rand() < 0.5) {
         // Someone gets hurt: a fall, a fight with other scavengers, a collapse. They come home now.
         const p = this.person(run.team[Math.floor(this.rand() * size)])!;
@@ -864,7 +897,7 @@ export class Campaign {
     // Runs saved before places had stock just went to a kind of place.
     const place = run.place ? this.places.find((p) => p.id === run.place) : this.findPlace(run.site);
     if (place) {
-      const loot = dayLoot(place, size, this.rand);
+      const loot = dayLoot(place, run.team.map((id) => this.findShareOf(id)), this.rand);
       addSupplies(run.loot, loot);
       // Everyone on the team gets an even share of the credit.
       const total = Object.values(loot).reduce((n, v) => n + v, 0);
@@ -1028,13 +1061,16 @@ export class Campaign {
       if (job === "construction" && p.base !== null) this.improve(p, scale(DAY_PRACTICE.construction, workPace(p)), "construction");
     }
     this.eat();
+    // Whoever at home knows most about medicine looks after the wounded.
+    const nurse = this.staff.filter((p) => !p.away && fitToWork(p) && p.skills).sort((a, b) => b.skills!.medicine - a.skills!.medicine)[0];
     for (const p of this.staff) {
       if (p.hunger) continue;
       let heal = 1;
       // Medicine goes to whoever is too hurt to work, while it lasts.
       if (!fitToWork(p) && !p.away && this.supplies.medicine > 0) {
         this.supplies.medicine--;
-        heal += MEDICINE_HEAL;
+        heal += nurse ? nursing(profileOf(nurse)) : MEDICINE_HEAL - 1;
+        if (nurse) this.improve(nurse, NURSED, `nursed:${p.id}`);
       }
       p.health = Math.min(p.stats.health, p.health + heal);
     }
