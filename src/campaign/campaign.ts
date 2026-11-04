@@ -26,6 +26,8 @@ import type { RaceId } from "../tactical/aliens";
 import type { Outcome, Tally } from "../tactical/battle";
 import { hashText } from "../tactical/random";
 import { SavedCampaign, restore, toSave } from "./save";
+import { Departed, ServiceRecord, newRecord } from "./record";
+import { Deeds, addDeeds } from "../tactical/deeds";
 
 export const DAY_MS = 86_400_000;
 /** Nobody is paying you yet: the opening is built by hand. */
@@ -95,6 +97,8 @@ export interface AmbushResult {
   tally?: Tally;
   /** Whether the one giving the orders went down: a race learns less from a fight it lost its commander in. */
   commanderDown?: boolean;
+  /** What each of the team did in the fight, the dead included, for their service records. */
+  deeds?: { id: number; deeds: Deeds }[];
 }
 
 /** What a run brings home from a fight that went each way, beyond its finds. */
@@ -140,6 +144,8 @@ export class Campaign {
   readonly pledges: Pledge[] = [];
   /** Aliens killed or caught since the prologue. */
   kills = 0;
+  /** Everyone who has died for you or walked away, with their records. Newest last. */
+  readonly gone: Departed[] = [];
   /** Fights fought against each race. Experience is how your people learn to read them. */
   encounters: Partial<Record<RaceId, number>> = {};
   /** What each race has learned about how you fight. */
@@ -287,7 +293,10 @@ export class Campaign {
       id: this.ids.person++, name: c.name, role: c.role, stats: { ...c.stats }, health: c.stats.health, aptitude: c.aptitude, build: c.build,
       base, job: "construction", loyalty: c.wants === "none" ? DRIFTER_LOYALTY : RECRUIT_LOYALTY,
       kit: c.kit ? { ...c.kit } : arrivalKit(c.role, this.rand),
+      record: newRecord(this.day, c.wants === "none" ? "Drifted in off the streets" : `Talked into joining (${c.role.toLowerCase()})`),
     };
+    const recruiter = c.by === undefined ? undefined : this.person(c.by);
+    if (recruiter) this.rec(recruiter).recruited++;
     if (c.wants === "food") this.supplies.food -= c.amount;
     if (c.wants === "family") p.dependants = c.amount;
     if (c.wants === "medicine") this.pledges.push({ person: p.id, wants: "medicine", amount: c.amount, due: this.day + MEDICINE_DAYS });
@@ -320,9 +329,11 @@ export class Campaign {
       else if (pl.wants === "bed") kept = this.bases.some((b) => b.layout.stats().capacity.crew > 0);
       if (kept) {
         p.loyalty = Math.min(100, (p.loyalty ?? 100) + KEPT_BONUS);
+        this.rec(p).kept++;
         this.news.push(`Promise kept to ${p.name}`);
       } else if (day > pl.due) {
         p.loyalty = Math.max(0, (p.loyalty ?? 100) - BROKEN_PENALTY);
+        this.rec(p).broken++;
         this.news.push(`Promise broken: ${p.name} was told ${pl.wants === "medicine" ? "there'd be medicine" : pl.wants === "bed" ? "there'd be a bed" : "they'd get their revenge"}`);
       } else continue;
       this.pledges.splice(this.pledges.indexOf(pl), 1);
@@ -341,6 +352,7 @@ export class Campaign {
         if (food) took = `, taking ${food} food`;
       }
       this.news.push(`${p.name} walked out${p.dependants ? " with their family" : ""}${took}`);
+      this.depart(p, false, took ? "Walked out, taking food" : "Walked out");
     }
   }
 
@@ -348,8 +360,15 @@ export class Campaign {
   private recruitDay(run: Run) {
     const base = this.person(run.team[0])?.base ?? this.bases[0].id;
     for (let i = 0; i < run.team.length; i++) {
-      if (this.rand() < CANDIDATE_CHANCE) this.candidates.push(rollCandidate(this.ids.candidate++, base, this.today, this.rand));
-      if (this.rand() < DRIFTER_CHANCE) this.candidates.push(rollDrifter(this.ids.candidate++, base, this.today, this.rand));
+      const by = run.team[i];
+      const met = (c: Candidate) => {
+        c.by = by;
+        this.candidates.push(c);
+        const p = this.person(by);
+        if (p) this.rec(p).met++;
+      };
+      if (this.rand() < CANDIDATE_CHANCE) met(rollCandidate(this.ids.candidate++, base, this.today, this.rand));
+      if (this.rand() < DRIFTER_CHANCE) met(rollDrifter(this.ids.candidate++, base, this.today, this.rand));
     }
   }
 
@@ -360,6 +379,8 @@ export class Campaign {
       const place = rollPlace(this.ids.place++, this.rand);
       this.places.push(place);
       run.found = (run.found ?? 0) + 1;
+      const p = this.person(run.team[i]);
+      if (p) this.rec(p).placesFound++;
     }
   }
 
@@ -401,6 +422,7 @@ export class Campaign {
     this.calls.splice(this.calls.indexOf(call), 1);
     const run = this.startRun("sighting", team, 1);
     run.call = call;
+    for (const id of team) this.rec(this.person(id)!).calls++;
     run.where = call.place;
     run.by = by;
     run.arrive = this.time + travelHours(call.km, by) * HOUR_MS;
@@ -594,7 +616,19 @@ export class Campaign {
     const alive = new Map(result.people.map((p) => [p.id, p]));
     const dead = run.team.filter((id) => !alive.has(id)).map((id) => this.person(id)!);
     const won = result.outcome === "captured" || result.outcome === "killed";
+    const deeds = new Map((result.deeds ?? []).map((d) => [d.id, d.deeds]));
+    for (const id of run.team) {
+      const p = this.person(id);
+      if (!p) continue;
+      const r = this.rec(p);
+      r.fights++;
+      if (won) r.won++;
+      if (result.outcome === "fled") r.fled++;
+      const d = deeds.get(id);
+      if (d) addDeeds(r.deeds, d);
+    }
     for (const p of dead) {
+      this.depart(p, true, `Killed ${run.call ? run.call.place : `on a run to ${runWhere(run)}`}`);
       this.staff.splice(this.staff.indexOf(p), 1);
       // Hold the ground and you can bring their kit home. What was in their gun is gone.
       const k = p.kit;
@@ -654,6 +688,7 @@ export class Campaign {
     if (!run) throw new Error("No fight to run from");
     for (const id of run.team) {
       const p = this.person(id)!;
+      this.rec(p).ranFrom++;
       if (this.rand() < 0.4) p.health = Math.max(1, p.health - Math.ceil(p.stats.health * (0.2 + this.rand() * 0.2)));
     }
     this.endRun(run, 0);
@@ -661,6 +696,16 @@ export class Campaign {
 
   private person(id: number): Person | undefined {
     return this.staff.find((p) => p.id === id);
+  }
+
+  /** Someone's service record, started now for anyone who somehow has none. */
+  rec(p: Person): ServiceRecord {
+    return (p.record ??= newRecord(this.day, "With you before records were kept"));
+  }
+
+  /** Writes someone into the roll of those who've gone. Call before taking them off the staff. */
+  private depart(p: Person, died: boolean, how: string) {
+    this.gone.push({ id: p.id, name: p.name, role: p.role, day: this.day, died, how, record: this.rec(p) });
   }
 
   /** Brings a run home with a share of what it found. */
@@ -674,7 +719,11 @@ export class Campaign {
     this.supplies.arms = 0;
     for (const id of run.team) {
       const p = this.person(id);
-      if (p) delete p.away;
+      if (!p) continue;
+      delete p.away;
+      const r = this.rec(p);
+      r.runs++;
+      if (run.repair) r.carsFixed++;
     }
     const car = this.vehicles.find((v) => v.id === run.vehicle);
     if (car) delete car.away;
@@ -706,7 +755,7 @@ export class Campaign {
   /** If everyone is gone, the council sends someone: losing people is never the end. */
   private backfill() {
     if (this.staff.length) return;
-    this.staff.push({ ...LIAISON, stats: { ...LIAISON.stats }, id: this.ids.person++, base: this.bases[0]?.id ?? null, job: "construction", kit: legacyKit(LIAISON.role) });
+    this.staff.push({ ...LIAISON, stats: { ...LIAISON.stats }, id: this.ids.person++, base: this.bases[0]?.id ?? null, job: "construction", kit: legacyKit(LIAISON.role), record: newRecord(this.day, "Sent by the council") });
     this.quartermaster();
     this.news.push("With nobody left, the council sends a liaison");
   }
@@ -716,11 +765,16 @@ export class Campaign {
     // Answering a call runs by the hour, not the day; see `travel`.
     if (run.call) return;
     const size = run.team.length;
+    for (const id of run.team) {
+      const p = this.person(id);
+      if (p) this.rec(p).daysOut++;
+    }
     if (this.rand() < dayRisk(run.site, size)) {
       if (this.rand() < 0.5) {
         // Someone gets hurt: a fall, a fight with other scavengers, a collapse. They come home now.
         const p = this.person(run.team[Math.floor(this.rand() * size)])!;
         p.health = Math.max(1, p.health - Math.ceil(p.stats.health * (0.25 + this.rand() * 0.25)));
+        this.rec(p).injuries++;
         this.news.push(`${p.name} was hurt at ${runWhere(run)}`);
         this.endRun(run);
       } else {
@@ -745,7 +799,16 @@ export class Campaign {
     }
     // Runs saved before places had stock just went to a kind of place.
     const place = run.place ? this.places.find((p) => p.id === run.place) : this.findPlace(run.site);
-    if (place) addSupplies(run.loot, dayLoot(place, size, this.rand));
+    if (place) {
+      const loot = dayLoot(place, size, this.rand);
+      addSupplies(run.loot, loot);
+      // Everyone on the team gets an even share of the credit.
+      const total = Object.values(loot).reduce((n, v) => n + v, 0);
+      for (const id of run.team) {
+        const p = this.person(id);
+        if (p) this.rec(p).found += total / size;
+      }
+    }
     if (!place || isEmpty(place)) {
       if (place) {
         this.places.splice(this.places.indexOf(place), 1);
@@ -779,8 +842,10 @@ export class Campaign {
     this.supplies.food = food;
     const hungry = this.staff.filter((p) => p.hunger);
     if (hungry.length) this.news.push(`${hungry.length} went hungry today`);
+    for (const p of hungry) this.rec(p).hungryDays++;
     for (const p of hungry) {
       if (this.staff.length <= 1 || p.away || (p.hunger ?? 0) < DESERT_AFTER || this.rand() >= DESERT_CHANCE) continue;
+      this.depart(p, false, "Left to find food elsewhere");
       this.staff.splice(this.staff.indexOf(p), 1);
       this.news.push(`${p.name} left to find food elsewhere`);
     }
@@ -790,13 +855,32 @@ export class Campaign {
    * Takes on the people who walked out of the prologue, once. If nobody did, the council
    * sends a liaison, so there is always someone to do the work.
    */
-  enlist(people: Omit<Person, "id" | "base" | "job">[]): void {
+  enlist(people: (Omit<Person, "id" | "base" | "job"> & { deeds?: Deeds })[], fallen: { name: string; role: string; deeds: Deeds }[] = []): void {
     if (this.staff.length) return;
     const base = this.bases[0]?.id ?? null;
+    const city = this.prologue?.city;
+    const firstNight = (deeds: Deeds | undefined): ServiceRecord => {
+      const r = newRecord(this.day, city ? `Walked out of ${city} on the first night` : "There on the first night");
+      if (deeds) {
+        r.fights = 1;
+        if (prologueWon(this.prologue)) r.won = 1;
+        if (this.prologue?.outcome === "fled") r.fled = 1;
+        addDeeds(r.deeds, deeds);
+      }
+      return r;
+    };
     // One keeps the notes, everyone else digs. The first job is getting underground.
     (people.length ? people : [LIAISON]).forEach((p, i) => {
-      this.staff.push({ ...p, stats: { ...p.stats }, id: this.ids.person++, base, job: i === 0 ? "research" : "construction", kit: p.kit ? { ...p.kit } : legacyKit(p.role) });
+      const { deeds, ...person } = p as typeof p & { deeds?: Deeds };
+      const record = people.length ? firstNight(deeds) : newRecord(this.day, "Sent by the council");
+      this.staff.push({ ...person, stats: { ...p.stats }, id: this.ids.person++, base, job: i === 0 ? "research" : "construction", kit: p.kit ? { ...p.kit } : legacyKit(p.role), record });
     });
+    // The ones who didn't make it out are remembered too.
+    for (const f of fallen) {
+      const record = firstNight(f.deeds);
+      record.how = city ? `There in ${city} on the first night` : "There on the first night";
+      this.gone.push({ id: 0, name: f.name, role: f.role, day: this.day, died: true, how: city ? `Killed in ${city} on the first night` : "Killed on the first night", record });
+    }
     // The Hunter's gun, if it came home.
     if (this.prologue?.recovered.includes(GEAR.plasmaPistol.name)) this.stock(["plasmaPistol"]);
     this.quartermaster();
@@ -843,15 +927,18 @@ export class Campaign {
   /** Research points a day from everyone on it, labs and research bases making it go faster. */
   researchRate(): number {
     let rate = 0;
-    for (const p of this.staff) {
-      if (p.job !== "research" || p.base === null || p.away || !fitToWork(p)) continue;
-      const base = this.bases.find((b) => b.id === p.base);
-      if (!base) continue;
-      const lab = base.layout.stats().capacity.science > 0 ? LAB_BONUS : 0;
-      const sp = base.layout.specialism();
-      rate += p.aptitude * workPace(p) * (1 + lab + (sp.role === "research" ? sp.bonus / 100 : 0));
-    }
+    for (const p of this.staff) rate += this.researchBy(p);
     return rate;
+  }
+
+  /** Research points a day from one person: nothing unless they're on it, at a base, and fit. */
+  researchBy(p: Person): number {
+    if (p.job !== "research" || p.base === null || p.away || !fitToWork(p)) return 0;
+    const base = this.bases.find((b) => b.id === p.base);
+    if (!base) return 0;
+    const lab = base.layout.stats().capacity.science > 0 ? LAB_BONUS : 0;
+    const sp = base.layout.specialism();
+    return p.aptitude * workPace(p) * (1 + lab + (sp.role === "research" ? sp.bonus / 100 : 0));
   }
 
   /** Days until the active project is done at today's rate, or null if it isn't moving. */
@@ -865,6 +952,13 @@ export class Campaign {
   /** One day of everyone's work: healing, research and the building sites. `day` is the day it ends on. */
   private workDay(day: number): Completion[] {
     this.today = day;
+    // What everyone at home spends the day on, before anything changes it.
+    for (const p of this.staff) {
+      if (p.away) continue;
+      const r = this.rec(p);
+      const job: Job = fitToWork(p) ? p.job : "rest";
+      r.days[job] = (r.days[job] ?? 0) + 1;
+    }
     this.eat();
     for (const p of this.staff) {
       if (p.hunger) continue;
@@ -890,6 +984,10 @@ export class Campaign {
     const id = this.research.active;
     const armed = id ? GUNS.filter((g) => GEAR[g].research === id) : [];
     if (id) {
+      for (const p of this.staff) {
+        const by = this.researchBy(p);
+        if (by) this.rec(p).research += by;
+      }
       const done = (this.research.progress[id] ?? 0) + this.researchRate();
       this.research.progress[id] = done;
       if (done >= project(id).points) {

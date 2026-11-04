@@ -7,6 +7,7 @@ import type { Candidate, Pledge } from "./recruit";
 import { Place, Run, START_SUPPLIES, Supplies, Traded, emptySupplies, startPlaces } from "./scavenge";
 import type { Call, Vehicle } from "./sightings";
 import { LIAISON, Person, ResearchState } from "./staff";
+import { Departed, fillRecord } from "./record";
 
 /**
  * The campaign as it's kept in the browser. Saves from older versions of the game must still load,
@@ -44,6 +45,8 @@ export interface SavedCampaign {
   staff?: Person[];
   research?: ResearchState;
   nextPerson?: number;
+  /** Missing in saves from before service records were kept. */
+  gone?: Departed[];
   time: number;
   funds: number;
   nextId: number;
@@ -80,6 +83,7 @@ export function toSave(c: Campaign): SavedCampaign {
     crops: c.crops,
     armoury: c.armoury,
     looseClips: c.looseClips,
+    gone: c.gone,
     bases: c.bases.map((b) => ({ ...b, layout: b.layout.save() })),
   };
 }
@@ -121,6 +125,9 @@ export function restore(c: Campaign, data: SavedCampaign): void {
   }
   for (const b of data.bases) c.bases.push({ ...b, layout: BaseLayout.load(b.layout) });
   for (const p of c.staff) if (p.base === null && c.bases[0]) p.base = c.bases[0].id;
+  // Saves from before records: everyone starts a clean one, as if they'd been there from day one.
+  for (const p of c.staff) p.record = fillRecord(p.record, 0, "With you before records were kept");
+  if (data.gone) c.gone.push(...data.gone.map((g) => ({ ...g, record: fillRecord(g.record, g.day, g.how) })));
   c.armoury = { ...emptyStores(), ...data.armoury };
   c.looseClips = data.looseClips ?? 0;
   if (!data.armoury) {

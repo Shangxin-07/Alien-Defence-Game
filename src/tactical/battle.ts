@@ -1,4 +1,5 @@
 import { batonGrudge } from "./adapt";
+import { Deeds, emptyDeeds } from "./deeds";
 import { AlienMind, Personality, RACES, firstLook } from "./aliens";
 import { CoverLook, DIRS, Ground, LinePoint, Point, TacMap, Thing, adjacent, dist, facingTo, lvl, pt, samePoint, turnSteps } from "./map";
 import { mulberry32 } from "./random";
@@ -59,6 +60,8 @@ export interface Unit {
   revealed: boolean;
   /** An alien's race, rank and personality. Aliens without one think like the first night's Hunter. */
   mind?: AlienMind;
+  /** What one of your people has done in this fight. Only counted, never read by the rules. */
+  deeds?: Deeds;
 }
 
 /** How well the aliens are working together: under their leader, under a stand-in, or each for itself. */
@@ -141,6 +144,7 @@ export interface BattleSnapshot {
 export function cloneUnit(u: Unit): Unit {
   const c: Unit = { ...u, stats: { ...u.stats }, tools: u.tools.map((t) => ({ ...t })) };
   if (u.mind) c.mind = { ...u.mind, nature: { ...u.mind.nature }, mind: { ...u.mind.mind } };
+  if (u.deeds) c.deeds = { ...u.deeds };
   return c;
 }
 
@@ -241,6 +245,9 @@ export class Battle {
     // The bravest leads, when there's anyone to lead.
     const people = this.humans;
     this.humanLeader = people.length > 1 ? people.reduce((p, q) => (q.stats.bravery > p.stats.bravery ? q : p)).id : null;
+    for (const h of people) h.deeds ??= emptyDeeds();
+    const leader = this.humanLeader === null ? null : this.unit(this.humanLeader);
+    if (leader?.deeds && !leader.deeds.led) leader.deeds.led = 1;
     this.updateVision();
   }
 
@@ -484,7 +491,8 @@ export class Battle {
   }
 
   /** Spot events for aliens that just came into view, and what your people make of them. */
-  private announce(fresh: Unit[]) {
+  private announce(fresh: Unit[], spotter?: Unit) {
+    if (spotter?.deeds) spotter.deeds.spotted += fresh.length;
     for (const a of fresh) {
       this.events.push({ kind: "spot", unit: a.id });
       if (!this.tally.contact) this.tally.contact = this.turn;
@@ -534,7 +542,7 @@ export class Battle {
     this.events.push({ kind: "face", unit: u.id, facing: f });
     const fresh = this.updateVision();
     if (fresh.length) {
-      this.announce(fresh);
+      this.announce(fresh, u);
       this.events.push({ kind: "say", text: `${u.name}: "There it is!"`, tone: "bad" });
     }
     return this.flush();
@@ -639,12 +647,17 @@ export class Battle {
     if (p.reason) return this.flush();
     const tool = u.tools.find((x) => x.tool.kind === "stun")!;
     if (u.side === "human") this.tally.stunTries++;
+    if (u.deeds) u.deeds.swings++;
     this.turnToward(u, t);
     u.tu -= tuCost(u.stats.tu, tool.tool.tuPct);
     if (this.rand() < p.chance) {
       const amount = Math.max(1, Math.round(tool.tool.power * (0.5 + this.rand())) - Math.round(t.stats.armour / 2));
       t.stun += amount;
       const out = t.stun >= t.health;
+      if (u.deeds) {
+        u.deeds.stunHits++;
+        if (out && t.side !== u.side) u.deeds.takedowns++;
+      }
       this.events.push({ kind: "damage", unit: t.id, amount, stun: true, dead: false, out });
       this.events.push({ kind: "say", text: out ? `${u.name} drops it. It's down and breathing.` : `${u.name} lands the baton: ${amount} stun.`, tone: "good" });
     } else {
@@ -679,9 +692,14 @@ export class Battle {
     u.tu -= tuCost(u.stats.tu, kit.tool.tuPct);
     kit.uses--;
     const before = t.health;
+    if (u.deeds) {
+      u.deeds.heals++;
+      u.deeds.bleedsStopped += t.wounds;
+    }
     t.wounds = 0;
     t.health = Math.min(t.stats.health, t.health + kit.tool.power);
     t.stun = Math.max(0, t.stun - 10);
+    if (u.deeds) u.deeds.healed += t.health - before;
     this.events.push({ kind: "say", text: `${u.name} patches up ${t === u ? "their own wounds" : t.name}: bleeding stopped${t.health > before ? `, +${t.health - before} health` : ""}.`, tone: "good" });
     return this.flush();
   }
@@ -695,6 +713,13 @@ export class Battle {
     if (up.length) {
       this.tally.humanTurns++;
       this.tally.idleTu += up.reduce((n, u) => n + u.tu / u.stats.tu, 0) / up.length;
+    }
+    for (const u of up) {
+      if (!u.deeds) continue;
+      u.deeds.turns++;
+      // A frozen turn took its time units back off `tuHad` when they froze.
+      u.deeds.tuHad += u.stats.tu;
+      u.deeds.tuLeft += u.tu;
     }
     for (const u of this.humans) u.revealed = false;
     this.events.push({ kind: "turn", side: "alien", number: this.turn });
@@ -735,6 +760,7 @@ export class Battle {
     if (u.tu < cost || u.kneeling === kneeling) return;
     u.tu -= cost;
     u.kneeling = kneeling;
+    if (kneeling && u.deeds) u.deeds.kneels++;
     this.events.push({ kind: "kneel", unit: u.id, kneeling });
   }
 
@@ -756,18 +782,23 @@ export class Battle {
       if (this.map.thing[i] === "door") {
         this.map.thing[i] = "open";
         this.sightKey = "";
+        if (u.deeds) u.deeds.doors++;
         this.events.push({ kind: "door", at: pt(step) });
       }
       u.tu -= cost;
       // Up or down the stairs, it keeps facing the way it was.
       if (step.x !== u.x || step.y !== u.y) u.facing = facingTo(u, step);
+      if (u.deeds) {
+        if (step.x !== u.x || step.y !== u.y) u.deeds.tiles++;
+        if (lvl(step) !== lvl(u)) u.deeds.storeys++;
+      }
       u.x = step.x;
       u.y = step.y;
       u.z = lvl(step);
       const fresh = this.updateVision();
       this.events.push({ kind: "move", unit: u.id, to: pt(u), facing: u.facing, seen: u.side === "human" || this.isSeen(u) });
       if (u.side === "human" && fresh.length) {
-        this.announce(fresh);
+        this.announce(fresh, u);
         this.events.push({ kind: "say", text: `${u.name}: "Contact!"`, tone: "bad" });
         this.react(u);
         return false;
@@ -795,7 +826,10 @@ export class Battle {
       if (this.reactionsOf(e) * this.reflex(e, mover) * (e.tu / e.stats.tu) <= moverScore) continue;
       this.events.push({ kind: "say", text: e.side === "alien" ? "It fires as you move!" : `${e.name} fires on reflex!`, tone: e.side === "alien" ? "bad" : "good" });
       if (e.side === "human") this.tally.reflexShots++;
+      const hitsBefore = e.deeds?.hits ?? 0;
+      if (e.deeds) e.deeds.reflexShots++;
       this.fire(e, pt(mover), "snap");
+      if (e.deeds) e.deeds.reflexHits += e.deeds.hits - hitsBefore;
       if (e.side === "human") this.smell(mover, e);
       this.check();
       if (!conscious(mover)) return;
@@ -821,6 +855,7 @@ export class Battle {
     this.turnToward(u, target);
     u.tu -= tuCost(u.stats.tu, m.tuPct);
     u.revealed = true;
+    if (u.deeds) u.deeds[mode === "snap" ? "snapShots" : mode === "aimed" ? "aimedShots" : "autoShots"]++;
     const aimedAt = this.unitAt(target);
     const hot = usesHeat(u);
     for (let s = 0; s < m.shots && canFire(u); s++) {
@@ -828,6 +863,7 @@ export class Battle {
         u.heat = (u.heat ?? 0) + w.heat!.shot;
         if (u.heat >= HEAT_MAX) u.overheated = true;
       } else u.ammo--;
+      if (u.deeds) u.deeds.rounds++;
       const chance = baseHitChance(this.accuracyOf(u) * this.drill(u, target), m, w, dist(u, target), u.kneeling, u.wounds * 4);
       const onTarget = this.rand() < chance;
       let end: Point = target;
@@ -881,6 +917,13 @@ export class Battle {
       }
       const seen = u.side === "human" || this.spotted(u);
       this.events.push({ kind: "shot", unit: u.id, from: pt(u), to: { x: impact.x, y: impact.y, z: impact.z }, hit: hit?.id ?? null, plasma: !!w.alien, seen });
+      if (hit && u.deeds) {
+        if (hit.side === u.side) u.deeds.friendlyHits++;
+        else {
+          u.deeds.hits++;
+          u.deeds.longest = Math.max(u.deeds.longest, Math.round(dist(u, hit)));
+        }
+      }
       if (hit) this.damage(hit, w.power, u);
       else if (struck) this.wreck(u, impact);
       if (this.outcome) return;
@@ -903,6 +946,7 @@ export class Battle {
     const seen = by.side === "human" || !!this.visible[i];
     this.events.push({ kind: "wreck", at: { x: at.x, y: at.y, z }, amount: r.amount, broke: !!r.broke, thing: m.thing[i], look: m.look[i], ground: m.ground[i], seen, was: r.was.name, tough: r.was.tough });
     if (!r.broke) return;
+    if (by.deeds) by.deeds.wrecked++;
     // A gap where a wall was: what everyone can see has changed.
     this.sightKey = "";
     if (seen) {
@@ -916,9 +960,20 @@ export class Battle {
 
   private damage(t: Unit, power: number, by: Unit) {
     const amount = rollDamage(power, t.stats.armour, this.rand);
+    const hpBefore = t.health;
     t.health = Math.max(0, t.health - amount);
-    if (amount >= 10) t.wounds += amount >= 25 ? 2 : 1;
+    const opened = amount >= 10 ? (amount >= 25 ? 2 : 1) : 0;
+    t.wounds += opened;
     const dead = t.health <= 0;
+    if (t.deeds) {
+      t.deeds.timesHit++;
+      t.deeds.damageTaken += hpBefore - t.health;
+      t.deeds.wounds += opened;
+    }
+    if (by.deeds && by.side !== t.side) {
+      by.deeds.damageDealt += hpBefore - t.health;
+      if (dead && hpBefore > 0) by.deeds.kills++;
+    }
     this.events.push({ kind: "damage", unit: t.id, amount, stun: false, dead, out: !dead && t.stun >= t.health });
     if (t.side === "human") {
       if (amount) t.morale = Math.max(0, t.morale - 10);
@@ -927,7 +982,7 @@ export class Battle {
         text: dead ? `${t.name} is killed.` : amount ? `${t.name} is hit for ${amount}${t.wounds ? ", bleeding" : ""}.` : `${t.name} is grazed. Armour held.`,
         tone: "bad",
       });
-      if (dead) for (const h of this.humans) if (alive(h) && h !== t) h.morale = Math.max(0, h.morale - moraleLoss(h.stats.bravery));
+      if (dead) for (const h of this.humans) if (alive(h) && h !== t) this.loseFriend(h);
       if (by.side === "human" && t !== by) this.events.push({ kind: "say", text: `Friendly fire from ${by.name}.`, tone: "bad" });
       if (by.side === "alien" && amount) this.focus.add(t.id);
     } else {
@@ -936,6 +991,12 @@ export class Battle {
       if (!dead && by.side === "human") this.smell(t, by);
     }
     if (dead) t.kneeling = false;
+  }
+
+  /** One of your people sees a friend die. */
+  private loseFriend(h: Unit) {
+    h.morale = Math.max(0, h.morale - moraleLoss(h.stats.bravery));
+    if (h.deeds) h.deeds.friendsLost++;
   }
 
   /** Bleeding, then morale and panic, at the start of a side's turn. */
@@ -950,11 +1011,12 @@ export class Battle {
         u.health = Math.min(u.stats.health, u.health + (u.mind ? RACES[u.mind.race].regen : ALIEN_REGEN));
       }
       if (u.wounds) {
+        if (u.deeds) u.deeds.bled += Math.min(u.health, u.wounds);
         u.health = Math.max(0, u.health - u.wounds);
         const dead = u.health <= 0;
         this.events.push({ kind: "damage", unit: u.id, amount: u.wounds, stun: false, dead, out: false });
         if (side === "human") this.events.push({ kind: "say", text: dead ? `${u.name} bleeds out.` : `${u.name} is bleeding (−${u.wounds}).`, tone: "bad" });
-        if (dead && side === "human") for (const h of this.humans) if (alive(h) && h !== u) h.morale = Math.max(0, h.morale - moraleLoss(h.stats.bravery));
+        if (dead && side === "human") for (const h of this.humans) if (alive(h) && h !== u) this.loseFriend(h);
       }
       if (u.heat && u.weapon?.heat) {
         u.heat = Math.max(0, u.heat - u.weapon.heat.cool);
@@ -967,11 +1029,16 @@ export class Battle {
       u.tu = u.stats.tu;
       if (side === "human") {
         u.morale = Math.min(100, u.morale + 10);
-        if (this.rand() < panicChance(u.morale) * (this.steady ? 0.5 : 1)) {
+        const panic = panicChance(u.morale) * (this.steady ? 0.5 : 1);
+        if (this.rand() < panic) {
           u.tu = 0;
           this.tally.panics++;
+          if (u.deeds) {
+            u.deeds.froze++;
+            u.deeds.tuHad -= u.stats.tu;
+          }
           this.events.push({ kind: "say", text: `${u.name} panics and freezes.`, tone: "bad" });
-        }
+        } else if (panic > 0 && u.deeds) u.deeds.nerveHeld++;
         continue;
       }
       // Without anyone giving orders, their nerve comes back slowly.

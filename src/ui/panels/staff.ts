@@ -1,4 +1,5 @@
 import { Job, buildSkill, fitToWork, project } from "../../campaign/staff";
+import { recordLines, recordSummary } from "../../campaign/record";
 import { $, addItem, choiceButton, escape, summaryButton } from "../dom";
 import type { PanelSpec, Ui } from "../panel";
 import { doing, fillJobs } from "../people";
@@ -46,7 +47,10 @@ export function staffPanel(ui: Ui): PanelSpec {
       const where = campaign.bases.find((b) => b.id === p.base)?.name ?? "No base yet";
       const fit = fitToWork(p);
       const out = doing(campaign, p);
-      li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div></div><div class="pick"><select aria-label="Base"></select><select aria-label="Job"></select></div>`;
+      li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div><details class="record"><summary></summary><ul></ul></details></div><div class="pick"><select aria-label="Base"></select><select aria-label="Job"></select></div>`;
+      const rec = campaign.rec(p);
+      li.querySelector(".record summary")!.textContent = `Service record: ${recordSummary(rec)}`;
+      li.querySelector(".record ul")!.innerHTML = recordLines(rec, campaign.day).map((l) => `<li>${escape(l)}</li>`).join("");
       li.querySelector("b")!.textContent = p.name;
       li.querySelector(".dim")!.textContent = p.role;
       const status = `${out ? ` · ${out}` : ""}${p.hunger ? ` · hungry ${p.hunger}d` : ""}${p.loyalty !== undefined ? ` · loyalty ${p.loyalty}` : ""}${p.dependants ? ` · family of ${p.dependants}` : ""}`;
@@ -69,6 +73,15 @@ export function staffPanel(ui: Ui): PanelSpec {
       });
       people.appendChild(li);
     }
+    $("goneBox").hidden = !campaign.gone.length;
+    $("goneList").innerHTML = [...campaign.gone]
+      .reverse()
+      .map(
+        (g) =>
+          `<li class="${g.died ? "fallen" : "left"}"><b>${escape(g.name)}</b> <span class="dim">${escape(g.role)} · ${escape(g.how)}, day ${g.day + 1}</span>
+           <details class="record"><summary>${escape(recordSummary(g.record))}</summary><ul>${recordLines(g.record, g.day).map((l) => `<li>${escape(l)}</li>`).join("")}</ul></details></li>`,
+      )
+      .join("");
     $("doneBox").hidden = !r.done.length;
     $("doneList").innerHTML = r.done.map((d) => `<li><b>${escape(project(d).name)}</b> ${escape(project(d).result)}</li>`).join("");
   }

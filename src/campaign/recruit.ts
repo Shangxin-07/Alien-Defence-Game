@@ -26,7 +26,8 @@ export interface Candidate {
   /** Last day they'll wait for an answer. */
   until: number;
   /** What they'd bring with them. Missing in saves from before the armoury. */
-  kit?: Kit;
+  kit?: Kit;  /** Who found them, for that person's record. */
+  by?: number;
 }
 
 /** A promise made to get someone on board, and when it falls due. */

@@ -1,3 +1,4 @@
+import { Deeds, emptyDeeds, fightLine } from "./deeds";
 import "./tactical.css";
 import { Color, PerspectiveCamera, Plane, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } from "three";
 import { DOCTRINES, Doctrine, MAX_ROUNDS, REWIND_WINDOW, RISK_SPREAD, RoundRecord, Timeline, oddsText, playRound, simulate } from "./autoplay";
@@ -20,7 +21,9 @@ export interface CombatResult {
   recovered: string[];
   survivors: number;
   /** Who walked out, as they are now. */
-  people: { id: number; name: string; role: string; stats: Stats; health: number; gear: Gear }[];
+  people: { id: number; name: string; role: string; stats: Stats; health: number; gear: Gear; deeds: Deeds }[];
+  /** Who didn't, and what they'd done before they fell. */
+  fallen: { id: number; name: string; role: string; deeds: Deeds }[];
   turns: number;
   /** How your people fought, for the aliens to learn from. */
   tally: Tally;
@@ -785,12 +788,19 @@ function results(o: Outcome) {
   const people = survivors.map((u) => ({
     id: u.id, name: u.name, role: u.role, stats: { ...u.stats }, health: Math.max(1, u.health),
     gear: { weapon: u.weapon, ammo: u.ammo, clips: u.clips ?? 0, tools: u.tools.map((t) => ({ ...t })) },
+    deeds: { ...(u.deeds ?? emptyDeeds()) },
   }));
+  const fallen = b.humans.filter((u) => !alive(u)).map((u) => ({ id: u.id, name: u.name, role: u.role, deeds: { ...(u.deeds ?? emptyDeeds()) } }));
   const commanderDown = b.aliens.some((a) => a.mind?.rank === "leader" && !conscious(a));
-  const result: CombatResult = { outcome: o, recovered, survivors: survivors.length, turns: b.turn, people, tally: { ...b.tally }, commanderDown };
+  const result: CombatResult = { outcome: o, recovered, survivors: survivors.length, turns: b.turn, people, fallen, tally: { ...b.tally }, commanderDown };
   const won = o === "captured" || o === "killed";
   const lookBack = rewindable() ? [{ label: "Look back", run: () => openTimeline() }] : [];
-  const roll = b.humans.map((u) => `<li>${escape(u.name)} <span class="${alive(u) ? "dim" : "bad"}">${alive(u) ? `${u.health}/${u.stats.health} HP` : "killed"}</span></li>`).join("");
+  const roll = b.humans
+    .map((u) => {
+      const line = u.deeds ? fightLine(u.deeds) : "";
+      return `<li>${escape(u.name)} <span class="${alive(u) ? "dim" : "bad"}">${alive(u) ? `${u.health}/${u.stats.health} HP` : "killed"}</span>${line ? `<div class="dim">${escape(line)}</div>` : ""}</li>`;
+    })
+    .join("");
   if (m) {
     modal(
       t.title,
