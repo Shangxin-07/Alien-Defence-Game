@@ -81,6 +81,40 @@ Cores are the late-game currency, like money is the mid-game one. They power cel
 H3 kit, alien weapon copies and any craft of your own. Every assault on a landed craft is a fight
 for one.
 
+## Ammo
+
+Four kinds, and every bullet gun takes one of them. Which gun takes which is on its card, so
+nobody needs to know a calibre.
+
+| Kind | Fits | Loads |
+|---|---|---|
+| **Handgun rounds** | Pistols | Standard (T1), armour-piercing (T2), alloy-tipped (H1) |
+| **Rifle rounds** | Assault, hunting and marksman rifles, the LMG | Standard (T1), armour-piercing (T2), alloy-tipped (H1) |
+| **Shotgun shells** | Shotguns | Buckshot (T1), slug (T1), alloy flechette (H1) |
+| **Rockets** | Rocket launcher | High explosive (T3), anti-armour (T3) |
+
+What a load does, always one clear trade:
+
+| Load | Does | Costs |
+|---|---|---|
+| Standard | The gun's own numbers | — |
+| Armour-piercing | Target's armour counts half | −4 power, never breaks anything more than standard |
+| Buckshot | +20% to hit within 4 tiles; can hit the tile next to the target | Falls off hard past 5 tiles, breach 0 |
+| Slug | One heavy hit: +8 power, range +4, breach 1 | No spread bonus |
+| Alloy-tipped / flechette | +6 power, +1 breach | Costs alloy to make |
+| High explosive rocket | Blast radius 2, breach 3 | Hits your own if they're close |
+| Anti-armour rocket | Target's armour counts a quarter, power 110 | Blast radius 0, breach 3 on the tile hit only |
+
+Rules:
+- A clip (or a box of shells, or one rocket) holds one load. Swapping load in a fight is a normal
+  reload. The loadout request says which load each person wants, with standard as the fallback.
+- Police stations stock handgun rounds and shells; army depots rifle rounds and armour-piercing;
+  rockets come from the blocs. Standard rounds can be reloaded on the bench from scrap and
+  chemicals; armour-piercing needs a workshop.
+- Grenades and charges are their own items, not ammo.
+- Today's single "spare clips" supply splits into these kinds when this is built. Old saves share
+  out their clips by the guns in the stores.
+
 ## Weapons and kit by level
 
 Stats are first guesses. "Make" means a workshop or bench job: person-days of Engineering work plus
@@ -127,7 +161,7 @@ room, $800k, needs a lift).
 
 | Item | Notes | Make |
 |---|---|---|
-| **Alloy-tipped rounds** | Alloy clips of handgun or rifle ammo: +6 power, +1 breach. | 1 scrap + 1 alloy per 4 clips |
+| **Alloy-tipped rounds** | An alloy load for handgun, rifle or shotgun ammo: +6 power, +1 breach. See [Ammo](#ammo). | 1 scrap + 1 alloy per 4 clips |
 | **Alloy vest** | Armour 12, no TU cost. | 3 alloy, 4 person-days |
 | **Alloy plate** | Armour 16, −4 TU. | 6 alloy, 8 person-days |
 | **Alloy shield** | +14 armour from the front. Stops a plasma bolt. | 4 alloy |
@@ -249,8 +283,8 @@ hints in battle reports, not a number.
 
 ## How it fits the code (for later)
 
-- `GEAR`, `GUNS` and `WEAPONS` grow; `Weapon` gets `cell` (shots per cell) and `ammo`
-  kind (handgun, rifle or rocket).
+- `GEAR`, `GUNS` and `WEAPONS` grow; `Weapon` gets `cell` (shots per cell) and an ammo
+  kind; clips in the stores are counted per kind and load.
 - `Project` gets `allOf`, `kind` and `consumes`; `blocker` checks them.
 - Terrain gets toughness 3 and 4 for reinforced walls and hull.
 - New `Supply` kinds `chemicals`, `alloy`, `cells`, `cores`; a new place kind `depot`.
@@ -261,10 +295,9 @@ hints in battle reports, not a number.
 
 Mike's answers, 2026-11-04:
 
-1. **Ammo stays simple, so it reads as a game.** Three kinds only: **handgun rounds** (pistols),
-   **rifle rounds** (every long gun: rifles, shotguns, the LMG, marksman and hunting rifles) and
-   **rockets**. Alloy-tipped is a better clip of handgun or rifle rounds, not a new kind. No
-   calibres beyond that. This splits at T2, when rifles and rockets start to matter.
+1. **Ammo stays game-simple: four kinds, a few loads with an obvious purpose.** No real-world
+   calibres. Mike, after a second thought: shotgun shells are fine, and so are loads like
+   armour-piercing vs high explosive, or buckshot vs slug. Detail as set out in [Ammo](#ammo).
 2. **Cells recharge from cores at A2, and later we work some of it out.** At A3 a spent cell (or a
    spent core) can be brought back to a third without a fresh core. Cores are still never made.
 3. **Reverse-engineering to make something uses one up.** Studying it to use it doesn't.
@@ -276,7 +309,7 @@ Mike's answers, 2026-11-04:
 ## Build order (once the choices are made)
 
 1. Research changes (`allOf`, kinds, consuming) and the new materials. No new kit yet.
-2. T1/T2 kit, the army depot, the bench, and the three ammo kinds.
+2. T1/T2 kit, the army depot, the bench, and the ammo kinds and loads.
 3. Breach 3/4 and toughness 3/4, explosives and rockets.
 4. Workshop manufacturing and H1.
 5. Cells and H2, alien tech levels 2–3.
