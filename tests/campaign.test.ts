@@ -89,7 +89,8 @@ describe("surveying sites", () => {
 describe("the shared clock", () => {
   /** A base with one shaft still being dug by one steady builder, independent of how starter bases look. */
   function digging(c: Campaign) {
-    c.enlist([{ ...LIAISON, build: 1 }]);
+    // Someone from before attributes, whose attributes are worked out to fit a build of exactly 1.
+    c.enlist([{ ...LIAISON, attributes: undefined, skills: undefined, build: 1 }]);
     const base = c.found(LONDON, true);
     c.staff[0].job = "construction";
     base.layout = new BaseLayout(1e7, "remote");
@@ -295,7 +296,7 @@ describe("staff and research", () => {
 describe("construction skill", () => {
   it("falls back on someone's old job in saves from before it existed", () => {
     const c = new Campaign();
-    c.enlist([{ ...LIAISON, name: "R", role: "Army reservist", build: undefined }]);
+    c.enlist([{ ...LIAISON, attributes: undefined, skills: undefined, name: "R", role: "Army reservist", build: undefined }]);
     const copy = Campaign.load(JSON.parse(JSON.stringify(c.save())));
     expect(buildSkill(copy.staff[0])).toBe(1.15);
   });

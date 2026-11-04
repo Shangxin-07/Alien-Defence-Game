@@ -1,3 +1,4 @@
+import { attributeLine, skillLine } from "../../tactical/attributes";
 import { describeKit } from "../../campaign/armoury";
 import { WANT_TEXT } from "../../campaign/recruit";
 import { MAX_RECRUITERS, MAX_RUN_DAYS, cleanChance } from "../../campaign/scavenge";
@@ -26,12 +27,16 @@ export function recruitPanel(ui: Ui): PanelSpec {
     list.replaceChildren();
     for (const c of campaign.candidates) {
       const li = document.createElement("li");
-      li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div><div class="want"></div></div><div class="acts"><button type="button" class="no">Turn away</button><button type="button" class="yes">Take on</button></div>`;
+      li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div><div class="meta attrs"></div><div class="want"></div></div><div class="acts"><button type="button" class="no">Turn away</button><button type="button" class="yes">Take on</button></div>`;
       li.querySelector("b")!.textContent = c.name;
       li.querySelector(".dim")!.textContent = c.role;
       const left = c.until - campaign.day;
       const brings = c.kit ? (describeKit(c.kit) === "unarmed" ? "nothing" : describeKit(c.kit).replace(/^unarmed, /, "")) : "nothing";
       li.querySelector(".meta")!.textContent = `build ${c.build.toFixed(2)} · research ${c.aptitude.toFixed(2)} · HP ${c.stats.health} · aim ${c.stats.accuracy} · waits ${left <= 0 ? "until tomorrow" : `${left} more day${left === 1 ? "" : "s"}`} · brings ${brings}`;
+      if (c.attributes && c.skills) {
+        const skills = skillLine(c.skills);
+        li.querySelector(".attrs")!.textContent = `${attributeLine(c.attributes)}${skills ? ` · ${skills}` : ""}`;
+      }
       li.querySelector(".want")!.textContent = `Wants ${WANT_TEXT[c.wants](c.amount)}`;
       const reason = campaign.checkCandidate(c.id);
       const yes = li.querySelector(".yes") as HTMLButtonElement;

@@ -1,6 +1,6 @@
 import { Duty, Hold, allowedJob, dutyClash, dutyOf, jobDuty } from "./allocation";
 import {
-  GEAR, GUNS, GearId, Kit, MEDIKIT_COST, MEDIKIT_RESTOCK, Quarters, Request, Stores, defaultRequest, arrivalKit, emptyStores, kitWarnings,
+  ArmourId, GEAR, GUNS, GearId, Kit, MEDIKIT_COST, MEDIKIT_RESTOCK, Quarters, Request, Stores, defaultRequest, arrivalKit, emptyStores, kitWarnings,
   legacyKit, noKit, outfit, rollArms, usable,
 } from "./armoury";
 import { BaseLayout, Builder, Item, Site } from "../base/layout";
@@ -20,7 +20,7 @@ import {
   CALL_CHANCE, CAR_SCRAP, CAR_SEATS, CAR_WORK, Call, HOUR_MS, MAX_MECHANICS, SIGHTING_LOYALTY, SIGHTING_SCRAP, TRAIL_HOURS, Travel, Vehicle,
   carName, freshness, rollCall, travelHours, tripFuel,
 } from "./sightings";
-import { Job, LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, workPace } from "./staff";
+import { Job, LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, project, settle, workPace } from "./staff";
 import { Habits, adaptNews, learn, noHabits, observe } from "../tactical/adapt";
 import type { RaceId } from "../tactical/aliens";
 import type { Outcome, Tally } from "../tactical/battle";
@@ -290,7 +290,7 @@ export class Campaign {
     this.candidates.splice(this.candidates.indexOf(c), 1);
     const base = this.bases.some((b) => b.id === c.base) ? c.base : (this.bases[0]?.id ?? null);
     const p: Person = {
-      id: this.ids.person++, name: c.name, role: c.role, stats: { ...c.stats }, health: c.stats.health, aptitude: c.aptitude, build: c.build,
+      id: this.ids.person++, name: c.name, role: c.role, attributes: c.attributes, skills: c.skills, stats: { ...c.stats }, health: c.stats.health, aptitude: c.aptitude, build: c.build,
       base, job: "construction", loyalty: c.wants === "none" ? DRIFTER_LOYALTY : RECRUIT_LOYALTY,
       kit: c.kit ? { ...c.kit } : arrivalKit(c.role, this.rand),
       record: newRecord(this.day, c.wants === "none" ? "Drifted in off the streets" : `Talked into joining (${c.role.toLowerCase()})`),
@@ -302,7 +302,7 @@ export class Campaign {
     if (c.wants === "medicine") this.pledges.push({ person: p.id, wants: "medicine", amount: c.amount, due: this.day + MEDICINE_DAYS });
     if (c.wants === "revenge") this.pledges.push({ person: p.id, wants: "revenge", amount: 0, due: this.day + LONG_PROMISE_DAYS, kills: this.kills });
     if (c.wants === "bed") this.pledges.push({ person: p.id, wants: "bed", amount: 0, due: this.day + LONG_PROMISE_DAYS });
-    this.staff.push(p);
+    this.join(p);
     this.quartermaster();
     for (const b of this.bases) b.layout.setCrew(this.builders(b.id));
     return p;
@@ -698,6 +698,24 @@ export class Campaign {
     return this.staff.find((p) => p.id === id);
   }
 
+  /** Takes someone onto the staff, working out everything their attributes give them. */
+  private join(p: Person) {
+    this.wearInnate(p, settle(p));
+    this.staff.push(p);
+  }
+
+  /**
+   * Armour someone used to have as part of themselves (a police officer's, a guard's, from before
+   * armour was only ever worn) becomes something they wear, or goes in the stores if they wear better.
+   */
+  wearInnate(p: Person, innate: number): void {
+    if (innate <= 0) return;
+    const item: ArmourId = innate >= GEAR.stabVest.armour! ? "stabVest" : "paddedJacket";
+    p.kit ??= legacyKit(p.role);
+    if (!p.kit.armour) p.kit.armour = item;
+    else if (p.kit.armour !== item) this.stock([item]);
+  }
+
   /** Someone's service record, started now for anyone who somehow has none. */
   rec(p: Person): ServiceRecord {
     return (p.record ??= newRecord(this.day, "With you before records were kept"));
@@ -755,7 +773,7 @@ export class Campaign {
   /** If everyone is gone, the council sends someone: losing people is never the end. */
   private backfill() {
     if (this.staff.length) return;
-    this.staff.push({ ...LIAISON, stats: { ...LIAISON.stats }, id: this.ids.person++, base: this.bases[0]?.id ?? null, job: "construction", kit: legacyKit(LIAISON.role), record: newRecord(this.day, "Sent by the council") });
+    this.join({ ...LIAISON, stats: { ...LIAISON.stats }, id: this.ids.person++, base: this.bases[0]?.id ?? null, job: "construction", kit: legacyKit(LIAISON.role), record: newRecord(this.day, "Sent by the council") });
     this.quartermaster();
     this.news.push("With nobody left, the council sends a liaison");
   }
@@ -873,7 +891,7 @@ export class Campaign {
     (people.length ? people : [LIAISON]).forEach((p, i) => {
       const { deeds, ...person } = p as typeof p & { deeds?: Deeds };
       const record = people.length ? firstNight(deeds) : newRecord(this.day, "Sent by the council");
-      this.staff.push({ ...person, stats: { ...p.stats }, id: this.ids.person++, base, job: i === 0 ? "research" : "construction", kit: p.kit ? { ...p.kit } : legacyKit(p.role), record });
+      this.join({ ...person, stats: { ...p.stats }, id: this.ids.person++, base, job: i === 0 ? "research" : "construction", kit: p.kit ? { ...p.kit } : legacyKit(p.role), record });
     });
     // The ones who didn't make it out are remembered too.
     for (const f of fallen) {

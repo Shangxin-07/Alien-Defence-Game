@@ -1,5 +1,6 @@
 import { batonGrudge } from "./adapt";
 import { Deeds, emptyDeeds } from "./deeds";
+import type { Profile } from "./attributes";
 import { AlienMind, Personality, RACES, firstLook } from "./aliens";
 import { CoverLook, DIRS, Ground, LinePoint, Point, TacMap, Thing, adjacent, dist, facingTo, lvl, pt, samePoint, turnSteps } from "./map";
 import { mulberry32 } from "./random";
@@ -34,6 +35,8 @@ export interface Unit {
   name: string;
   /** What they were before this started: officer, reservist... */
   role: string;
+  /** One of your people's attributes and skills, where the fight started them. */
+  profile?: Profile;
   stats: Stats;
   x: number;
   y: number;

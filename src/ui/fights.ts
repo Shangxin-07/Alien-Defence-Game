@@ -1,14 +1,14 @@
 import { kitAfter, describeKit, noKit } from "../campaign/armoury";
 import { SITES, runWhere } from "../campaign/scavenge";
 import { HOUR_MS } from "../campaign/sightings";
-import { rollBuild } from "../campaign/staff";
 import { CombatResult, Gear, closeCombat, openCombat } from "../tactical/screen";
 import type { Deeds } from "../tactical/deeds";
 import type { City } from "../geoscape/cities";
 import { daylightAt, solarTime } from "../geoscape/geo";
 import { adaptReads, adaptSquad } from "../tactical/adapt";
 import { readSquad } from "../tactical/aliens";
-import { lightRead, prologueCity, rollForce, startAmbush, startPrologue } from "../tactical/prologue";
+import { lightRead, prologueCity, roleArmour, rollForce, startAmbush, startPrologue } from "../tactical/prologue";
+import type { Profile } from "../tactical/attributes";
 import type { Stats } from "../tactical/rules";
 import { $, escape } from "./dom";
 import type { Ui } from "./panel";
@@ -136,13 +136,14 @@ export function playPrologue(host: FightHost): void {
     host.refresh();
   };
   const prologue = startPrologue(city, seed);
-  // Research aptitude is a coin toss, not their old job: anyone can learn anything. Their old job does make some handier with a shovel.
-  // They keep what they walked out with: whatever is left in their guns, and their medikit.
-  const enlist = (people: { name: string; role: string; stats: Stats; health: number; gear: Gear; deeds?: Deeds }[], fallen: CombatResult["fallen"] = []) =>
+  // They keep what they walked out with: whatever is left in their guns, their medikit, and what they were wearing.
+  // Research and building come from their attributes; the campaign works those out when they join.
+  const enlist = (people: { name: string; role: string; profile?: Profile; stats: Stats; health: number; gear: Gear; deeds?: Deeds }[], fallen: CombatResult["fallen"] = []) =>
     campaign.enlist(
       people.map((p) => ({
-        name: p.name, role: p.role, stats: { ...p.stats }, health: p.health, kit: kitAfter(noKit(), p.gear),
-        aptitude: Math.round((0.8 + Math.random() * 0.4) * 100) / 100, build: rollBuild(p.role, Math.random),
+        name: p.name, role: p.role, ...p.profile, stats: { ...p.stats, armour: 0 }, health: p.health,
+        kit: { ...kitAfter(noKit(), p.gear), armour: roleArmour(p.role) },
+        aptitude: 1, build: 1,
         deeds: p.deeds,
       })),
       fallen,

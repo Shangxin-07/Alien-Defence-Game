@@ -1,3 +1,4 @@
+import { attributeLine, skillLine } from "../../tactical/attributes";
 import { Job, buildSkill, fitToWork, project } from "../../campaign/staff";
 import { recordLines, recordSummary } from "../../campaign/record";
 import { $, addItem, choiceButton, escape, summaryButton } from "../dom";
@@ -47,7 +48,12 @@ export function staffPanel(ui: Ui): PanelSpec {
       const where = campaign.bases.find((b) => b.id === p.base)?.name ?? "No base yet";
       const fit = fitToWork(p);
       const out = doing(campaign, p);
-      li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div><details class="record"><summary></summary><ul></ul></details></div><div class="pick"><select aria-label="Base"></select><select aria-label="Job"></select></div>`;
+      li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div><div class="meta attrs"></div><details class="record"><summary></summary><ul></ul></details></div><div class="pick"><select aria-label="Base"></select><select aria-label="Job"></select></div>`;
+      if (p.attributes && p.skills) {
+        const skills = skillLine(p.skills);
+        li.querySelector(".attrs")!.textContent = `${attributeLine(p.attributes)}${skills ? ` · ${skills}` : ""}`;
+        li.querySelector(".attrs")!.setAttribute("title", "Strength, Dexterity, Endurance, Perception, Intelligence, Willpower, Charisma. Everything else is worked out from these and their skills.");
+      }
       const rec = campaign.rec(p);
       li.querySelector(".record summary")!.textContent = `Service record: ${recordSummary(rec)}`;
       li.querySelector(".record ul")!.innerHTML = recordLines(rec, campaign.day).map((l) => `<li>${escape(l)}</li>`).join("");

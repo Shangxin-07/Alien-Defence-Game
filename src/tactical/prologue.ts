@@ -6,7 +6,8 @@ import { Battle, Outcome, Unit, alive, conscious } from "./battle";
 import { CITY_STYLES, CityStyle, buildCity } from "./cityMap";
 import { Point, dist, facingTo, lvl } from "./map";
 import { hashText, mulberry32 } from "./random";
-import { ALIEN_GUN_INTACT, Kit, fightKit } from "../campaign/armoury";
+import { ALIEN_GUN_INTACT, ArmourId, GEAR, Kit, fightKit } from "../campaign/armoury";
+import { ROLE_TEMPLATES, deriveStats, rollProfile } from "./attributes";
 import { Daylight, Stats, TOOLS, Tool, WEAPONS, Weapon } from "./rules";
 
 /**
@@ -84,7 +85,8 @@ const LAST = ["Okafor", "Novak", "Haddad", "Sato", "Mendes", "Brandt", "Kowalski
 
 interface Role {
   role: string;
-  stats: Stats;
+  /** What their job had them wearing that night. Their attributes are in ROLE_TEMPLATES. */
+  armour: ArmourId | null;
   weapon: Weapon | null;
   tools: Tool[];
   look: string;
@@ -93,33 +95,36 @@ interface Role {
 const ROLES: Role[] = [
   {
     role: "Police officer",
-    stats: { tu: 56, health: 34, bravery: 50, reactions: 50, accuracy: 60, melee: 72, armour: 4 },
+    armour: "stabVest",
     weapon: WEAPONS.pistol,
     tools: [TOOLS.stunBaton],
     look: "#5b7fd1",
   },
   {
     role: "Army reservist",
-    stats: { tu: 60, health: 38, bravery: 60, reactions: 55, accuracy: 68, melee: 50, armour: 0 },
+    armour: null,
     weapon: WEAPONS.rifle,
     tools: [],
     look: "#7e9a52",
   },
   {
     role: "Security guard",
-    stats: { tu: 52, health: 40, bravery: 40, reactions: 40, accuracy: 55, melee: 60, armour: 2 },
+    armour: "paddedJacket",
     weapon: WEAPONS.shotgun,
     tools: [],
     look: "#c9b458",
   },
   {
     role: "Paramedic",
-    stats: { tu: 58, health: 32, bravery: 45, reactions: 40, accuracy: 45, melee: 40, armour: 0 },
+    armour: null,
     weapon: WEAPONS.pistol,
     tools: [TOOLS.medkit],
     look: "#e0e4e8",
   },
 ];
+
+/** What someone from the first night was wearing, by their old job. */
+export const roleArmour = (role: string): ArmourId | null => ROLES.find((r) => r.role === role)?.armour ?? null;
 
 /** It's called a Hunter because that's what it does. A Strider, the best of them. */
 const HUNTER: Stats = { tu: 64, health: 55, bravery: 100, reactions: 85, accuracy: 70, melee: 60, armour: 10 };
@@ -229,13 +234,15 @@ export function startPrologue(city: City, seed: number): Prologue {
   const rand = mulberry32(s + 7);
   const centre = field.alienStart;
   const units: Unit[] = ROLES.map((r, i) => {
-    const stats = vary(r.stats, rand);
+    const profile = rollProfile(ROLE_TEMPLATES[r.role], 0.2, rand);
+    const stats = { ...deriveStats(profile), armour: r.armour ? GEAR[r.armour].armour! : 0 };
     const p = field.humanStart[i];
     return {
       id: i + 1,
       side: "human",
       name: `${FIRST[Math.floor(rand() * FIRST.length)]} ${LAST[Math.floor(rand() * LAST.length)]}`,
       role: r.role,
+      profile,
       stats,
       x: p.x,
       y: p.y,
