@@ -3,7 +3,7 @@
 Proposal from 2026-11-04, after Mike asked for "a proper set of techs, from normal today techs, to
 slightly better hybrid techs, to fully advanced alien techs, along with the levels and places to
 find, research or get them." **Nothing here is built.** Numbers are placeholders to tune in play.
-The open choices at the end need Mike's call before any code.
+Mike made the open choices on 2026-11-04; see [Decisions](#decisions).
 
 ## Rules this has to keep
 
@@ -74,8 +74,8 @@ Existing: **scrap**, **money**, **fuel**, **medicine**. New:
 |---|---|---|---|
 | **Chemicals** | Fertiliser, solvents, propellant | Hardware stores, industrial estates, pharmacies (small) | No. Scavenged or bought. |
 | **Alien alloy** | Hull fragments and armour plates | Crash sites, landed craft, Brute corpses (plates), alien bases | No. Only salvaged. |
-| **Power cells** | The charge pack in every alien gun | One in each alien gun picked up, sometimes loose on a body | Recharged at A2, only from a core. Never made from nothing. |
-| **Craft cores** | What powers their ships | Downed or landed craft only, often damaged in the crash | Never. Every core is taken from them. |
+| **Power cells** | The charge pack in every alien gun | One in each alien gun picked up, sometimes loose on a body | Recharged at A2 from a core. Late research (A3) recharges a spent cell to a third without a core. |
+| **Craft cores** | What powers their ships | Downed or landed craft only, often damaged in the crash | Never made. Late research (A3) brings a spent core back to a third. |
 
 Cores are the late-game currency, like money is the mid-game one. They power cell recharging,
 H3 kit, alien weapon copies and any craft of your own. Every assault on a landed craft is a fight
@@ -127,7 +127,7 @@ room, $800k, needs a lift).
 
 | Item | Notes | Make |
 |---|---|---|
-| **Alloy-tipped rounds** | A clip type: +6 power, +1 breach. | 1 scrap + 1 alloy per 4 clips |
+| **Alloy-tipped rounds** | Alloy clips of handgun or rifle ammo: +6 power, +1 breach. | 1 scrap + 1 alloy per 4 clips |
 | **Alloy vest** | Armour 12, no TU cost. | 3 alloy, 4 person-days |
 | **Alloy plate** | Armour 16, −4 TU. | 6 alloy, 8 person-days |
 | **Alloy shield** | +14 armour from the front. Stops a plasma bolt. | 4 alloy |
@@ -172,6 +172,7 @@ Proposed additions:
 |---|---|---|
 | **Venting** (per gun) | Heat per shot drops by a third. Never to zero: theirs still never overheat. | Live captive of that gun's race + the gun studied |
 | **Cell recharging** | A spent cell recharges from a core, 5 cells per core. | A craft core studied |
+| **Cold recharge** (A3) | We finally work part of it out: a spent cell comes back to a third (10 shots) on the workshop bench, no core needed, and a spent core to a third. Slow and costly. | Cell recharging, a live commander interrogated, two labs |
 | **Copied plasma guns** | Build plasma pistol, scattergun or needle rifle in the workshop. | Venting for that gun, 4 alloy + 1 cell each |
 | **Shell armour** | Brute or Strider shell recut for us: armour 18–20. | Autopsy of that race + 6 alloy |
 
@@ -248,35 +249,34 @@ hints in battle reports, not a number.
 
 ## How it fits the code (for later)
 
-- `GEAR`, `GUNS` and `WEAPONS` grow; `Weapon` gets `cell` (shots per cell) and `calibre` if
-  ammo splits (open choice 1).
+- `GEAR`, `GUNS` and `WEAPONS` grow; `Weapon` gets `cell` (shots per cell) and `ammo`
+  kind (handgun, rifle or rocket).
 - `Project` gets `allOf`, `kind` and `consumes`; `blocker` checks them.
 - Terrain gets toughness 3 and 4 for reinforced walls and hull.
 - New `Supply` kinds `chemicals`, `alloy`, `cells`, `cores`; a new place kind `depot`.
 - A new `manufacture.ts` in `campaign/`, beside `research` in `staff.ts`, and a Workshop panel.
 - Blocs (in `geoscape/blocs.ts`) get a sales list once contact is made.
 
-## Open choices for Mike
+## Decisions
 
-My recommendation comes first in each.
+Mike's answers, 2026-11-04:
 
-1. **Ammo calibres.** (a) Split at T2 into pistol, rifle and shotgun rounds, plus alloy-tipped as a
-   type of each. (b) Keep "all bullets fit all guns".
-2. **Can we ever make alien power?** (a) Cells recharge from cores at A2, cores are never made.
-   (b) Cells can be made too, late. (c) Neither: every cell is taken from them.
-3. **Does reverse-engineering use up the item?** (a) Yes for learning to make it, no for learning to
-   use it. (b) Never.
-4. **Captured guns drain their cell** (30 shots), on top of heat. (a) Yes. (b) Heat only, as now.
-5. **Alien escalation.** (a) Clock plus a jump when you field better kit. (b) Clock only. (c) Only
-   in response to you.
-6. **Blocs sell T3 kit.** (a) Yes, each bloc a different list, for money and standing. (b) No: T3
-   only from depots and the black market.
-7. **Hybrid faults** (5% falling to 1%). (a) Yes. (b) No.
+1. **Ammo stays simple, so it reads as a game.** Three kinds only: **handgun rounds** (pistols),
+   **rifle rounds** (every long gun: rifles, shotguns, the LMG, marksman and hunting rifles) and
+   **rockets**. Alloy-tipped is a better clip of handgun or rifle rounds, not a new kind. No
+   calibres beyond that. This splits at T2, when rifles and rockets start to matter.
+2. **Cells recharge from cores at A2, and later we work some of it out.** At A3 a spent cell (or a
+   spent core) can be brought back to a third without a fresh core. Cores are still never made.
+3. **Reverse-engineering to make something uses one up.** Studying it to use it doesn't.
+4. **Captured guns drain a 30-shot cell** as well as overheating, until recharging (2).
+5. **Alien escalation: clock plus response to your kit.** The clock's speed will need tuning.
+6. **Blocs sell T3 kit**, each bloc a different list, for money and standing.
+7. **Hybrid faults:** 5%, dropping to 1% after a refinement project.
 
 ## Build order (once the choices are made)
 
 1. Research changes (`allOf`, kinds, consuming) and the new materials. No new kit yet.
-2. T1/T2 kit, the army depot, the bench, and calibres if chosen.
+2. T1/T2 kit, the army depot, the bench, and the three ammo kinds.
 3. Breach 3/4 and toughness 3/4, explosives and rockets.
 4. Workshop manufacturing and H1.
 5. Cells and H2, alien tech levels 2–3.
