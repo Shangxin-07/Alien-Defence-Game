@@ -1,6 +1,7 @@
 import type { Duty } from "./allocation";
 import type { Kit, Request } from "./armoury";
 import type { Stats } from "../tactical/rules";
+import type { ServiceRecord } from "./record";
 
 /**
  * The people who work for you between battles, and the first research they can do.
@@ -50,7 +51,8 @@ export interface Person {
   /** What they're set aside for on the allocation page. Missing or empty means anything. */
   duties?: Duty[];
   /** Whether those duties are a lock (they can't be sent elsewhere) or only a preference (a warning). */
-  locked?: boolean;
+  locked?: boolean;  /** Everything they've done for you. Missing in saves from before records were kept. */
+  record?: ServiceRecord;
 }
 
 /** Hungry people work at half pace. */

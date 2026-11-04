@@ -2,7 +2,8 @@ import { kitAfter, describeKit, noKit } from "../campaign/armoury";
 import { SITES, runWhere } from "../campaign/scavenge";
 import { HOUR_MS } from "../campaign/sightings";
 import { rollBuild } from "../campaign/staff";
-import { Gear, closeCombat, openCombat } from "../tactical/screen";
+import { CombatResult, Gear, closeCombat, openCombat } from "../tactical/screen";
+import type { Deeds } from "../tactical/deeds";
 import type { City } from "../geoscape/cities";
 import { daylightAt, solarTime } from "../geoscape/geo";
 import { adaptReads, adaptSquad } from "../tactical/adapt";
@@ -104,6 +105,7 @@ export function ambushDialog(host: FightHost): { check(): void } {
           people: r.people.map((p) => ({ id: p.id, health: p.health, kit: kitAfter(campaign.staff.find((s) => s.id === p.id)?.kit ?? noKit(), p.gear) })),
           tally: r.tally,
           commanderDown: r.commanderDown,
+          deeds: [...r.people, ...r.fallen].map((p) => ({ id: p.id, deeds: p.deeds })),
         });
         closeCombat();
         host.returnToGlobe();
@@ -136,18 +138,20 @@ export function playPrologue(host: FightHost): void {
   const prologue = startPrologue(city, seed);
   // Research aptitude is a coin toss, not their old job: anyone can learn anything. Their old job does make some handier with a shovel.
   // They keep what they walked out with: whatever is left in their guns, and their medikit.
-  const enlist = (people: { name: string; role: string; stats: Stats; health: number; gear: Gear }[]) =>
+  const enlist = (people: { name: string; role: string; stats: Stats; health: number; gear: Gear; deeds?: Deeds }[], fallen: CombatResult["fallen"] = []) =>
     campaign.enlist(
       people.map((p) => ({
         name: p.name, role: p.role, stats: { ...p.stats }, health: p.health, kit: kitAfter(noKit(), p.gear),
         aptitude: Math.round((0.8 + Math.random() * 0.4) * 100) / 100, build: rollBuild(p.role, Math.random),
+        deeds: p.deeds,
       })),
+      fallen,
     );
   openCombat({
     prologue,
     finish: (r) => {
       campaign.recordPrologue({ city: city.name, outcome: r.outcome, recovered: r.recovered, survivors: r.survivors, turns: r.turns });
-      enlist(r.people);
+      enlist(r.people, r.fallen);
       if (r.recovered.length) host.toast(`Recovered: ${r.recovered.join(", ")}`);
       back();
     },
@@ -157,7 +161,8 @@ export function playPrologue(host: FightHost): void {
     },
     skip: () => {
       if (!campaign.prologue) campaign.recordPrologue({ city: city.name, outcome: "skipped", recovered: [], survivors: 0, turns: 0 });
-      enlist(prologue.battle.humans.map((u) => ({ ...u, gear: u })));
+      // Skipped, so nobody fought: their records start clean.
+      enlist(prologue.battle.humans.map((u) => ({ ...u, gear: u, deeds: undefined })));
       back();
     },
   });

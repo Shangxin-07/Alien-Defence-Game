@@ -47,6 +47,7 @@ plain functions and tables the class calls:
 | `scavenge.ts` | supplies, places, runs, the black market |
 | `recruit.ts` | candidates, what they want, promises and loyalty |
 | `sightings.ts` | sighting calls, travel, cars and fuel |
+| `record.ts` | service records: what each person has done, and the roll of the dead and departed |
 
 The save format is `SavedCampaign` in save.ts. New fields are optional and `restore` fills them in
 for older saves, so a player's war is never thrown away.
