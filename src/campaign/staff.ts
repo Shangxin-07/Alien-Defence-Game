@@ -2,6 +2,7 @@ import type { Duty } from "./allocation";
 import type { Kit, Request } from "./armoury";
 import type { Stats } from "../tactical/rules";
 import { Attributes, Profile, ROLE_TEMPLATES, Skills, buildRate, deriveStats, inferProfile, noSkills, researchAptitude } from "../tactical/attributes";
+import type { PerkId } from "../tactical/perks";
 import type { ServiceRecord } from "./record";
 
 /**
@@ -27,6 +28,9 @@ export interface Person {
   skills?: Skills;
   /** How high each attribute can ever be trained. Hidden; rolled the first time they learn anything. */
   ceiling?: Attributes;
+  /** Knacks they've picked (tactical/perks.ts), and three on offer waiting for the player to choose. */
+  perks?: PerkId[];
+  perkOffer?: PerkId[];
   /** Their fight numbers, worked out from attributes and skills by `settle`. Armour is always 0: it's worn. */
   stats: Stats;
   health: number;
@@ -83,7 +87,7 @@ export const buildSkill = (p: Person) => p.build ?? BUILD_BY_ROLE[p.role] ?? 1;
 export const LAB_BONUS = 0.5;
 
 /** Someone's attributes and skills together. Only for people `settle` has seen to. */
-export const profileOf = (p: Person): Profile => ({ attributes: p.attributes!, skills: p.skills! });
+export const profileOf = (p: Person): Profile => ({ attributes: p.attributes!, skills: p.skills!, perks: p.perks });
 
 /**
  * Makes sure someone has attributes, then works out everything that comes from them: fight

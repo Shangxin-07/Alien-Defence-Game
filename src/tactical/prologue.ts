@@ -7,6 +7,7 @@ import { CITY_STYLES, CityStyle, buildCity } from "./cityMap";
 import { Point, dist, facingTo, lvl } from "./map";
 import { hashText, mulberry32 } from "./random";
 import { ALIEN_GUN_INTACT, ArmourId, GEAR, Kit, fightKit } from "../campaign/armoury";
+import type { PerkId } from "./perks";
 import { Attributes, ROLE_TEMPLATES, Skills, deriveStats, rollProfile } from "./attributes";
 import { Daylight, Stats, TOOLS, Tool, WEAPONS, Weapon } from "./rules";
 
@@ -54,6 +55,7 @@ export interface Scavenger {
   /** Who they are, for what their hands and know-how add in a fight. Missing for people from old saves until settled. */
   attributes?: Attributes;
   skills?: Skills;
+  perks?: PerkId[];
 }
 
 /** What the survivors carry out of the city, by how the night ended. */
@@ -347,7 +349,7 @@ export function startAmbush(
       clips: carried?.clips ?? 0,
       tools: carried ? carried.tools : (kit?.tools ?? []).map((tool) => ({ tool, uses: tool.uses })),
       revealed: false,
-      profile: m.attributes && m.skills ? { attributes: m.attributes, skills: m.skills } : undefined,
+      profile: m.attributes && m.skills ? { attributes: m.attributes, skills: m.skills, perks: m.perks } : undefined,
     };
   });
   const force = rollForce(seed, !!sighting);
