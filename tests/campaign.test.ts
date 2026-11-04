@@ -263,7 +263,9 @@ describe("staff and research", () => {
     c.supplies.medicine = 0;
     expect(c.researchRate()).toBe(0);
     c.advanceDays(4);
-    expect(access.workLeft).toBeCloseTo(ROOMS.accessPoint.work - 4 * 3);
+    // Digging teaches digging, so a builder or two may have got a hundredth faster along the way.
+    expect(access.workLeft).toBeLessThanOrEqual(ROOMS.accessPoint.work - 4 * 3 + 1e-9);
+    expect(access.workLeft).toBeGreaterThan(ROOMS.accessPoint.work - 4 * 3 - 0.2);
     expect(c.staff[3].health).toBe(9);
   });
 

@@ -25,6 +25,8 @@ export interface Person {
   /** Who they are and what they've learned. Missing in saves from before attributes; see `settle`. */
   attributes?: Attributes;
   skills?: Skills;
+  /** How high each attribute can ever be trained. Hidden; rolled the first time they learn anything. */
+  ceiling?: Attributes;
   /** Their fight numbers, worked out from attributes and skills by `settle`. Armour is always 0: it's worn. */
   stats: Stats;
   health: number;
