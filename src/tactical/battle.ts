@@ -1,6 +1,7 @@
 import { batonGrudge } from "./adapt";
 import { Deeds, emptyDeeds } from "./deeds";
 import { Profile, batonWeight, fieldMedicine } from "./attributes";
+import { hasPerk } from "./perks";
 import { AlienMind, Personality, RACES, firstLook } from "./aliens";
 import { CoverLook, DIRS, Ground, LinePoint, Point, TacMap, Thing, adjacent, dist, facingTo, lvl, pt, samePoint, turnSteps } from "./map";
 import { mulberry32 } from "./random";
@@ -562,7 +563,7 @@ export class Battle {
     const u = this.unit(id);
     const w = u.weapon;
     const m = w?.modes[mode];
-    const tu = m ? tuCost(u.stats.tu, m.tuPct) + turnSteps(u.facing, facingTo(u, target)) * TURN_TU : 0;
+    const tu = m ? this.shotTu(u, mode) + turnSteps(u.facing, facingTo(u, target)) * TURN_TU : 0;
     const no = (reason: string): ShotPreview => ({ chance: 0, tu, reason, cover: false });
     if (!w || !m) return no("Can't fire that way");
     if (samePoint(u, target)) return no("Pick a target");
@@ -570,7 +571,7 @@ export class Battle {
     if (!usesHeat(u) && u.ammo <= 0) return no(u.clips ? "Empty: reload" : "Out of ammo");
     if (tu > u.tu) return no("Not enough time units");
     if (!this.map.clearLine(u, target)) return no("No line of fire");
-    const base = baseHitChance(this.accuracyOf(u) * this.drill(u, target), m, w, dist(u, target), u.kneeling, u.wounds * 4);
+    const base = baseHitChance(this.aimOf(u, mode) * this.drill(u, target), m, w, dist(u, target), u.kneeling, u.wounds * 4);
     let through = 1;
     let cover = false;
     const target_ = this.unitAt(target);
@@ -824,7 +825,7 @@ export class Battle {
       if (e.side === mover.side || !conscious(e) || !canFire(e) || this.outcome) continue;
       const snap = e.weapon!.modes.snap;
       if (!snap) continue;
-      const cost = tuCost(e.stats.tu, snap.tuPct) + turnSteps(e.facing, facingTo(e, mover)) * TURN_TU;
+      const cost = this.shotTu(e, "snap") + turnSteps(e.facing, facingTo(e, mover)) * TURN_TU;
       if (cost > e.tu || !this.canSee(e, mover, mover.revealed)) continue;
       if (this.reactionsOf(e) * this.reflex(e, mover) * (e.tu / e.stats.tu) <= moverScore) continue;
       this.events.push({ kind: "say", text: e.side === "alien" ? "It fires as you move!" : `${e.name} fires on reflex!`, tone: e.side === "alien" ? "bad" : "good" });
@@ -852,11 +853,27 @@ export class Battle {
     return hugging ? 0.4 * above : 0.25;
   }
 
+  /** Time a shot takes: a quick draw shaves a quarter off a snap shot. */
+  private shotTu(u: Unit, mode: FireMode): number {
+    const t = tuCost(u.stats.tu, u.weapon!.modes[mode]!.tuPct);
+    return mode === "snap" && hasPerk(u.profile, "quickDraw") ? Math.round(t * 0.75) : t;
+  }
+
+  /** Accuracy for this kind of shot: a marksman is better when they take their time. */
+  private aimOf(u: Unit, mode: FireMode): number {
+    return this.accuracyOf(u) + (mode === "aimed" && hasPerk(u.profile, "marksman") ? 10 : 0);
+  }
+
+  /** Takes morale off one of your people; iron nerve halves it. */
+  private shake(h: Unit, by: number) {
+    h.morale = Math.max(0, h.morale - (hasPerk(h.profile, "ironNerve") ? Math.round(by / 2) : by));
+  }
+
   private fire(u: Unit, target: Point, mode: FireMode) {
     const w = u.weapon!;
     const m = w.modes[mode]!;
     this.turnToward(u, target);
-    u.tu -= tuCost(u.stats.tu, m.tuPct);
+    u.tu -= this.shotTu(u, mode);
     u.revealed = true;
     if (u.deeds) u.deeds[mode === "snap" ? "snapShots" : mode === "aimed" ? "aimedShots" : "autoShots"]++;
     const aimedAt = this.unitAt(target);
@@ -867,7 +884,7 @@ export class Battle {
         if (u.heat >= HEAT_MAX) u.overheated = true;
       } else u.ammo--;
       if (u.deeds) u.deeds.rounds++;
-      const chance = baseHitChance(this.accuracyOf(u) * this.drill(u, target), m, w, dist(u, target), u.kneeling, u.wounds * 4);
+      const chance = baseHitChance(this.aimOf(u, mode) * this.drill(u, target), m, w, dist(u, target), u.kneeling, u.wounds * 4);
       const onTarget = this.rand() < chance;
       let end: Point = target;
       if (!onTarget) {
@@ -979,7 +996,7 @@ export class Battle {
     }
     this.events.push({ kind: "damage", unit: t.id, amount, stun: false, dead, out: !dead && t.stun >= t.health });
     if (t.side === "human") {
-      if (amount) t.morale = Math.max(0, t.morale - 10);
+      if (amount) this.shake(t, 10);
       this.events.push({
         kind: "say",
         text: dead ? `${t.name} is killed.` : amount ? `${t.name} is hit for ${amount}${t.wounds ? ", bleeding" : ""}.` : `${t.name} is grazed. Armour held.`,
@@ -998,7 +1015,7 @@ export class Battle {
 
   /** One of your people sees a friend die. */
   private loseFriend(h: Unit) {
-    h.morale = Math.max(0, h.morale - moraleLoss(h.stats.bravery));
+    this.shake(h, moraleLoss(h.stats.bravery));
     if (h.deeds) h.deeds.friendsLost++;
   }
 
@@ -1090,7 +1107,7 @@ export class Battle {
     if (u.side === "human") {
       if (u.id !== this.humanLeader) return;
       this.humanShakenUntil = this.turn + 1;
-      for (const h of this.humans) if (conscious(h)) h.morale = Math.max(0, h.morale - 20);
+      for (const h of this.humans) if (conscious(h)) this.shake(h, 20);
       for (const a of this.aliens) if (conscious(a)) a.morale = Math.min(100, a.morale + 15);
       this.events.push({ kind: "say", text: `${u.name} is down. Nobody's sure who's calling it now.`, tone: "bad" });
       return;

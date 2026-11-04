@@ -1,3 +1,4 @@
+import { PERKS } from "../../tactical/perks";
 import { attributeLine, skillLine } from "../../tactical/attributes";
 import { Job, buildSkill, fitToWork, project } from "../../campaign/staff";
 import { recordLines, recordSummary } from "../../campaign/record";
@@ -8,6 +9,12 @@ import { doing, fillJobs } from "../people";
 /** Staff & research: who works where, at what, and what the labs are on. */
 export function staffPanel(ui: Ui): PanelSpec {
   function summaryText(): string {
+    const waiting = ui.campaign.staff.filter((p) => p.perkOffer?.length).length;
+    const rest = workText();
+    return waiting ? `${waiting} perk${waiting === 1 ? "" : "s"} to pick · ${rest}` : rest;
+  }
+
+  function workText(): string {
     const { campaign } = ui;
     const id = campaign.research.active;
     if (!campaign.staff.length) return "Nobody yet";
@@ -48,11 +55,28 @@ export function staffPanel(ui: Ui): PanelSpec {
       const where = campaign.bases.find((b) => b.id === p.base)?.name ?? "No base yet";
       const fit = fitToWork(p);
       const out = doing(campaign, p);
-      li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div><div class="meta attrs"></div><details class="record"><summary></summary><ul></ul></details></div><div class="pick"><select aria-label="Base"></select><select aria-label="Job"></select></div>`;
+      li.innerHTML = `<div><b></b> <span class="dim"></span><div class="meta"></div><div class="meta attrs"></div><div class="meta perks"></div><details class="record"><summary></summary><ul></ul></details></div><div class="pick"><select aria-label="Base"></select><select aria-label="Job"></select></div>`;
       if (p.attributes && p.skills) {
         const skills = skillLine(p.skills);
         li.querySelector(".attrs")!.textContent = `${attributeLine(p.attributes)}${skills ? ` · ${skills}` : ""}`;
         li.querySelector(".attrs")!.setAttribute("title", "Strength, Dexterity, Endurance, Perception, Intelligence, Willpower, Charisma. Everything else is worked out from these and their skills.");
+      }
+      const perks = li.querySelector(".perks") as HTMLElement;
+      if (p.perks?.length) perks.textContent = `Perks: ${p.perks.map((k) => PERKS[k].name).join(", ")}`;
+      if (p.perkOffer?.length) {
+        const offer = document.createElement("div");
+        offer.className = "perkOffer";
+        offer.innerHTML = `<div class="dim">Picked up a knack. Choose one:</div>`;
+        for (const k of p.perkOffer) {
+          const b = choiceButton(PERKS[k].name, PERKS[k].does, false);
+          b.addEventListener("click", () => {
+            campaign.pickPerk(p.id, k);
+            ui.persist();
+            ui.refresh();
+          });
+          offer.appendChild(b);
+        }
+        perks.after(offer);
       }
       const rec = campaign.rec(p);
       li.querySelector(".record summary")!.textContent = `Service record: ${recordSummary(rec)}`;

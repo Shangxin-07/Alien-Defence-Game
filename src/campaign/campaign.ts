@@ -28,6 +28,8 @@ import { hashText } from "../tactical/random";
 import { SavedCampaign, restore, toSave } from "./save";
 import { Departed, ServiceRecord, newRecord } from "./record";
 import { askShare, findShare, lookout, nursing, priceShare, recruitOdds, riskShare, talk } from "../tactical/attributes";
+import { PERKS, PerkId } from "../tactical/perks";
+import { learnedPoints, perksEarned, rollOffer } from "./perks";
 import { CAR_FIXED, Change, DAY_PRACTICE, HAGGLED, MET, NURSED, PLACE_FOUND, Practice, RECRUITED, RUN_DAY, describeChanges, fightPractice, grow, growthDice, rollCeiling, scars } from "./growth";
 import { Deeds, addDeeds } from "../tactical/deeds";
 
@@ -764,7 +766,30 @@ export class Campaign {
     const r = this.rec(p);
     r.grown ??= {};
     for (const c of cs) r.grown[c.trait] = (r.grown[c.trait] ?? 0) + c.by;
+    this.offerPerk(p);
     return cs;
+  }
+
+  /** Once someone has learned enough by doing, offers them three perks that fit, if none is waiting. */
+  private offerPerk(p: Person) {
+    const have = p.perks ?? [];
+    if (p.perkOffer?.length || perksEarned(learnedPoints(this.rec(p))) <= have.length) return;
+    const offer = rollOffer(this.rec(p), p.skills!, have, growthDice(p.id, have.length, "perk"));
+    if (!offer.length) return;
+    p.perkOffer = offer;
+    this.news.push(`${p.name} has picked up a knack: choose a perk on the staff screen`);
+  }
+
+  /** Takes one of the perks on offer to someone. */
+  pickPerk(id: number, perk: PerkId): void {
+    const p = this.person(id);
+    if (!p?.perkOffer?.includes(perk)) throw new Error("That perk isn't on offer");
+    (p.perks ??= []).push(perk);
+    p.perkOffer = undefined;
+    settle(p);
+    this.news.push(`${p.name} took ${PERKS[perk].name}: ${PERKS[perk].does.toLowerCase()}`);
+    // Learned enough for another already.
+    this.offerPerk(p);
   }
 
   /** What a fight taught someone who walked away from it, and what it cost them. Tells the player. */

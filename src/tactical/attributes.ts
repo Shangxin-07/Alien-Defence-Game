@@ -1,4 +1,5 @@
 import type { Stats } from "./rules";
+import { PerkId, hasPerk } from "./perks";
 
 /**
  * Who someone is, and what they've learned. Seven attributes, each 1–100 (an average adult is
@@ -40,6 +41,8 @@ export interface Skills {
 export interface Profile {
   attributes: Attributes;
   skills: Skills;
+  /** Knacks they've picked up (perks.ts). Missing for anyone who has none. */
+  perks?: PerkId[];
 }
 
 export const ATTRIBUTES: (keyof Attributes)[] = ["str", "dex", "end", "per", "int", "wil", "cha"];
@@ -60,14 +63,16 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 // ---------- What they work out to ----------
 
 /** A person's numbers in a fight. Armour is never theirs: it comes from what they wear. */
-export function deriveStats({ attributes: a, skills: s }: Profile): Stats {
+export function deriveStats(p: Profile): Stats {
+  const { attributes: a, skills: s } = p;
+  const has = (id: PerkId) => (hasPerk(p, id) ? 1 : 0);
   return {
-    tu: Math.round(28 + 0.35 * a.dex + 0.25 * a.end),
-    health: Math.round(12 + 0.4 * a.end + 0.1 * a.str),
+    tu: Math.round(28 + 0.35 * a.dex + 0.25 * a.end) + 4 * has("runner"),
+    health: Math.round(12 + 0.4 * a.end + 0.1 * a.str) + 4 * has("tough"),
     bravery: Math.round(0.8 * a.wil + 0.2 * a.cha),
-    reactions: Math.round(10 + 0.4 * a.per + 0.4 * a.dex + 0.1 * s.firearms),
+    reactions: Math.round(10 + 0.4 * a.per + 0.4 * a.dex + 0.1 * s.firearms) + 8 * has("steady"),
     accuracy: Math.round(18 + 0.3 * a.per + 0.3 * a.dex + 0.7 * s.firearms),
-    melee: Math.round(14 + 0.3 * a.str + 0.3 * a.dex + 0.6 * s.close),
+    melee: Math.round(14 + 0.3 * a.str + 0.3 * a.dex + 0.6 * s.close) + 10 * has("brawler"),
     armour: 0,
   };
 }
@@ -75,13 +80,13 @@ export function deriveStats({ attributes: a, skills: s }: Profile): Stats {
 const twoPlaces = (n: number) => Math.round(n * 100) / 100;
 
 /** Research points a day at a bench, before labs and hunger. */
-export const researchAptitude = ({ attributes: a, skills: s }: Profile) => twoPlaces(0.4 + a.int / 100 + s.science / 100);
+export const researchAptitude = (p: Profile) => twoPlaces(0.4 + p.attributes.int / 100 + p.skills.science / 100 + (hasPerk(p, "bookworm") ? 0.1 : 0));
 
 /** Strength and Endurance's share of building, in hundredths, so a whole Engineering point can hit any rate. */
 const brawn = (a: Attributes) => Math.round((a.str + a.end) / 2);
 
 /** Person-days of construction a day. */
-export const buildRate = ({ attributes: a, skills: s }: Profile) => twoPlaces(0.2 + (brawn(a) + s.engineering) / 100);
+export const buildRate = (p: Profile) => twoPlaces(0.2 + (brawn(p.attributes) + p.skills.engineering) / 100 + (hasPerk(p, "greaseMonkey") ? 0.1 : 0));
 
 /** The Science that gives this aptitude with these attributes, never below 0. */
 const scienceFor = (aptitude: number, a: Attributes) => clamp(Math.round((aptitude - 0.4) * 100) - a.int, 0, 100);
@@ -178,7 +183,7 @@ export function skillLine(s: Skills): string {
 // worse. The defaults never get easier; the right person for the job is how you claw it back.
 
 /** How well someone talks people round: half their Charisma plus their Persuasion. A civilian is 20, a police officer about 40, the liaison about 57. */
-export const talk = ({ attributes: a, skills: s }: Profile) => Math.round(a.cha / 2 + s.persuasion);
+export const talk = (p: Profile) => Math.round(p.attributes.cha / 2 + p.skills.persuasion) + (hasPerk(p, "silverTongue") ? 15 : 0);
 /** The talk that gets the same deals as before. */
 export const TALK_PIVOT = 40;
 
@@ -192,20 +197,20 @@ export const askShare = (p: Profile) => clamp(1 + (TALK_PIVOT - talk(p)) / 200, 
 export const priceShare = (p: Profile) => clamp(1 + (TALK_PIVOT - talk(p)) / 400, 0.85, 1.1);
 
 /** How well someone keeps a team out of trouble: half their Perception plus their Scrounging. A civilian is 20, a reservist about 34. */
-export const lookout = ({ attributes: a, skills: s }: Profile) => Math.round(a.per / 2 + s.scrounging);
+export const lookout = (p: Profile) => Math.round(p.attributes.per / 2 + p.skills.scrounging) + (hasPerk(p, "pathfinder") ? 20 : 0);
 export const LOOKOUT_PIVOT = 30;
 
 /** How much trouble a run gets into with this lookout, as a share of before. */
 export const riskShare = (lookoutScore: number) => clamp(1 + (LOOKOUT_PIVOT - lookoutScore) / 200, 0.7, 1.2);
 
 /** How much someone finds next to before: a little less with no Scrounging, more with a lot. */
-export const findShare = ({ skills: s }: Profile) => 1 + (s.scrounging - 10) / 200;
+export const findShare = (p: Profile) => 1 + (p.skills.scrounging - 10) / 200 + (hasPerk(p, "scavenger") ? 0.15 : 0);
 
 /** Health a dose of medicine adds at home with this person looking after the wounded (before, always 2). */
-export const nursing = ({ skills: s }: Profile) => Math.max(1, 2 + Math.round((s.medicine - 20) / 20));
+export const nursing = (p: Profile) => Math.max(1, 2 + Math.round((p.skills.medicine - 20) / 20)) + (hasPerk(p, "bedside") ? 1 : 0);
 
 /** Health one medikit use adds in this person's hands, on top of or off the kit's own (a medic about +3, nobody trained −2). */
-export const fieldMedicine = ({ skills: s }: Profile) => Math.round((s.medicine - 20) / 8);
+export const fieldMedicine = (p: Profile) => Math.round((p.skills.medicine - 20) / 8) + (hasPerk(p, "fieldMedic") ? 5 : 0);
 
 /** Extra stun a baton blow does with this much muscle behind it: none for a police officer, less for anyone weaker. */
-export const batonWeight = ({ attributes: a }: Profile) => Math.round((a.str - 60) / 3);
+export const batonWeight = (p: Profile) => Math.round((p.attributes.str - 60) / 3) + (hasPerk(p, "brawler") ? 10 : 0);

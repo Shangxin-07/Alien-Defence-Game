@@ -49,8 +49,10 @@ plain functions and tables the class calls:
 | `sightings.ts` | sighting calls, travel, cars and fuel |
 | `record.ts` | service records: what each person has done, and the roll of the dead and departed |
 | `growth.ts` | learning by doing: what fights, jobs and runs teach, attribute ceilings, scars |
+| `perks.ts` | when someone is offered perks, and which three (the perks themselves are in `tactical/perks.ts`) |
 
 People's attributes and skills, and the formulas that turn them into every number about a person, are in `tactical/attributes.ts`, so the battle setups and the campaign share them. See `docs/design/attributes.md`.
+Perks, and what each one does, are in `tactical/perks.ts`; their effects are worked out next to the numbers they change. See `docs/design/perks.md`.
 
 The save format is `SavedCampaign` in save.ts. New fields are optional and `restore` fills them in
 for older saves, so a player's war is never thrown away.
