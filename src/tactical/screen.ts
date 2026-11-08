@@ -1,3 +1,4 @@
+import type { Gender } from "./gender";
 import { Deeds, emptyDeeds, fightLine } from "./deeds";
 import type { Profile } from "./attributes";
 import "./tactical.css";
@@ -8,6 +9,8 @@ import { TacticalCamera } from "./camera";
 import { Point, levelName, lvl, samePoint } from "./map";
 import { ACTION_CAMS, ACTION_CAM_LABEL, ActionCam, Moment, MomentContext, momentFor } from "./moments";
 import { mulberry32 } from "./random";
+import { alienPortrait, assignFaces } from "./portraits";
+import { RACES } from "./aliens";
 import { OUTCOME_TEXT, Prologue, SPOILS, battleSpoils, briefing, lightRead, unitLook, unitShape } from "./prologue";
 import { FireMode, KNEEL_TU, LIFT_TU, STAIRS_TU, STAND_TU, Stats, tuCost } from "./rules";
 import { TOUGH_NAMES, hpLeft, materialAt } from "./terrain";
@@ -22,7 +25,7 @@ export interface CombatResult {
   recovered: string[];
   survivors: number;
   /** Who walked out, as they are now. */
-  people: { id: number; name: string; role: string; profile?: Profile; stats: Stats; health: number; gear: Gear; deeds: Deeds }[];
+  people: { id: number; name: string; role: string; gender?: Gender; profile?: Profile; stats: Stats; health: number; gear: Gear; deeds: Deeds }[];
   /** Who didn't, and what they'd done before they fell. */
   fallen: { id: number; name: string; role: string; deeds: Deeds }[];
   turns: number;
@@ -51,6 +54,7 @@ const root = $("combatScreen");
 
 // ---------- Scene ----------
 const canvas = $("battlefield") as HTMLCanvasElement;
+$("contactCard").addEventListener("click", () => nextContact());
 const renderer = new WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setClearColor(new Color(token("--void")));
@@ -63,6 +67,10 @@ const cam = new TacticalCamera(camera, canvas);
 let host: CombatHost | null = null;
 let battle: Battle | null = null;
 let selected: Unit | null = null;
+/** Each of your people's portrait, by unit id. */
+let faces = new Map<number, string>();
+/** Aliens whose contact card has been shown this fight. */
+const met = new Set<number>();
 let mode: Mode = "move";
 let hover: Point | null = null;
 let reach: ReturnType<Battle["reach"]> | null = null;
@@ -416,6 +424,10 @@ function apply(e: BattleEvent): number {
       view.setVisible(e.unit, true);
       const pos = view.unitPos(e.unit);
       if (pos) cam.lookAt(pos.x, pos.z);
+      if (!met.has(e.unit)) {
+        met.add(e.unit);
+        contactCard(a);
+      }
       return 0.6;
     }
     case "turn":
@@ -600,8 +612,10 @@ function refreshHud() {
     btn.type = "button";
     btn.className = `member${u === selected ? " on" : ""}${alive(u) ? "" : " dead"}`;
     btn.disabled = !conscious(u);
-    btn.innerHTML = `<span class="swatch"></span><span class="nm"></span><span class="meta"></span>`;
-    (btn.querySelector(".swatch") as HTMLElement).style.background = unitLook(u);
+    btn.innerHTML = `<img class="swatch" alt=""><span class="nm"></span><span class="meta"></span>`;
+    const face = btn.querySelector(".swatch") as HTMLImageElement;
+    face.src = faces.get(u.id) ?? "";
+    face.style.borderColor = unitLook(u);
     btn.querySelector(".nm")!.textContent = u.id === b.humanLeader ? `★ ${u.name}` : u.name;
     btn.querySelector(".meta")!.textContent = alive(u) ? `TU ${u.tu} · HP ${u.health}${u.wounds ? " · bleeding" : ""}${u.kneeling ? " · kneeling" : ""}${lvl(u) ? ` · ${levelName(lvl(u)).toLowerCase()}` : ""}` : "Killed";
     btn.addEventListener("click", () => !busy() && select(u));
@@ -609,6 +623,10 @@ function refreshHud() {
   }
   const u = selected;
   $("unitName").textContent = u?.name ?? "—";
+  const portrait = $("unitFace") as HTMLImageElement;
+  portrait.hidden = !u;
+  if (u) portrait.src = faces.get(u.id) ?? "";
+  portrait.classList.toggle("dead", !!u && !alive(u));
   $("unitRole").textContent = u?.role ?? "";
   const gun = (w: Unit) =>
     !w.weapon ? "Unarmed" : usesHeat(w) ? `${w.weapon.name} ${w.overheated ? "OVERHEATED" : `heat ${Math.round(w.heat ?? 0)}%`}` : `${w.weapon.name} ${w.ammo}/${w.weapon.ammo} · ${w.clips ?? 0} clip${w.clips === 1 ? "" : "s"}`;
@@ -652,6 +670,41 @@ function refreshHud() {
   // The hint floats just above the unit panel, whatever its height.
   document.documentElement.style.setProperty("--panel-h", `${$("combatScreen").querySelector<HTMLElement>(".unitpanel")!.offsetHeight}px`);
   ($("nextUnit") as HTMLButtonElement).disabled = busy();
+}
+
+/** Aliens seen for the first time and waiting for their card, oldest first. */
+const contacts: Unit[] = [];
+/** The alien's picture, the first time each one is seen in a fight. It stays up until closed. */
+function contactCard(a: Unit) {
+  contacts.push(a);
+  if (contacts.length === 1) showContact();
+}
+function showContact() {
+  const card = $("contactCard");
+  const a = contacts[0];
+  if (!a) {
+    card.hidden = true;
+    return;
+  }
+  const race = RACES[a.mind?.race ?? "strider"];
+  const leader = a.mind?.rank === "leader";
+  (card.querySelector("img") as HTMLImageElement).src = alienPortrait(a);
+  card.querySelector(".nm")!.textContent = leader ? `${race.name} commander` : race.name;
+  card.querySelector(".blurb")!.textContent = leader ? "The one giving the orders. Bring it down and the rest come apart for a while." : race.blurb;
+  card.querySelector(".more")!.textContent = contacts.length > 1 ? `${contacts.length - 1} more` : "";
+  card.hidden = false;
+  card.classList.remove("on");
+  void card.offsetWidth;
+  card.classList.add("on");
+}
+/** Closes the card on screen, and shows the next one if more were seen. */
+function nextContact() {
+  contacts.shift();
+  showContact();
+}
+function hideContact() {
+  contacts.length = 0;
+  $("contactCard").hidden = true;
 }
 
 function bar(key: string, value: number, max: number, note = "") {
@@ -729,10 +782,13 @@ function modal(title: string, body: string, buttons: { label: string; go?: boole
   (box.querySelector(".go") as HTMLElement | null)?.focus();
 }
 
+/** A small portrait for the squad lists in the briefing and results. */
+const faceImg = (u: Unit) => (faces.has(u.id) ? `<img class="face${alive(u) ? "" : " dead"}" src="${faces.get(u.id)}" alt="">` : "");
+
 function brief(p: Prologue) {
   if (p.mission) {
     const m = p.mission;
-    const team = p.battle.humans.map((u) => `<li><b>${escape(u.name)}</b>${u.id === p.battle.humanLeader ? " ★ leads" : ""} <span class="dim">${escape(u.role)}, ${escape(u.weapon?.name.toLowerCase() ?? "unarmed")}, ${u.health}/${u.stats.health} HP</span></li>`);
+    const team = p.battle.humans.map((u) => `<li>${faceImg(u)}<b>${escape(u.name)}</b>${u.id === p.battle.humanLeader ? " ★ leads" : ""} <span class="dim">${escape(u.role)}, ${escape(u.weapon?.name.toLowerCase() ?? "unarmed")}, ${u.health}/${u.stats.health} HP</span></li>`);
     modal(
       m.title,
       `${m.intro.map((t) => `<p>${escape(t)}</p>`).join("")}
@@ -744,7 +800,7 @@ function brief(p: Prologue) {
     );
     return;
   }
-  const squad = p.battle.humans.map((u) => `<li><b>${escape(u.name)}</b>${u.id === p.battle.humanLeader ? " ★ leads" : ""} <span class="dim">${escape(u.role)}, ${escape(u.weapon?.name.toLowerCase() ?? "unarmed")}${u.tools.length ? `, ${u.tools.map((t) => t.tool.name.toLowerCase()).join(", ")}` : ""}</span></li>`);
+  const squad = p.battle.humans.map((u) => `<li>${faceImg(u)}<b>${escape(u.name)}</b>${u.id === p.battle.humanLeader ? " ★ leads" : ""} <span class="dim">${escape(u.role)}, ${escape(u.weapon?.name.toLowerCase() ?? "unarmed")}${u.tools.length ? `, ${u.tools.map((t) => t.tool.name.toLowerCase()).join(", ")}` : ""}</span></li>`);
   modal(
     `Prologue: ${p.city.name}`,
     `<p>${escape(briefing(p))}</p>
@@ -787,7 +843,7 @@ function results(o: Outcome) {
   }
   const { recovered, lost } = settled;
   const people = survivors.map((u) => ({
-    id: u.id, name: u.name, role: u.role, profile: u.profile, stats: { ...u.stats }, health: Math.max(1, u.health),
+    id: u.id, name: u.name, role: u.role, gender: u.gender, profile: u.profile, stats: { ...u.stats }, health: Math.max(1, u.health),
     gear: { weapon: u.weapon, ammo: u.ammo, clips: u.clips ?? 0, tools: u.tools.map((t) => ({ ...t })) },
     deeds: { ...(u.deeds ?? emptyDeeds()) },
   }));
@@ -799,7 +855,7 @@ function results(o: Outcome) {
   const roll = b.humans
     .map((u) => {
       const line = u.deeds ? fightLine(u.deeds) : "";
-      return `<li>${escape(u.name)} <span class="${alive(u) ? "dim" : "bad"}">${alive(u) ? `${u.health}/${u.stats.health} HP` : "killed"}</span>${line ? `<div class="dim">${escape(line)}</div>` : ""}</li>`;
+      return `<li>${faceImg(u)}${escape(u.name)} <span class="${alive(u) ? "dim" : "bad"}">${alive(u) ? `${u.health}/${u.stats.health} HP` : "killed"}</span>${line ? `<div class="dim">${escape(line)}</div>` : ""}</li>`;
     })
     .join("");
   if (m) {
@@ -1254,6 +1310,9 @@ window.addEventListener("resize", resize);
 export function openCombat(h: CombatHost): void {
   host = h;
   battle = h.prologue.battle;
+  faces = assignFaces(battle.humans);
+  met.clear();
+  hideContact();
   root.hidden = false;
   resize();
   clearQueue();
@@ -1300,6 +1359,7 @@ export function openCombat(h: CombatHost): void {
 export function closeCombat(): void {
   root.hidden = true;
   clearQueue();
+  hideContact();
   auto = null;
   estimating++;
   host = null;

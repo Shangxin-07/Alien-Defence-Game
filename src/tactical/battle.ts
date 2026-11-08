@@ -1,3 +1,4 @@
+import type { Gender } from "./gender";
 import { batonGrudge } from "./adapt";
 import { Deeds, emptyDeeds } from "./deeds";
 import { Profile, batonWeight, fieldMedicine } from "./attributes";
@@ -36,6 +37,8 @@ export interface Unit {
   name: string;
   /** What they were before this started: officer, reservist... */
   role: string;
+  /** One of your people's gender, for their portrait. Aliens have none. */
+  gender?: Gender;
   /** One of your people's attributes and skills, where the fight started them. */
   profile?: Profile;
   stats: Stats;

@@ -2,7 +2,7 @@
  * Pictures for things in the game, dropped into src/art/<kind>/<id>.<ext> (see src/art/README.md).
  * Anything without a picture yet gets a plain placeholder, so art can arrive a piece at a time.
  */
-const FILES = import.meta.glob("../art/**/*.{png,jpg,jpeg,webp}", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
+const FILES = import.meta.glob("../art/*/*.{png,jpg,jpeg,webp}", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
 
 const BY_KEY = new Map<string, string>();
 for (const [path, url] of Object.entries(FILES)) {

@@ -1,3 +1,4 @@
+import type { Gender } from "../tactical/gender";
 import type { Duty } from "./allocation";
 import type { Kit, Request } from "./armoury";
 import type { Stats } from "../tactical/rules";
@@ -23,6 +24,8 @@ export interface Person {
   id: number;
   name: string;
   role: string;
+  /** Woman or man, for their portrait. Missing in old saves; `restore` works it out from the name. */
+  gender?: Gender;
   /** Who they are and what they've learned. Missing in saves from before attributes; see `settle`. */
   attributes?: Attributes;
   skills?: Skills;

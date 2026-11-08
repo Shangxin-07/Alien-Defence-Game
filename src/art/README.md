@@ -1,6 +1,8 @@
 # Art
 
-Pictures for things in the game. One folder per kind of thing, one file per thing, named by its id:
+Pictures for things in the game. Portraits and aliens sit at the top level and are imported by
+`src/tactical/portraits.ts`. Everything else goes in one folder per kind of thing, one file per
+thing, named by its id, and `src/ui/art.ts` picks it up on its own:
 
 ```
 src/art/tech/plasmaPistol.webp     the Plasma pistol card in the tech tree

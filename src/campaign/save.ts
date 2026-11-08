@@ -1,3 +1,4 @@
+import { genderFor } from "../tactical/gender";
 import { BaseLayout, SavedBase } from "../base/layout";
 import type { Habits } from "../tactical/adapt";
 import type { RaceId } from "../tactical/aliens";
@@ -142,6 +143,9 @@ export function restore(c: Campaign, data: SavedCampaign): void {
   // Saves from before attributes: everyone gets attributes that fit the numbers they had, and any
   // armour that was part of them becomes something they wear.
   for (const p of c.staff) c.wearInnate(p, settle(p));
+  // Saves from before genders: everyone gets the one that goes with their name.
+  for (const p of c.staff) p.gender ??= genderFor(p.name);
+  for (const k of c.candidates) k.gender ??= genderFor(k.name);
   for (const k of c.candidates) {
     if (k.attributes && k.skills) continue;
     const p = inferProfile(k.stats, k.aptitude, k.build, k.role);

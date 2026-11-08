@@ -1,3 +1,4 @@
+import { Gender, genderFor } from "./gender";
 import { BIOMES, BiomeId, biomeAt } from "../geoscape/biomes";
 import { CITIES, City } from "../geoscape/cities";
 import { Habits, adaptReads, adaptSquad } from "./adapt";
@@ -48,6 +49,7 @@ export interface Scavenger {
   id: number;
   name: string;
   role: string;
+  gender?: Gender;
   stats: Stats;
   health: number;
   /** What they carry. Without one, they fight with what their old job gave them, or a pistol. */
@@ -87,7 +89,7 @@ export const OUTCOME_TEXT: Record<Outcome, { title: string; text: string }> = {
   },
 };
 
-const FIRST = ["Ana", "Ben", "Chidi", "Dana", "Elif", "Farah", "Goran", "Hana", "Ivan", "Jae", "Kofi", "Lena", "Mateo", "Nadia", "Omar", "Priya", "Raul", "Sana", "Tomas", "Yusuf", "Zoe", "Mika", "Ines", "Lars"];
+export const FIRST = ["Ana", "Ben", "Chidi", "Dana", "Elif", "Farah", "Goran", "Hana", "Ivan", "Jae", "Kofi", "Lena", "Mateo", "Nadia", "Omar", "Priya", "Raul", "Sana", "Tomas", "Yusuf", "Zoe", "Mika", "Ines", "Lars"];
 const LAST = ["Okafor", "Novak", "Haddad", "Sato", "Mendes", "Brandt", "Kowalski", "Reyes", "Ivanova", "Osei", "Larsen", "Khan", "Moreau", "Silva", "Park", "Adeyemi", "Costa", "Weber", "Nyambura", "Petrov"];
 
 interface Role {
@@ -267,6 +269,7 @@ export function startPrologue(city: City, seed: number): Prologue {
       revealed: false,
     };
   });
+  for (const u of units) u.gender = genderFor(u.name);
   const a = field.alienStart;
   const mind = rollSquad("strider", 1, rand, HUNTER_NORMS).members[0];
   units.push(alienUnit(99, "Hunter", HUNTER, a, facingTo(a, field.humanStart[0]), WEAPONS.plasmaPistol, mind));
@@ -335,6 +338,7 @@ export function startAmbush(
       side: "human",
       name: m.name,
       role: m.role,
+      gender: m.gender ?? genderFor(m.name),
       stats: { ...m.stats, armour: m.stats.armour + (carried?.armour ?? 0) },
       x: p.x,
       y: p.y,
