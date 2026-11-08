@@ -141,7 +141,7 @@ describe("scavenging runs", () => {
   it("starts out knowing one place of each kind, with a fixed stock", () => {
     const c = camp();
     expect(c.places.map((p) => p.kind)).toEqual(["homes", "grocery", "pharmacy", "hardware", "industrial", "police"]);
-    expect(c.findPlace("homes")!.stock).toEqual({ food: 40, medicine: 6, scrap: 25, fuel: 10, ammo: 0, arms: 0 });
+    expect(c.findPlace("homes")!.stock).toEqual({ food: 40, medicine: 6, scrap: 25, fuel: 10, ammo: 0, arms: 0, chemicals: 0, alloy: 0, cells: 0, cores: 0 });
   });
 });
 

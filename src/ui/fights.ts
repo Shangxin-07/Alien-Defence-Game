@@ -45,7 +45,8 @@ export function ambushDialog(host: FightHost): { check(): void } {
     }
     if (!box.hidden) return;
     host.closePanels();
-    const team = run.team.map((id) => campaign.staff.find((p) => p.id === id)!);
+    const vented = campaign.vented();
+    const team = run.team.map((id) => ({ ...campaign.staff.find((p) => p.id === id)!, vented }));
     if (run.fightSeed === undefined) {
       run.fightSeed = Math.floor(Math.random() * 2 ** 31);
       host.persist();
@@ -85,7 +86,8 @@ export function ambushDialog(host: FightHost): { check(): void } {
     if (!run) return;
     box.hidden = true;
     const city = campaign.fightCity(run.team);
-    const team = run.team.map((id) => campaign.staff.find((p) => p.id === id)!);
+    const vented = campaign.vented();
+    const team = run.team.map((id) => ({ ...campaign.staff.find((p) => p.id === id)!, vented }));
     host.leaveGlobe();
     const sighting = run.call ? { caller: run.call.caller, place: run.call.place, hours: (run.arrive! - run.call.at) / HOUR_MS } : undefined;
     const seed = run.fightSeed ?? Math.floor(Math.random() * 2 ** 31);

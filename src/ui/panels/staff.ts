@@ -1,6 +1,7 @@
 import { PERKS } from "../../tactical/perks";
 import { attributeLine, skillLine } from "../../tactical/attributes";
-import { Job, buildSkill, fitToWork, project } from "../../campaign/staff";
+import { Job, buildSkill, fitToWork } from "../../campaign/staff";
+import { project } from "../../campaign/tech";
 import { recordLines, recordSummary } from "../../campaign/record";
 import { $, addItem, choiceButton, escape, summaryButton } from "../dom";
 import type { PanelSpec, Ui } from "../panel";

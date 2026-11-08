@@ -1,6 +1,6 @@
 import { Duty, Hold, allowedJob, dutyClash, dutyOf, jobDuty } from "./allocation";
 import {
-  ArmourId, GEAR, GUNS, GearId, Kit, MEDIKIT_COST, MEDIKIT_RESTOCK, Quarters, Request, Stores, defaultRequest, arrivalKit, emptyStores, kitWarnings,
+  ArmourId, GEAR, GUNS, GearId, GunId, Kit, MEDIKIT_COST, MEDIKIT_RESTOCK, Quarters, Request, Stores, defaultRequest, arrivalKit, emptyStores, kitWarnings,
   legacyKit, noKit, outfit, rollArms, usable,
 } from "./armoury";
 import { BaseLayout, Builder, Item, Site } from "../base/layout";
@@ -12,7 +12,7 @@ import {
   MEDICINE_DAYS, Pledge, RECRUIT_LOYALTY, STEAL_BELOW, rollCandidate, rollDrifter,
 } from "./recruit";
 import {
-  MAX_RECRUITERS, MAX_SEARCHERS, DESERT_AFTER, DESERT_CHANCE, MAX_RUN_DAYS, MAX_TEAM, MEDICINE_HEAL, Place, RATION, Run, SEARCH_CHANCE,
+  MAX_RECRUITERS, MAX_SEARCHERS, DESERT_AFTER, DESERT_CHANCE, MAX_RUN_DAYS, MAX_TEAM, MEDICINE_HEAL, Material, Place, RATION, Run, SEARCH_CHANCE,
   MARKET_EASE, MARKET_RISE, START_SUPPLIES, SiteId, Supplies, Traded, addSupplies, isEmpty, marketCost, placeless, rollPlace, runWhere, startPlaces, dayLoot, dayRisk, describeSupplies, emptySupplies,
 } from "./scavenge";
 import { ROOMS } from "../base/rooms";
@@ -20,7 +20,8 @@ import {
   CALL_CHANCE, CAR_SCRAP, CAR_SEATS, CAR_WORK, Call, HOUR_MS, MAX_MECHANICS, SIGHTING_LOYALTY, SIGHTING_SCRAP, TRAIL_HOURS, Travel, Vehicle,
   carName, freshness, rollCall, travelHours, tripFuel,
 } from "./sightings";
-import { Job, LAB_BONUS, LIAISON, PROJECTS, Person, Project, ResearchState, blocker, buildSkill, fitToWork, profileOf, project, settle, workPace } from "./staff";
+import { Job, LAB_BONUS, LIAISON, Person, buildSkill, fitToWork, profileOf, settle, workPace } from "./staff";
+import { Lab, PROJECTS, Project, ResearchState, VENTS, blocker, project } from "./tech";
 import { Habits, adaptNews, learn, noHabits, observe } from "../tactical/adapt";
 import type { RaceId } from "../tactical/aliens";
 import type { Outcome, Tally } from "../tactical/battle";
@@ -49,6 +50,9 @@ export const CITY_RADIUS_KM = 120;
 export const MIN_SPACING_KM = 400;
 /** Buying a city block through cut-outs costs more than claiming empty ground. The first base is paid for. */
 export const FOUNDING_COST: Record<Site, number> = { city: 900_000, remote: 600_000 };
+
+/** Alien alloy cut off each Brute brought home: their armour is plates of it. */
+export const BRUTE_ALLOY = 2;
 
 const CALLSIGNS = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel"];
 
@@ -681,6 +685,7 @@ export class Campaign {
     const guns = items.map((i) => GUNS.find((g) => GEAR[g].name === i)).filter((g): g is (typeof GUNS)[number] => !!g);
     this.stock(guns);
     this.kills += items.length - guns.length;
+    this.salvage(items, guns.length, result.race);
     if (result.race) this.encounters[result.race] = (this.encounters[result.race] ?? 0) + 1;
     if (result.race && result.tally) this.learnFrom(result.race, result.tally, result.outcome, !!result.commanderDown);
     if (items.some((i) => i.includes("ommander"))) this.news.push("You brought down one of their leaders");
@@ -692,6 +697,19 @@ export class Campaign {
     if (dead.length) this.news.push(`Lost on the run: ${dead.map((p) => p.name).join(", ")}`);
     this.endRun(run, spoils.share);
     this.backfill();
+  }
+
+  /**
+   * What comes off the bodies besides themselves: a Brute's armour plates are alien alloy, and a
+   * leader carries a spare power cell.
+   */
+  private salvage(items: string[], guns: number, race?: RaceId): void {
+    const bodies = items.length - guns;
+    const leaders = items.filter((i) => i.includes("ommander")).length;
+    if (race === "brute") this.supplies.alloy += BRUTE_ALLOY * bodies;
+    this.supplies.cells += leaders;
+    if (race === "brute" && bodies) this.news.push(`Cut ${BRUTE_ALLOY * bodies} alloy plates off the Brute${bodies === 1 ? "" : "s"}`);
+    if (leaders) this.news.push(`Took a spare power cell off their leader`);
   }
 
   /**
@@ -1035,18 +1053,48 @@ export class Campaign {
     return this.bases.some((b) => b.layout.stats().capacity.containment > 0);
   }
 
-  /** Projects you could work on, with what's stopping each. Ones needing things you never got stay hidden. */
-  projects(): { project: Project; blocker: string | null; progress: number }[] {
-    return PROJECTS.filter((p) => !p.items || p.items.some((i) => this.recovered.includes(i))).map((p) => ({
-      project: p,
-      blocker: blocker(p, this.research, this.recovered, this.containment),
-      progress: this.research.progress[p.id] ?? 0,
-    }));
+  /** Working labs across every base. */
+  get labs(): number {
+    return this.bases.reduce((n, b) => n + Math.floor(b.layout.stats().capacity.science / ROOMS.lab.provides.science!), 0);
   }
 
+  /** What research can draw on: what's been brought home, the rooms, and the stores. */
+  lab(): Lab {
+    return { recovered: this.recovered, containment: this.containment, labs: this.labs, stores: this.armoury };
+  }
+
+  /**
+   * Projects you could work on, with what's stopping each. Ones needing things you never got stay
+   * hidden, and so does anything not in the game yet; the tech tree shows the lot (`tree`).
+   */
+  projects(): { project: Project; blocker: string | null; progress: number }[] {
+    return this.tree().filter(({ project: p }) => !p.planned && (!p.items || p.items.some((i) => this.recovered.includes(i))));
+  }
+
+  /** Every project in the tech tree, with what's stopping each. */
+  tree(): { project: Project; blocker: string | null; progress: number }[] {
+    const lab = this.lab();
+    return PROJECTS.map((p) => ({ project: p, blocker: blocker(p, this.research, lab), progress: this.research.progress[p.id] ?? 0 }));
+  }
+
+  /**
+   * Picks what everyone on research works on. Reverse-engineering takes its item off the shelf the
+   * first time it's started, and it doesn't come back.
+   */
   setResearch(id: string | null): void {
-    if (id && blocker(project(id), this.research, this.recovered, this.containment)) throw new Error("Can't research that yet");
+    const p = id ? project(id) : null;
+    if (p && blocker(p, this.research, this.lab())) throw new Error("Can't research that yet");
+    if (p?.consumes && !this.research.stripped?.includes(p.id)) {
+      this.armoury[p.consumes]--;
+      (this.research.stripped ??= []).push(p.id);
+      this.news.push(`${GEAR[p.consumes].name} taken apart for ${p.name.toLowerCase()}`);
+    }
     this.research.active = id;
+  }
+
+  /** Captured guns whose heat our people have learned to vent. */
+  vented(): GunId[] {
+    return Object.entries(VENTS).filter(([id]) => this.research.done.includes(id)).map(([, g]) => g as GunId);
   }
 
   /** Research points a day from everyone on it, labs and research bases making it go faster. */
@@ -1125,6 +1173,8 @@ export class Campaign {
         this.research.done.push(id);
         this.research.active = null;
         this.news.push(`Research complete: ${project(id).name}`);
+        const grants = project(id).grants;
+        if (grants) for (const [k, n] of Object.entries(grants) as [Material, number][]) this.supplies[k] += n;
         // Alien guns on the shelf can be handed out now.
         if (armed.some((g) => this.armoury[g])) this.quartermaster();
       }

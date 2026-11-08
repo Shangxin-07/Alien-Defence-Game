@@ -22,6 +22,8 @@ import { recruitPanel } from "./ui/panels/recruit";
 import { scavengePanel } from "./ui/panels/scavenge";
 import { sightingsPanel } from "./ui/panels/sightings";
 import { staffPanel } from "./ui/panels/staff";
+import { techPanel } from "./ui/panels/tech";
+import { MATERIALS, SUPPLY_NAMES } from "./campaign/scavenge";
 
 // The geoscape screen: the globe, the command panel and the clock. The panels it opens live in
 // ui/panels/, the fights in ui/fights.ts, and the base and battle screens in base/screen.ts and
@@ -93,7 +95,7 @@ const host: FightHost = {
 };
 
 /** The panels opened from the command panel. To add one, see ui/panel.ts. */
-const panels = [scavengePanel, recruitPanel, sightingsPanel, armouryPanel, allocationPanel, staffPanel].map((make) => new Panel(make(host)));
+const panels = [scavengePanel, recruitPanel, sightingsPanel, armouryPanel, allocationPanel, staffPanel, techPanel].map((make) => new Panel(make(host)));
 const ambush = ambushDialog(host);
 
 // ---------- Picking ----------
@@ -248,7 +250,8 @@ function refreshBases() {
   const s = campaign.supplies;
   const days = campaign.foodDays;
   $("suppliesRow").hidden = !campaign.bases.length;
-  $("globeSupplies").textContent = `${s.food} food (${days === Infinity ? "—" : `${days}d`}) · ${s.medicine} med · ${s.scrap} scrap · ${s.fuel} fuel · ${s.ammo} clips`;
+  const mats = MATERIALS.filter((m) => s[m]).map((m) => ` · ${s[m]} ${SUPPLY_NAMES[m].toLowerCase()}`).join("");
+  $("globeSupplies").textContent = `${s.food} food (${days === Infinity ? "—" : `${days}d`}) · ${s.medicine} med · ${s.scrap} scrap · ${s.fuel} fuel · ${s.ammo} clips${mats}`;
   $("globeSupplies").className = days < 3 ? "bad" : "";
   marks.set(
     campaign.bases.map((b) => ({ id: b.id, name: b.name, lat: b.lat, lon: b.lon, covert: b.site === "city" })),

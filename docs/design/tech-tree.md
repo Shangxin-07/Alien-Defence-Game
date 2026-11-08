@@ -2,7 +2,16 @@
 
 Proposal from 2026-11-04, after Mike asked for "a proper set of techs, from normal today techs, to
 slightly better hybrid techs, to fully advanced alien techs, along with the levels and places to
-find, research or get them." **Nothing here is built.** Numbers are placeholders to tune in play.
+find, research or get them." Numbers are placeholders to tune in play.
+
+**Built so far (2026-11-08):** build-order step 1 and the tree itself. Every project below is in
+`src/campaign/tech.ts` with its level and kind, and the **Tech tree** panel on the geoscape shows all
+nine levels. Projects whose kit isn't built yet are in the tree marked *coming later* and can't be
+started. Working now: all-of prerequisites, reverse-engineering using up an item, labs for the deep
+rungs (H2/H3 one, A2/A3 two), the four new materials (chemicals scavenged; alloy from the crash
+site survey and Brute bodies; a power cell off each leader), and venting the three captured guns
+(A2, a third less heat a shot). The existing projects keep their old sizes and needs, so nothing
+already in play got easier or harder; the new deep ones follow the sizes below.
 Mike made the open choices on 2026-11-04; see [Decisions](#decisions).
 
 ## Rules this has to keep

@@ -6,7 +6,8 @@ import type { BaseRecord, Campaign, PrologueRecord } from "./campaign";
 import type { Candidate, Pledge } from "./recruit";
 import { Place, Run, START_SUPPLIES, Supplies, Traded, emptySupplies, startPlaces } from "./scavenge";
 import type { Call, Vehicle } from "./sightings";
-import { LIAISON, Person, ResearchState, settle } from "./staff";
+import { LIAISON, Person, settle } from "./staff";
+import type { ResearchState } from "./tech";
 import { buildRate, deriveStats, inferProfile, researchAptitude } from "../tactical/attributes";
 import { Departed, fillRecord } from "./record";
 
