@@ -7,7 +7,7 @@ import { Battle, Outcome, Unit, alive, conscious } from "./battle";
 import { CITY_STYLES, CityStyle, buildCity } from "./cityMap";
 import { Point, dist, facingTo, lvl } from "./map";
 import { hashText, mulberry32 } from "./random";
-import { ALIEN_GUN_INTACT, ArmourId, GEAR, Kit, fightKit } from "../campaign/armoury";
+import { ALIEN_GUN_INTACT, ArmourId, GEAR, GunId, Kit, fightKit } from "../campaign/armoury";
 import type { PerkId } from "./perks";
 import { Attributes, ROLE_TEMPLATES, Skills, deriveStats, rollProfile } from "./attributes";
 import { Daylight, Stats, TOOLS, Tool, WEAPONS, Weapon } from "./rules";
@@ -58,6 +58,8 @@ export interface Scavenger {
   attributes?: Attributes;
   skills?: Skills;
   perks?: PerkId[];
+  /** Captured guns the campaign has learned to vent, so they heat less a shot. */
+  vented?: GunId[];
 }
 
 /** What the survivors carry out of the city, by how the night ended. */
@@ -328,7 +330,7 @@ export function startAmbush(
   const centre = field.alienStart;
   const units: Unit[] = team.slice(0, field.humanStart.length).map((m, i) => {
     const kit = ROLES.find((r) => r.role === m.role);
-    const carried = m.kit ? fightKit(m.kit) : null;
+    const carried = m.kit ? fightKit(m.kit, m.vented) : null;
     const weapon = carried ? carried.weapon : (kit?.weapon ?? WEAPONS.pistol);
     const p = field.humanStart[i];
     return {

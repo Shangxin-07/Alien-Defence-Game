@@ -1,4 +1,5 @@
 import { TOOLS, Tool, WEAPONS, Weapon } from "../tactical/rules";
+import { VENT_HEAT } from "./tech";
 
 /**
  * The armoury: guns, armour and kit held in the stores, and what each person carries.
@@ -147,11 +148,21 @@ export interface FightKit {
   tools: { tool: Tool; uses: number }[];
 }
 
-export function fightKit(k: Kit): FightKit {
+/**
+ * A captured gun as our people fire it: a third less heat a shot once they've learned to vent it
+ * (tech.ts). Never to nothing: theirs still run cooler than ours.
+ */
+export function ventedWeapon(w: Weapon, vented: GunId[] = []): Weapon {
+  const g = gunOf(w);
+  if (!g || !w.heat || !vented.includes(g)) return w;
+  return { ...w, heat: { ...w.heat, shot: Math.round(w.heat.shot * VENT_HEAT) } };
+}
+
+export function fightKit(k: Kit, vented: GunId[] = []): FightKit {
   const tools: FightKit["tools"] = [];
   if (k.baton) tools.push({ tool: TOOLS.stunBaton, uses: TOOLS.stunBaton.uses });
   if (k.medkit !== null) tools.push({ tool: TOOLS.medkit, uses: k.medkit });
-  const weapon = k.gun ? GEAR[k.gun].weapon! : null;
+  const weapon = k.gun ? ventedWeapon(GEAR[k.gun].weapon!, vented) : null;
   return { weapon, ammo: weapon ? (isEnergy(k.gun) ? weapon.ammo : k.loaded) : 0, clips: k.clips, armour: k.armour ? GEAR[k.armour].armour! : 0, tools };
 }
 

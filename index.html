@@ -44,6 +44,10 @@
           <span class="name">Staff &amp; research</span>
           <span class="meta" id="staffSummary">—</span>
         </button>
+        <button id="openTech" class="staffbtn" type="button" hidden>
+          <span class="name">Tech tree</span>
+          <span class="meta" id="techSummary">—</span>
+        </button>
         <ul id="baseList" class="baselist" aria-label="Bases"></ul>
         <div class="cmds">
           <button id="replayPrologue" class="quiet" type="button">Replay prologue</button>
@@ -200,6 +204,17 @@
             <summary>What we've learned</summary>
             <ul id="doneList"></ul>
           </details>
+        </div>
+      </div>
+      <div class="modal" id="techModal" hidden>
+        <div class="card staffcard techcard" role="dialog" aria-modal="true" aria-labelledby="techTitle">
+          <div class="cardhead">
+            <h1 id="techTitle">Tech tree</h1>
+            <button id="closeTech" type="button">Close</button>
+          </div>
+          <div id="techNow" class="technow"></div>
+          <div id="techTree" class="techtree"></div>
+          <p class="dim note">Three families, three levels each. <b>Today</b>'s kit needs no research to use; research is for making it. <b>Hybrid</b> is our kit made better with what we take from them. <b>Alien</b> is theirs: you close the gap, you never pass them. A <b>study</b> learns to use a thing and keeps it; <b>reverse-engineering</b> takes one apart for good. The deeper rungs need working labs: one for H2 and H3, two for A2 and A3. Point at a project to light up what it needs (amber) and what it opens (green). Projects marked <i>coming later</i> are on the way, not in the game yet. Alien alloy comes off Brutes and the crash site, power cells off their leaders, chemicals from hardware stores, pharmacies and industrial estates.</p>
         </div>
       </div>
     </div>

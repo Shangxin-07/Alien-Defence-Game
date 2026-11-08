@@ -7,13 +7,16 @@ import type { Call, Travel } from "./sightings";
  */
 
 /** Ammo is spare clips. Arms are guns and armour, sorted into the armoury when a run gets home. */
-export type Supply = "food" | "medicine" | "scrap" | "fuel" | "ammo" | "arms";
+export type Supply = "food" | "medicine" | "scrap" | "fuel" | "ammo" | "arms" | Material;
+/** What the tech tree builds with. Chemicals are scavenged; the rest only ever come off the aliens. */
+export type Material = "chemicals" | "alloy" | "cells" | "cores";
+export const MATERIALS: Material[] = ["chemicals", "alloy", "cells", "cores"];
 export type Supplies = Record<Supply, number>;
 
-export const SUPPLY_NAMES: Record<Supply, string> = { food: "Food", medicine: "Medicine", scrap: "Scrap", fuel: "Fuel", ammo: "Ammo", arms: "Arms" };
+export const SUPPLY_NAMES: Record<Supply, string> = { food: "Food", medicine: "Medicine", scrap: "Scrap", fuel: "Fuel", ammo: "Ammo", arms: "Arms", chemicals: "Chemicals", alloy: "Alien alloy", cells: "Power cells", cores: "Craft cores" };
 
 /** What the survivors scraped together on the first night: about a week of food for four, and two spare clips. */
-export const START_SUPPLIES: Supplies = { food: 30, medicine: 3, scrap: 0, fuel: 0, ammo: 2, arms: 0 };
+export const START_SUPPLIES: Supplies = { food: 30, medicine: 3, scrap: 0, fuel: 0, ammo: 2, arms: 0, chemicals: 0, alloy: 0, cells: 0, cores: 0 };
 
 /** Everyone eats this much a day, at a base or out on a run. */
 export const RATION = 1;
@@ -54,13 +57,13 @@ export const SITES: Record<SiteId, Site> = {
   },
   pharmacy: {
     id: "pharmacy", name: "Pharmacies and clinics", danger: 0.12,
-    yields: { medicine: [1, 3], food: [0, 1] },
+    yields: { medicine: [1, 3], food: [0, 1], chemicals: [0, 1] },
     blurb: "Dressings, antibiotics, painkillers. Others want them too.",
   },
   hardware: {
     id: "hardware", name: "Hardware stores", danger: 0.06,
-    yields: { scrap: [2, 5] },
-    blurb: "Cable, pipe, timber and tools. Scrap builds what money can't buy yet.",
+    yields: { scrap: [2, 5], chemicals: [0, 1] },
+    blurb: "Cable, pipe, timber, tools and solvents. Scrap builds what money can't buy yet.",
   },
   streets: {
     id: "streets", name: "Streets", danger: 0.05, yields: {},
@@ -85,7 +88,7 @@ export const SITES: Record<SiteId, Site> = {
   },
   industrial: {
     id: "industrial", name: "Industrial estate", danger: 0.15,
-    yields: { scrap: [4, 8], fuel: [0, 3], food: [0, 1] },
+    yields: { scrap: [4, 8], fuel: [0, 3], food: [0, 1], chemicals: [0, 2] },
     blurb: "Rich pickings in steel and machinery, out where it's open and dark.",
   },
 };
@@ -103,9 +106,9 @@ export const SITE_ORDER: ScavengeKind[] = ["homes", "grocery", "pharmacy", "hard
 export const STOCK: Record<ScavengeKind, Partial<Supplies>> = {
   homes: { food: 40, medicine: 6, scrap: 25, fuel: 10 },
   grocery: { food: 70 },
-  pharmacy: { medicine: 20, food: 6 },
-  hardware: { scrap: 50 },
-  industrial: { scrap: 90, fuel: 30, food: 5 },
+  pharmacy: { medicine: 20, food: 6, chemicals: 4 },
+  hardware: { scrap: 50, chemicals: 10 },
+  industrial: { scrap: 90, fuel: 30, food: 5, chemicals: 20 },
   police: { ammo: 14, arms: 5 },
 };
 
@@ -211,7 +214,7 @@ export interface Run {
 /** Where a run went, for the news: the place's name, or the kind of place. */
 export const runWhere = (run: Run) => run.where ?? `the ${SITES[run.site].name.toLowerCase()}`;
 
-export const emptySupplies = (): Supplies => ({ food: 0, medicine: 0, scrap: 0, fuel: 0, ammo: 0, arms: 0 });
+export const emptySupplies = (): Supplies => ({ food: 0, medicine: 0, scrap: 0, fuel: 0, ammo: 0, arms: 0, chemicals: 0, alloy: 0, cells: 0, cores: 0 });
 
 /**
  * One day of finds for a team, taken out of what's left at the place. `team` is how many went, or

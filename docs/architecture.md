@@ -16,7 +16,8 @@ src/
   ui/                shared screen code: DOM helpers, panels, fights started from the globe
   data/              generated map data (npm run build:geo)
   art/               painted art, shrunk for the game (webp); full-size originals are in the
-                     project's art folder
+                     project's art folder. Tech tree pictures go in art/tech/<id>.webp
+                     (src/art/README.md, prompts in docs/art/prompts.md)
 tests/               vitest, one file per system
 scripts/             headless sims that play the real rules (sim-food, sim-autoplay)
 ```
@@ -43,7 +44,8 @@ plain functions and tables the class calls:
 
 | Module | What it holds |
 | --- | --- |
-| `staff.ts` | people, jobs, build skill, research projects |
+| `staff.ts` | people, jobs, build skill |
+| `tech.ts` | the tech tree: research projects, families and levels, what blocks each |
 | `allocation.ts` | duties, and how firmly someone is held to them |
 | `armoury.ts` | guns, armour, kit, loadout requests, the quartermaster |
 | `scavenge.ts` | supplies, places, runs, the black market |
