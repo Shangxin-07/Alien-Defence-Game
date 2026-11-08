@@ -290,3 +290,42 @@
   .combat .squad { width: 200px; }
   .camctl { top: calc(12px + env(safe-area-inset-top, 0px)); bottom: auto; left: calc(max(16px, env(safe-area-inset-left, 0px)) + 142px); right: auto; }
 }
+
+/* Portraits: faces for your people, pictures for the aliens (src/tactical/portraits.ts). */
+#roster .member { grid-template-columns: 30px 1fr; align-items: center; }
+#roster img.swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid; object-fit: cover; box-sizing: border-box; }
+#roster .member.dead img.swatch { filter: grayscale(1) brightness(0.5); }
+.unittop { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; }
+.unitinfo { display: grid; gap: 6px; min-width: 0; }
+.unitface { width: 72px; height: 72px; object-fit: cover; border: 1px solid var(--line); }
+.unitface.dead { filter: grayscale(1) brightness(0.5); }
+.modal .squadlist img.face { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 8px; }
+.modal .squadlist img.face.dead { filter: grayscale(1) brightness(0.5); }
+
+/* First sight of each alien: its picture slides in at the left, then goes. */
+.contactcard {
+  position: fixed;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  top: 50%;
+  translate: 0 -50%;
+  width: 170px;
+  display: grid;
+  background: var(--panel);
+  border: 1px solid var(--alert);
+  pointer-events: none;
+}
+.contactcard img { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; }
+.contactcard div { padding: 6px 8px 8px; display: grid; gap: 3px; }
+.contactcard .nm { font-family: var(--display); color: var(--alert); letter-spacing: 0.1em; text-transform: uppercase; font-size: 13px; }
+.contactcard .blurb { color: var(--dim); font-size: 11px; line-height: 1.35; }
+.contactcard.on { animation: contactIn 0.35s ease-out; }
+@keyframes contactIn { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 720px), (max-height: 500px) {
+  #roster .member { grid-template-columns: 24px 1fr; }
+  #roster img.swatch { width: 22px; height: 22px; }
+  .unitface { width: 48px; height: 48px; }
+  .contactcard { width: 104px; }
+  .contactcard .blurb { display: none; }
+  .contactcard .nm { font-size: 10px; }
+}

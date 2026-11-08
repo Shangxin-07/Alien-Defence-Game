@@ -319,19 +319,24 @@
       </section>
 
       <section class="hud unitpanel" aria-label="Selected unit">
-        <div class="who">
-          <div>
-            <b id="unitName">—</b>
-            <span id="unitRole" class="dim">—</span>
+        <div class="unittop">
+          <img id="unitFace" class="unitface" alt="" hidden>
+          <div class="unitinfo">
+            <div class="who">
+              <div>
+                <b id="unitName">—</b>
+                <span id="unitRole" class="dim">—</span>
+              </div>
+              <span id="unitGear" class="dim">—</span>
+            </div>
+            <div class="bars">
+              <div class="bar tu"><span>TU</span><i><em id="barTu"></em></i><span id="valTu">—</span></div>
+              <div class="bar hp"><span>HP</span><i><em id="barHp"></em></i><span id="valHp">—</span></div>
+              <div class="bar mo"><span>MOR</span><i><em id="barMo"></em></i><span id="valMo">—</span></div>
+            </div>
+            <div id="unitStats" class="stats dim">—</div>
           </div>
-          <span id="unitGear" class="dim">—</span>
         </div>
-        <div class="bars">
-          <div class="bar tu"><span>TU</span><i><em id="barTu"></em></i><span id="valTu">—</span></div>
-          <div class="bar hp"><span>HP</span><i><em id="barHp"></em></i><span id="valHp">—</span></div>
-          <div class="bar mo"><span>MOR</span><i><em id="barMo"></em></i><span id="valMo">—</span></div>
-        </div>
-        <div id="unitStats" class="stats dim">—</div>
         <div class="actions" id="actions">
           <button type="button" data-mode="snap" title="Snap shot (1)">Snap</button>
           <button type="button" data-mode="aimed" title="Aimed shot (2)">Aimed</button>
@@ -364,6 +369,10 @@
       </section>
 
       <div class="momentcap" id="momentCap" role="status" hidden></div>
+      <div class="contactcard" id="contactCard" role="status" hidden>
+        <img alt="">
+        <div><b class="nm"></b><span class="blurb"></span></div>
+      </div>
       <div class="turnbanner" id="turnBanner" hidden></div>
 
       <div class="modal" id="combatModal" hidden>

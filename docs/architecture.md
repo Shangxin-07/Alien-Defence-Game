@@ -15,6 +15,8 @@ src/
                      the combat screen (screen.ts)
   ui/                shared screen code: DOM helpers, panels, fights started from the globe
   data/              generated map data (npm run build:geo)
+  art/               painted art, shrunk for the game (webp); full-size originals are in the
+                     project's art folder
 tests/               vitest, one file per system
 scripts/             headless sims that play the real rules (sim-food, sim-autoplay)
 ```
@@ -87,6 +89,11 @@ redraws the command panel and whichever panel is open.
 A new kind of fight: the battle setups live in `tactical/prologue.ts` (`startPrologue`,
 `startAmbush`); `ui/fights.ts` starts them from the globe, the combat screen in
 `tactical/screen.ts` plays them, and the result goes back to the campaign.
+
+Art: images in `src/art/` are imported like modules (Vite turns them into URLs, and the single-file
+build inlines them). Battle portraits are picked in `tactical/portraits.ts`: a face per person by
+job and name, a picture per alien by race and rank. Shrink new art before adding it (people 256 px
+square, aliens 400×600, webp quality 78) to keep the game small.
 
 Each screen (geoscape, base, combat) takes over the page while it's open and hands back through a
 small host interface (`BaseHost`, `CombatHost`), so a screen never reaches into another's state.
