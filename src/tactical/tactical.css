@@ -312,10 +312,18 @@
   display: grid;
   background: var(--panel);
   border: 1px solid var(--alert);
-  pointer-events: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  z-index: 5;
 }
 .contactcard img { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; }
-.contactcard div { padding: 6px 8px 8px; display: grid; gap: 3px; }
+.contactcard .txt { padding: 6px 8px 8px; display: grid; gap: 3px; }
+.contactcard .close { color: var(--dim); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+.contactcard .more { color: var(--alert); }
+.contactcard .more:empty { display: none; }
 .contactcard .nm { font-family: var(--display); color: var(--alert); letter-spacing: 0.1em; text-transform: uppercase; font-size: 13px; }
 .contactcard .blurb { color: var(--dim); font-size: 11px; line-height: 1.35; }
 .contactcard.on { animation: contactIn 0.35s ease-out; }
@@ -329,3 +337,5 @@
   .contactcard .blurb { display: none; }
   .contactcard .nm { font-size: 10px; }
 }
+/* The card is a button, so it doesn't take the combat buttons' look. */
+#contactCard { background: var(--panel); border: 1px solid var(--alert); padding: 0; font-size: 12px; letter-spacing: 0.04em; }

@@ -1,3 +1,4 @@
+import type { Gender } from "../tactical/gender";
 import { kitAfter, describeKit, noKit } from "../campaign/armoury";
 import { SITES, runWhere } from "../campaign/scavenge";
 import { HOUR_MS } from "../campaign/sightings";
@@ -138,10 +139,10 @@ export function playPrologue(host: FightHost): void {
   const prologue = startPrologue(city, seed);
   // They keep what they walked out with: whatever is left in their guns, their medikit, and what they were wearing.
   // Research and building come from their attributes; the campaign works those out when they join.
-  const enlist = (people: { name: string; role: string; profile?: Profile; stats: Stats; health: number; gear: Gear; deeds?: Deeds }[], fallen: CombatResult["fallen"] = []) =>
+  const enlist = (people: { name: string; role: string; gender?: Gender; profile?: Profile; stats: Stats; health: number; gear: Gear; deeds?: Deeds }[], fallen: CombatResult["fallen"] = []) =>
     campaign.enlist(
       people.map((p) => ({
-        name: p.name, role: p.role, ...p.profile, stats: { ...p.stats, armour: 0 }, health: p.health,
+        name: p.name, role: p.role, gender: p.gender, ...p.profile, stats: { ...p.stats, armour: 0 }, health: p.health,
         kit: { ...kitAfter(noKit(), p.gear), armour: roleArmour(p.role) },
         aptitude: 1, build: 1,
         deeds: p.deeds,

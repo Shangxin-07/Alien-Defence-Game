@@ -5,6 +5,7 @@
  */
 import type { Unit } from "./battle";
 import type { RaceId } from "./aliens";
+import { Gender, genderFor } from "./gender";
 
 import policeA from "../art/person-police-1.webp";
 import policeB from "../art/person-police-2.webp";
@@ -28,17 +29,21 @@ import shadeLeader from "../art/alien-shade-commander.webp";
 /** Every face, in a fixed order. */
 export const FACES = [policeA, policeB, reservistA, reservistB, guardA, guardB, medicA, medicB, drifterA, drifterB, drifterC, drifterD];
 
-/** Which faces suit a job, best first. Anyone else draws from the drifters. */
-const BY_ROLE: Record<string, string[]> = {
-  "Police officer": [policeA, policeB],
-  "Army reservist": [reservistA, reservistB],
-  Soldier: [reservistA, reservistB],
-  "Security guard": [guardA, guardB],
-  Paramedic: [medicA, medicB],
-  Nurse: [medicA, medicB],
-  Mechanic: [drifterC],
+/** Who is in each picture. */
+const WOMEN = [policeA, reservistB, guardB, medicB, drifterB, drifterD];
+const MEN = [policeB, reservistA, guardA, medicA, drifterA, drifterC];
+
+/** Which faces suit a job, best first, by gender. Anyone else draws from the drifters. */
+const BY_ROLE: Record<string, Record<Gender, string[]>> = {
+  "Police officer": { female: [policeA], male: [policeB] },
+  "Army reservist": { female: [reservistB], male: [reservistA] },
+  Soldier: { female: [reservistB], male: [reservistA] },
+  "Security guard": { female: [guardB], male: [guardA] },
+  Paramedic: { female: [medicB], male: [medicA] },
+  Nurse: { female: [medicB], male: [medicA] },
+  Mechanic: { female: [drifterB, drifterD], male: [drifterC] },
 };
-const DRIFTERS = [drifterA, drifterB, drifterC, drifterD];
+const DRIFTERS: Record<Gender, string[]> = { female: [drifterB, drifterD], male: [drifterA, drifterC] };
 
 /** A small, steady hash, so a person keeps the same face from fight to fight. */
 function hash(s: string): number {
@@ -54,23 +59,27 @@ function rotate<T>(list: T[], key: number): T[] {
 }
 
 /**
- * Faces for a squad, by unit id. Each person gets a face that suits their job, picked by their name
- * so it doesn't change between fights, and no two people in one squad share a face while there are
- * faces to spare.
+ * Faces for a squad, by unit id. Each person gets a face of their own gender that suits their job,
+ * picked by their name so it doesn't change between fights. Nobody in a squad shares a face while
+ * there's a spare one of the right gender; past that, faces repeat rather than cross over.
  */
-export function assignFaces(humans: readonly Pick<Unit, "id" | "name" | "role">[]): Map<number, string> {
+export function assignFaces(humans: readonly Pick<Unit, "id" | "name" | "role" | "gender">[]): Map<number, string> {
   const out = new Map<number, string>();
   const used = new Set<string>();
   for (const u of humans) {
     const h = hash(u.name);
-    const job = BY_ROLE[u.role] ?? [];
-    const preferred = [...rotate(job.length ? job : DRIFTERS, h), ...rotate(DRIFTERS, h), ...rotate(FACES, h)];
+    const g = u.gender ?? genderFor(u.name);
+    const job = BY_ROLE[u.role]?.[g] ?? [];
+    const preferred = [...rotate(job.length ? job : DRIFTERS[g], h), ...rotate(DRIFTERS[g], h), ...rotate(g === "female" ? WOMEN : MEN, h)];
     const face = preferred.find((f) => !used.has(f)) ?? preferred[0];
     used.add(face);
     out.set(u.id, face);
   }
   return out;
 }
+
+/** Which gender a face shows, for the tests. */
+export const faceGender = (face: string): Gender => (WOMEN.includes(face) ? "female" : "male");
 
 const ALIENS: Record<RaceId, { plain: string; leader: string }> = {
   strider: { plain: strider, leader: striderLeader },

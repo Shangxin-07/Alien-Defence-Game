@@ -1,3 +1,4 @@
+import type { Gender } from "./gender";
 import { Deeds, emptyDeeds, fightLine } from "./deeds";
 import type { Profile } from "./attributes";
 import "./tactical.css";
@@ -24,7 +25,7 @@ export interface CombatResult {
   recovered: string[];
   survivors: number;
   /** Who walked out, as they are now. */
-  people: { id: number; name: string; role: string; profile?: Profile; stats: Stats; health: number; gear: Gear; deeds: Deeds }[];
+  people: { id: number; name: string; role: string; gender?: Gender; profile?: Profile; stats: Stats; health: number; gear: Gear; deeds: Deeds }[];
   /** Who didn't, and what they'd done before they fell. */
   fallen: { id: number; name: string; role: string; deeds: Deeds }[];
   turns: number;
@@ -53,6 +54,7 @@ const root = $("combatScreen");
 
 // ---------- Scene ----------
 const canvas = $("battlefield") as HTMLCanvasElement;
+$("contactCard").addEventListener("click", () => nextContact());
 const renderer = new WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setClearColor(new Color(token("--void")));
@@ -670,24 +672,38 @@ function refreshHud() {
   ($("nextUnit") as HTMLButtonElement).disabled = busy();
 }
 
-let contactTimer = 0;
-/** The alien's picture, the first time each one is seen in a fight. */
+/** Aliens seen for the first time and waiting for their card, oldest first. */
+const contacts: Unit[] = [];
+/** The alien's picture, the first time each one is seen in a fight. It stays up until closed. */
 function contactCard(a: Unit) {
+  contacts.push(a);
+  if (contacts.length === 1) showContact();
+}
+function showContact() {
   const card = $("contactCard");
+  const a = contacts[0];
+  if (!a) {
+    card.hidden = true;
+    return;
+  }
   const race = RACES[a.mind?.race ?? "strider"];
   const leader = a.mind?.rank === "leader";
   (card.querySelector("img") as HTMLImageElement).src = alienPortrait(a);
   card.querySelector(".nm")!.textContent = leader ? `${race.name} commander` : race.name;
   card.querySelector(".blurb")!.textContent = leader ? "The one giving the orders. Bring it down and the rest come apart for a while." : race.blurb;
+  card.querySelector(".more")!.textContent = contacts.length > 1 ? `${contacts.length - 1} more` : "";
   card.hidden = false;
   card.classList.remove("on");
   void card.offsetWidth;
   card.classList.add("on");
-  clearTimeout(contactTimer);
-  contactTimer = window.setTimeout(hideContact, 3600 / (auto ? speed : 1));
+}
+/** Closes the card on screen, and shows the next one if more were seen. */
+function nextContact() {
+  contacts.shift();
+  showContact();
 }
 function hideContact() {
-  clearTimeout(contactTimer);
+  contacts.length = 0;
   $("contactCard").hidden = true;
 }
 
@@ -827,7 +843,7 @@ function results(o: Outcome) {
   }
   const { recovered, lost } = settled;
   const people = survivors.map((u) => ({
-    id: u.id, name: u.name, role: u.role, profile: u.profile, stats: { ...u.stats }, health: Math.max(1, u.health),
+    id: u.id, name: u.name, role: u.role, gender: u.gender, profile: u.profile, stats: { ...u.stats }, health: Math.max(1, u.health),
     gear: { weapon: u.weapon, ammo: u.ammo, clips: u.clips ?? 0, tools: u.tools.map((t) => ({ ...t })) },
     deeds: { ...(u.deeds ?? emptyDeeds()) },
   }));

@@ -92,7 +92,9 @@ A new kind of fight: the battle setups live in `tactical/prologue.ts` (`startPro
 
 Art: images in `src/art/` are imported like modules (Vite turns them into URLs, and the single-file
 build inlines them). Battle portraits are picked in `tactical/portraits.ts`: a face per person by
-job and name, a picture per alien by race and rank. Shrink new art before adding it (people 256 px
+gender, job and name, a picture per alien by race and rank. Gender (`tactical/gender.ts`) goes
+with the first name rolled, is stored on the person, and never touches the dice; a new first name
+must be added to its lists (a test checks). Shrink new art before adding it (people 256 px
 square, aliens 400×600, webp quality 78) to keep the game small.
 
 Each screen (geoscape, base, combat) takes over the page while it's open and hands back through a

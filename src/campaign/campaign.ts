@@ -1,3 +1,4 @@
+import { genderFor } from "../tactical/gender";
 import { Duty, Hold, allowedJob, dutyClash, dutyOf, jobDuty } from "./allocation";
 import {
   ArmourId, GEAR, GUNS, GearId, Kit, MEDIKIT_COST, MEDIKIT_RESTOCK, Quarters, Request, Stores, defaultRequest, arrivalKit, emptyStores, kitWarnings,
@@ -297,7 +298,7 @@ export class Campaign {
     this.candidates.splice(this.candidates.indexOf(c), 1);
     const base = this.bases.some((b) => b.id === c.base) ? c.base : (this.bases[0]?.id ?? null);
     const p: Person = {
-      id: this.ids.person++, name: c.name, role: c.role, attributes: c.attributes, skills: c.skills, stats: { ...c.stats }, health: c.stats.health, aptitude: c.aptitude, build: c.build,
+      id: this.ids.person++, name: c.name, role: c.role, gender: c.gender ?? genderFor(c.name), attributes: c.attributes, skills: c.skills, stats: { ...c.stats }, health: c.stats.health, aptitude: c.aptitude, build: c.build,
       base, job: "construction", loyalty: c.wants === "none" ? DRIFTER_LOYALTY : RECRUIT_LOYALTY,
       kit: c.kit ? { ...c.kit } : arrivalKit(c.role, this.rand),
       record: newRecord(this.day, c.wants === "none" ? "Drifted in off the streets" : `Talked into joining (${c.role.toLowerCase()})`),
@@ -995,7 +996,7 @@ export class Campaign {
     (people.length ? people : [LIAISON]).forEach((p, i) => {
       const { deeds, ...person } = p as typeof p & { deeds?: Deeds };
       const record = people.length ? firstNight(deeds) : newRecord(this.day, "Sent by the council");
-      const joined: Person = { ...person, stats: { ...p.stats }, id: this.ids.person++, base, job: i === 0 ? "research" : "construction", kit: p.kit ? { ...p.kit } : legacyKit(p.role), record };
+      const joined: Person = { ...person, gender: person.gender ?? genderFor(person.name), stats: { ...p.stats }, id: this.ids.person++, base, job: i === 0 ? "research" : "construction", kit: p.kit ? { ...p.kit } : legacyKit(p.role), record };
       this.join(joined);
       // The first night taught them something too, and may have cost them.
       if (deeds) this.afterFight(joined, deeds, joined.health / joined.stats.health);

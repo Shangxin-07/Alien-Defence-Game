@@ -1,3 +1,4 @@
+import { Gender, genderFor } from "../tactical/gender";
 import { Kit, arrivalKit } from "./armoury";
 import type { Stats } from "../tactical/rules";
 import { Attributes, CIVILIAN, FIGHTER, Profile, Skills, Template, buildRate, deriveStats, researchAptitude, rollProfile, setWorkSkills } from "../tactical/attributes";
@@ -15,6 +16,8 @@ export interface Candidate {
   id: number;
   name: string;
   role: string;
+  /** Woman or man, for their portrait. Missing in old saves; `restore` works it out from the name. */
+  gender?: Gender;
   /** Who they are. Missing in saves from before attributes; the campaign works them out on joining. */
   attributes?: Attributes;
   skills?: Skills;
@@ -99,7 +102,7 @@ const TRADES: Trade[] = [
   { role: "Shop worker", build: [0.75, 1], research: [0.8, 1], extra: { persuasion: [20, 50] } },
 ];
 
-const FIRST = ["Aiko", "Bram", "Carmen", "Dev", "Esra", "Femi", "Gita", "Hugo", "Iris", "Joon", "Kemal", "Lucia", "Musa", "Nell", "Oskar", "Pita", "Rosa", "Sami", "Tariq", "Vera", "Wen", "Yara"];
+export const FIRST = ["Aiko", "Bram", "Carmen", "Dev", "Esra", "Femi", "Gita", "Hugo", "Iris", "Joon", "Kemal", "Lucia", "Musa", "Nell", "Oskar", "Pita", "Rosa", "Sami", "Tariq", "Vera", "Wen", "Yara"];
 const LAST = ["Abara", "Berg", "Castillo", "Dube", "Engel", "Farouk", "Grant", "Hosseini", "Ito", "Jovanovic", "Kaur", "Lindqvist", "Mwangi", "Nakamura", "Oduya", "Popescu", "Quinn", "Rossi", "Tan", "Volkov"];
 
 const lerp = ([a, b]: [number, number], t: number) => Math.round((a + (b - a) * t) * 100) / 100;
@@ -129,7 +132,7 @@ export function rollCandidate(id: number, base: number, day: number, rand: () =>
   const wants = (["food", "medicine", "family", "revenge", "bed"] as const)[Math.floor(rand() * 5)];
   const amount = wants === "food" ? Math.round(6 + 12 * q) : wants === "medicine" ? Math.round(2 + 3 * q) : wants === "family" ? 1 + Math.round(2 * q) : 0;
   const who = worked(tradesman(trade, q, rand));
-  return { id, name, role: trade.role, ...who, wants, amount, base, until: day + CANDIDATE_WAIT, kit: arrivalKit(trade.role, rand) };
+  return { id, name, role: trade.role, gender: genderFor(name), ...who, wants, amount, base, until: day + CANDIDATE_WAIT, kit: arrivalKit(trade.role, rand) };
 }
 
 /** Someone desperate who'll work for a roof and nothing else. */
@@ -142,5 +145,5 @@ export function rollDrifter(id: number, base: number, day: number, rand: () => n
   p.attributes.int = Math.max(1, Math.round(p.attributes.int * 0.85));
   p.skills.scrounging = Math.round(20 + rand() * 20);
   setWorkSkills(p, 0.7 + rand() * 0.15, 0.6 + rand() * 0.2);
-  return { id, name, role: "Drifter", ...worked(p), base, until: day + CANDIDATE_WAIT, wants: "none", amount: 0, kit: arrivalKit("Drifter", rand) };
+  return { id, name, role: "Drifter", gender: genderFor(name), ...worked(p), base, until: day + CANDIDATE_WAIT, wants: "none", amount: 0, kit: arrivalKit("Drifter", rand) };
 }

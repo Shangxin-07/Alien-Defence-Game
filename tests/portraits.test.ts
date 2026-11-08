@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { FACES, alienPortrait, assignFaces } from "../src/tactical/portraits";
+import { FACES, alienPortrait, assignFaces, faceGender } from "../src/tactical/portraits";
+import type { Gender } from "../src/tactical/gender";
 
-const person = (id: number, name: string, role: string) => ({ id, name, role });
+const person = (id: number, name: string, role: string, gender?: Gender) => ({ id, name, role, gender });
 
 describe("portraits", () => {
   it("gives each person in a squad a different face that suits their job", () => {
@@ -12,6 +13,16 @@ describe("portraits", () => {
     expect([FACES[0], FACES[1]]).toContain(faces.get(2));
     expect([FACES[6], FACES[7]]).toContain(faces.get(3));
     expect(FACES.slice(8)).toContain(faces.get(4));
+  });
+
+  it("always matches a person's gender, even past the faces there are", () => {
+    const roles = ["Police officer", "Army reservist", "Security guard", "Paramedic", "Builder", "Mechanic", "Drifter"];
+    for (const g of ["female", "male"] as const) {
+      const squad = Array.from({ length: 9 }, (_, i) => person(i, `Name ${i}`, roles[i % roles.length], g));
+      const faces = assignFaces(squad);
+      for (const f of faces.values()) expect(faceGender(f)).toBe(g);
+      expect(new Set(faces.values()).size).toBe(6);
+    }
   });
 
   it("keeps the same face for a person from fight to fight", () => {
